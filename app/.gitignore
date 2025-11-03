@@ -50,3 +50,10 @@ app.*.map.json
 *.env
 *.env.*
 android/key.properties
+
+
+# Per supabase 
+
+backend/supabase/supabase/.branches/
+backend/supabase/.temp/
+backend/supabase/.branches/
