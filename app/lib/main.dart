@@ -1,70 +1,79 @@
-import 'package:flutter/foundation.dart'; // serve per kIsWeb
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+import 'core/env.dart';
+import 'features/auth/login_screen.dart';
+import 'features/auth/signup_screen.dart';
+import 'features/venues/screens/map_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Carica variabili da .env
-  await dotenv.load(fileName: kIsWeb ? ".env" : ".env.android");
-
-  // Inizializza Supabase
   await Supabase.initialize(
-    url: dotenv.env['SUPABASE_URL']!,
-    anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
+    url: Env.supabaseUrl,
+    anonKey: Env.supabaseAnonKey,
   );
 
-  runApp(const MyApp());
+  runApp(const App());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class App extends StatelessWidget {
+  const App({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'BagDrop Test',
+      title: 'BagDrop Marketplace',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
+        colorSchemeSeed: Colors.indigo,
+        brightness: Brightness.light,
+        cardTheme: const CardThemeData(
+          // alcune versioni hanno problemi con elevation: lo omettiamo
+          margin: EdgeInsets.all(8),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(16)),
+          ),
+        ),
+        chipTheme: const ChipThemeData(
+          shape: StadiumBorder(),
+          padding: EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+        ),
       ),
-      home: const ConnectionTestPage(),
+      darkTheme: ThemeData(
+        useMaterial3: true,
+        colorSchemeSeed: Colors.indigo,
+        brightness: Brightness.dark,
+      ),
+      home: const MapScreen(),
+      routes: {
+        '/login': (_) => const LoginScreen(),
+        '/signup': (_) => const SignupScreen(),
+        '/map': (_) => const MapScreen(),
+      },
     );
   }
 }
 
-class ConnectionTestPage extends StatefulWidget {
-  const ConnectionTestPage({super.key});
-
-  @override
-  State<ConnectionTestPage> createState() => _ConnectionTestPageState();
-}
-
-class _ConnectionTestPageState extends State<ConnectionTestPage> {
-  String message = 'Verifica connessione...';
-
-  @override
-  void initState() {
-    super.initState();
-    _checkConnection();
-  }
-
-  Future<void> _checkConnection() async {
-    try {
-      // Esegui una query semplice al DB Supabase
-      final response = await Supabase.instance.client.from('ping').select().limit(1);
-      setState(() => message = '✅ Connessione riuscita! (${response.length} tabelle trovate)');
-    } catch (e) {
-      setState(() => message = '❌ Errore connessione: $e');
-    }
-  }
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Test Supabase')),
-      body: Center(child: Text(message, textAlign: TextAlign.center)),
+    final auth = Supabase.instance.client.auth;
+
+    return StreamBuilder<AuthState>(
+      stream: auth.onAuthStateChange,
+      builder: (context, snapshot) {
+        final current = auth.currentSession;
+        final session = snapshot.data?.session ?? current;
+
+        if (session == null) {
+          return const LoginScreen();
+        } else {
+          return const MapScreen();
+        }
+      },
     );
   }
 }
