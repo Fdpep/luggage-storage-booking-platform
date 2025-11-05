@@ -164,7 +164,7 @@ class _MapScreenState extends State<MapScreen> {
     ];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Trova deposito vicino a te')),
+      appBar: AppBar(title: const Text('Flavio Della Penna è FROCIO')),
       body: Stack(
         children: [
           // MAPPA
