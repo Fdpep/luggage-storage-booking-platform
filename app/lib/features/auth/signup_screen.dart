@@ -9,20 +9,19 @@ class SignupScreen extends StatefulWidget {
 }
 
 class _SignupScreenState extends State<SignupScreen> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _confirmPasswordController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  final _emailCtrl = TextEditingController();
+  final _passwordCtrl = TextEditingController();
+  final _confirmCtrl = TextEditingController();
   bool _loading = false;
+  bool _obscurePwd = true;
+  bool _obscureConfirm = true;
 
   Future<void> _signup() async {
-    final email = _emailController.text.trim();
-    final password = _passwordController.text;
-    final confirmPassword = _confirmPasswordController.text;
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    if (password != confirmPassword) {
-      _showError("Le password non coincidono");
-      return;
-    }
+    final email = _emailCtrl.text.trim();
+    final password = _passwordCtrl.text;
 
     setState(() => _loading = true);
     try {
@@ -32,7 +31,7 @@ class _SignupScreenState extends State<SignupScreen> {
       );
 
       if (authResponse.user != null) {
-        // Registrazione OK → vai al login
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Registrazione completata! Ora effettua il login.")),
         );
@@ -43,55 +42,137 @@ class _SignupScreenState extends State<SignupScreen> {
     } on AuthException catch (e) {
       _showError(e.message);
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    _passwordCtrl.dispose();
+    _confirmCtrl.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      appBar: AppBar(title: const Text("Registrazione")),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            TextField(
-              controller: _emailController,
-              decoration: const InputDecoration(labelText: "Email"),
-              keyboardType: TextInputType.emailAddress,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _passwordController,
-              decoration: const InputDecoration(labelText: "Password"),
-              obscureText: true,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _confirmPasswordController,
-              decoration: const InputDecoration(labelText: "Conferma Password"),
-              obscureText: true,
-            ),
-            const SizedBox(height: 24),
-            _loading
-                ? const CircularProgressIndicator()
-                : FilledButton(
-                    onPressed: _signup,
-                    child: const Text("Registrati"),
+      appBar: AppBar(centerTitle: false),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              child: Column(
+                children: [
+                  // --- HEADER con LOGO
+                  Image.asset('assets/images/brand/logo.png', height: 56),
+                  const SizedBox(height: 20),
+
+                  // --- FORM
+                  Form(
+                    key: _formKey,
+                    child: Column(
+                      children: [
+                        TextFormField(
+                          controller: _emailCtrl,
+                          keyboardType: TextInputType.emailAddress,
+                          autofillHints: const [AutofillHints.username, AutofillHints.email],
+                          decoration: const InputDecoration(
+                            labelText: "Email address",
+                            prefixIcon: Icon(Icons.email_outlined),
+                          ),
+                          validator: (v) {
+                            if (v == null || v.trim().isEmpty) return "Inserisci l'email";
+                            if (!v.contains('@')) return "Email non valida";
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _passwordCtrl,
+                          obscureText: _obscurePwd,
+                          decoration: InputDecoration(
+                            labelText: "Password",
+                            prefixIcon: const Icon(Icons.lock_outline),
+                            suffixIcon: IconButton(
+                              tooltip: _obscurePwd ? "Mostra password" : "Nascondi password",
+                              icon: Icon(_obscurePwd ? Icons.visibility : Icons.visibility_off),
+                              onPressed: () => setState(() => _obscurePwd = !_obscurePwd),
+                            ),
+                          ),
+                          validator: (v) {
+                            if (v == null || v.isEmpty) return "Inserisci la password";
+                            if (v.length < 6) return "Usa almeno 6 caratteri";
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _confirmCtrl,
+                          obscureText: _obscureConfirm,
+                          decoration: InputDecoration(
+                            labelText: "Conferma password",
+                            prefixIcon: const Icon(Icons.lock_outline),
+                            suffixIcon: IconButton(
+                              tooltip: _obscureConfirm ? "Mostra password" : "Nascondi password",
+                              icon: Icon(_obscureConfirm ? Icons.visibility : Icons.visibility_off),
+                              onPressed: () =>
+                                  setState(() => _obscureConfirm = !_obscureConfirm),
+                            ),
+                          ),
+                          validator: (v) {
+                            if (v == null || v.isEmpty) return "Conferma la password";
+                            if (v != _passwordCtrl.text) return "Le password non coincidono";
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: _loading
+                              ? const Center(child: CircularProgressIndicator())
+                              : FilledButton(
+                                  onPressed: _signup,
+                                  child: const Text("Registrati"),
+                                ),
+                        ),
+                        const SizedBox(height: 16),
+
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text("Hai già un account?", style: theme.textTheme.bodyMedium),
+                            TextButton(
+                              onPressed: () =>
+                                  Navigator.pushReplacementNamed(context, '/login'),
+                              child: const Text("Accedi"),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-            const SizedBox(height: 16),
-            TextButton(
-              onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
-              child: const Text("Hai già un account? Accedi"),
+
+                  const SizedBox(height: 16),
+                  Text(
+                    "BagDrop — deposito bagagli semplice e sicuro",
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
             ),
-          ],
+          ),
         ),
       ),
     );
