@@ -1,59 +1,71 @@
-# Miscellaneous
-*.class
-*.log
-*.pyc
-*.swp
+# ---------- OS junk ----------
 .DS_Store
-.atom/
-.build/
-.buildlog/
-.history
-.svn/
-.swiftpm/
-migrate_working_dir/
+Thumbs.db
 
-# IntelliJ related
-*.iml
-*.ipr
-*.iws
-.idea/
-
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
-
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
-.dart_tool/
-.flutter-plugins-dependencies
-.pub-cache/
-.pub/
-build/
-coverage/
-
-# Symbolication related
-app.*.symbols
-
-# Obfuscation related
-app.*.map.json
-
-# Android Studio build artifacts
-/android/app/debug
-/android/app/profile
-/android/app/release
-
-# Environment & Secrets
+# ---------- Env & secrets ----------
 .env
 .env.*
-*.env
-*.env.*
-android/key.properties
+app/.env
+app/.env.*
+supabase/.env
+supabase/.env.*
 
+# Android signing (se presente in locale)
+**/android/key.properties
+**/*.keystore
+**/*.jks
 
-# Per supabase 
+# ---------- Flutter / Dart ----------
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+**/build/
+coverage/
 
-backend/supabase/supabase/.branches/
-backend/supabase/.temp/
-backend/supabase/.branches/
+# Generated symlinks
+**/.symlinks/
+
+# ---------- Android ----------
+**/android/.gradle/
+**/android/local.properties
+**/android/captures/
+
+# ---------- iOS ----------
+**/ios/Flutter/.last_build_id
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/ServiceDefinitions.json
+**/ios/Runner/GeneratedPluginRegistrant.*
+
+# ---------- macOS ----------
+**/macos/Flutter/ephemeral/
+**/macos/Flutter/GeneratedPluginRegistrant.*
+
+# ---------- Linux ----------
+**/linux/flutter/ephemeral/
+
+# ---------- Windows ----------
+**/windows/flutter/ephemeral/
+
+# ---------- Web ----------
+**/web/.dart_tool/
+
+# ---------- Editors ----------
+*.iml
+.idea/
+
+# VS Code: tieni tracciato .vscode/settings.json per condividere gli exclude.
+# Se invece vuoi ignorare tutta la cartella, decommenta la riga sotto.
+# .vscode/
+
+# ---------- Node (se capita di usarlo in funzioni/tools) ----------
+node_modules/
+
+# ---------- Supabase ----------
+supabase/.branches/
+supabase/.temp/
+supabase/.cache/

@@ -1,80 +1,59 @@
-// main.dart
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // ⟵ aggiungi
-
-import 'core/env.dart';
-import 'features/auth/login_screen.dart';
-import 'features/auth/signup_screen.dart';
-import 'features/venues/screens/map_screen.dart';
-import 'features/splash/splash_screen.dart' ;
-import 'features/onboarding/start_onboarding.dart'; // ⟵ aggiungi
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-const _brandPurple = Color(0xFF4B3FE4);
+import 'routes/auth_gate.dart';                 // rimane com'è
+import 'schermate/home_shell.dart';
+import 'schermate/autenticazione/accesso.dart';
+import 'schermate/autenticazione/registrazione.dart';
+import 'schermate/autenticazione/reset_password.dart';
+import 'schermate/onboarding/start_onboarding.dart';       // <- il tuo onboarding
+import 'theme/app_theme.dart';
+
+/// ⚙️ In DEV metti true per forzare l’onboarding ad ogni avvio.
+/// In PROD lascialo false: verrà mostrato solo la prima volta.
+const bool kShowOnboardingEveryLaunch = true;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Supabase.initialize(
-    url: Env.supabaseUrl,
-    anonKey: Env.supabaseAnonKey,
+    url: const String.fromEnvironment('SUPABASE_URL'),
+    anonKey: const String.fromEnvironment('SUPABASE_ANON_KEY'),
   );
 
-  runApp(const App());
+  runApp(const BagDropApp());
 }
 
-class App extends StatelessWidget {
-  const App({super.key});
+class BagDropApp extends StatelessWidget {
+  const BagDropApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'BagDrop Marketplace',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: _brandPurple, // ⟵ viola brand 
-        brightness: Brightness.light,
-        cardTheme: const CardThemeData(
-          margin: EdgeInsets.all(8),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(16)),
-          ),
-        ),
-        chipTheme: const ChipThemeData(
-          shape: StadiumBorder(),
-          padding: EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-        ),
-      ),
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: _brandPurple,
-        brightness: Brightness.dark,
-      ),
-      home: const SplashScreen(), // ⟵ usa l’AuthGate
+      title: 'BagDrop',
+      theme: AppTheme.light(),
       routes: {
-        '/login': (_) => const LoginScreen(),
-        '/signup': (_) => const SignupScreen(),
-        '/map': (_) => const MapScreen(),
+        '/accesso': (_) => const AccessoScreen(),
+        '/registrazione': (_) => const RegistrazioneScreen(),
+        '/reset': (_) => const ResetPasswordScreen(),
       },
+      home: const RootGate(), // <-- usa il wrapper che decide Onboarding/AuthGate
     );
   }
 }
 
-// main.dart (sotto la classe App)
-
-
-/// ⚙️ Metti a true in DEV per forzare l'onboarding ogni volta
-const bool kShowOnboardingEveryLaunch = true;
-
-class AuthGate extends StatefulWidget {
-  const AuthGate({super.key});
-
+/// RootGate decide cosa mostrare all’avvio:
+/// - se utente è loggato → HomeShell
+/// - se NON loggato e Onboarding non visto (o forzato in DEV) → StartOnboarding
+/// - altrimenti → AuthGate (che a sua volta mostra HomeShell loggato/non loggato)
+class RootGate extends StatefulWidget {
+  const RootGate({super.key});
   @override
-  State<AuthGate> createState() => _AuthGateState();
+  State<RootGate> createState() => _RootGateState();
 }
 
-class _AuthGateState extends State<AuthGate> {
+class _RootGateState extends State<RootGate> {
   bool _checking = true;
   bool _onboardingSeen = false;
 
@@ -85,7 +64,7 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   Future<void> _bootstrap() async {
-    // in DEV ignoriamo il flag
+    // In DEV ignora il flag per forzare l’onboarding
     if (!kShowOnboardingEveryLaunch) {
       final prefs = await SharedPreferences.getInstance();
       _onboardingSeen = prefs.getBool('onboarding_seen') ?? false;
@@ -99,21 +78,41 @@ class _AuthGateState extends State<AuthGate> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    // 1) Decidi SUBITO se mostrare l’onboarding
+    final showOnboarding = kShowOnboardingEveryLaunch || !_onboardingSeen;
+    if (showOnboarding) {
+      return const StartOnboarding();
+    }
+
     final session = Supabase.instance.client.auth.currentSession;
 
     if (session != null) {
-      // Utente già loggato → vai subito alla mappa
-      return const MapScreen();
+      // Utente già loggato → vai subito alla Home
+      return const HomeShell();
     }
 
-    // Utente NON loggato:
+    // Utente non loggato:
     // - in DEV → mostra SEMPRE l’onboarding
     // - in PROD → mostrala solo se non è stata vista
     if (kShowOnboardingEveryLaunch || !_onboardingSeen) {
       return const StartOnboarding();
     }
-    return const LoginScreen();
+
+    // Altrimenti passa al tuo AuthGate (che mostra HomeShell loggato/non loggato)
+    return AuthGate(
+      ingressoBuilder: (_) => const _IngressoSplash(),
+      signedOutBuilder: (_) => const HomeShell(),
+      signedInBuilder: (_) => const HomeShell(),
+    );
   }
 }
 
-
+class _IngressoSplash extends StatelessWidget {
+  const _IngressoSplash();
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(child: CircularProgressIndicator()),
+    );
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "[typescript]": {
+    "editor.defaultFormatter": "denoland.vscode-deno"
+  },
+  "deno.enablePaths": ["supabase/functions"],
+  "deno.lint": true,
+  "deno.unstable": [
+    "bare-node-builtins",
+    "byonm",
+    "sloppy-imports",
+    "unsafe-proto",
+    "webgpu",
+    "broadcast-channel",
+    "worker-options",
+    "cron",
+    "kv",
+    "ffi",
+    "fs",
+    "http",
+    "net"
+  ],
+
+  "explorer.autoReveal": false,
+
+  "files.exclude": {
+    "**/.git": true,
+    "**/.gitignore": true,
+    "**/.dart_tool": true,
+    "**/.idea": true,
+    "**/.metadata": true,
+    "**/*.iml": true,
+    "**/build": true,
+
+    // quando apri la repo dalla radice
+    "app/BagDrop.iml": true,
+    "app/analysis_options.yaml": true,
+    "app/android": true,
+    "app/bagdrop.code-workspace": true,
+    "app/ios": true,
+    "app/linux": true,
+    "app/macos": true,
+    "app/pubspec.lock": true,       // nascosto in Explorer ma NON ignorato da git
+    "app/web": true,
+    "app/windows": true,
+
+    // quando apri direttamente la cartella ./app come workspace
+    "BagDrop.iml": true,
+    "analysis_options.yaml": true,
+    "android": true,
+    "bagdrop.code-workspace": true,
+    "ios": true,
+    "linux": true,
+    "macos": true,
+    "web": true,
+    "windows": true
+  },
+
+  "search.exclude": {
+    "**/.dart_tool": true,
+    "**/.gitignore": true,
+    "**/build": true,
+    "app/BagDrop.iml": true,
+    "app/analysis_options.yaml": true,
+    "app/android": true,
+    "app/ios": true,
+    "app/linux": true,
+    "app/macos": true,
+    "app/web": true,
+    "app/windows": true,
+    "BagDrop.iml": true,
+    "analysis_options.yaml": true,
+    "android": true,
+    "ios": true,
+    "linux": true,
+    "macos": true,
+    "web": true,
+    "windows": true
+  },
+
+  "files.watcherExclude": {
+    "**/.git/**": true,
+    "**/.dart_tool/**": true,
+    "**/build/**": true,
+    "app/android/**": true,
+    "app/ios/**": true,
+    "app/linux/**": true,
+    "app/macos/**": true,
+    "app/web/**": true,
+    "app/windows/**": true,
+    "supabase/.branches/**": true,
+    "supabase/.temp/**": true
+  }
+}
