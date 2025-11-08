@@ -27,7 +27,7 @@ class _MapScreenState extends State<MapScreen> {
   final List<Venue> _venues = [
     Venue(
       id: '1',
-      name: 'Bar Centrale',
+      name: 'Teatro alla Scala',
       address: 'Via Roma 1',
       lat: 45.465,
       lng: 9.190,
@@ -164,7 +164,7 @@ class _MapScreenState extends State<MapScreen> {
     ];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Flavio Della Penna è FROCIO')),
+      appBar: AppBar(title: const Text('Flavio Della Penna è FROCIO, TANTO')),
       body: Stack(
         children: [
           // MAPPA
