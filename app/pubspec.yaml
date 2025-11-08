@@ -26,6 +26,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  flutter_native_splash: ^2.4.1
 
 flutter:
   uses-material-design: true
@@ -34,3 +35,27 @@ flutter:
     - .env.android
     - assets/images/onboarding/
     - assets/images/brand/logo.png
+    - assets/images/onboarding/hero1.png
+    - assets/images/onboarding/hero2.png
+    - assets/images/onboarding/hero2.png
+
+
+#Di seguito configurazione splash iniziale con logo
+flutter_native_splash:
+  color: "#4B3FE4"
+  image: assets/images/brand/logo.png
+
+  android: true
+  ios: true
+  web: true
+
+  android_gravity: center
+  ios_content_mode: center
+  web_image_mode: center
+
+  android_12:
+    color: "#4B3FE4"
+    image: assets/images/brand/logo_splash.png
+    icon_background_color: "#4B3FE4"
+
+
