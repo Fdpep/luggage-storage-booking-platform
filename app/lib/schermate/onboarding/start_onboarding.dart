@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../autenticazione/accesso.dart';
 import '../autenticazione/registrazione.dart';
-import '../home_shell.dart';
+import '../../main.dart';
 
 /// Onboarding moderno:
 /// - 3 pagine con layout "hero"
@@ -209,7 +209,7 @@ class _StartOnboardingState extends State<StartOnboarding> {
                                   await _markSeen();                  // segna l’onboarding come visto
                                   if (!mounted) return;
                                   Navigator.of(context).pushAndRemoveUntil(
-                                    MaterialPageRoute(builder: (_) => const HomeShell()),
+                                    MaterialPageRoute(builder: (_) => const RootGate()),
                                     (_) => false,
                                   );
                                 },

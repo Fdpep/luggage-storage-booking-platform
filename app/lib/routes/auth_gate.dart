@@ -15,12 +15,14 @@ class AuthGate extends StatefulWidget {
   final WidgetBuilder ingressoBuilder; // splash/ingresso
   final WidgetBuilder signedInBuilder; // app privata
   final WidgetBuilder signedOutBuilder; // flusso accesso
+  final WidgetBuilder? partnerBuilder; //app privata (partner)
 
   const AuthGate({
     super.key,
     required this.ingressoBuilder,
     required this.signedInBuilder,
     required this.signedOutBuilder,
+    this.partnerBuilder,
   });
 
   @override
@@ -31,8 +33,11 @@ class _AuthGateState extends State<AuthGate> {
   final _supabase = Supabase.instance.client;
 
   Session? _session;
-  bool _mostraIngresso = true;   // per la schermata d’ingresso
+  bool _mostraIngresso = true; // per la schermata d’ingresso
   StreamSubscription<AuthState>? _sub;
+
+  String? _role; // <-- ruolo dell’utente
+  bool _caricandoRuolo = false; // <-- ( flag caricamento ruolo
 
   @override
   void initState() {
@@ -40,12 +45,23 @@ class _AuthGateState extends State<AuthGate> {
 
     // 1) Legge l’eventuale sessione già presente
     _session = _supabase.auth.currentSession;
+        if (_session != null) {
+      _loadRole();               // <-- (NUOVO)
+    }
+
 
     // 2) Ascolta i cambi di stato (login/logout)
-    _sub = _supabase.auth.onAuthStateChange.listen((s) {
+   _sub = _supabase.auth.onAuthStateChange.listen((s) {
       if (!mounted) return;
-      setState(() => _session = s.session);
+      setState(() {
+        _session = s.session;
+        _role = null;            // resettiamo il ruolo quando cambia sessione
+      });
+      if (s.session != null) {
+        _loadRole();             // <-- carica ruolo appena loggati
+      }
     });
+
 
     // 3) Mostra la schermata d’ingresso per un breve tempo
     Future.delayed(const Duration(milliseconds: 2500), () {
@@ -63,9 +79,51 @@ class _AuthGateState extends State<AuthGate> {
   @override
   Widget build(BuildContext context) {
     if (_mostraIngresso) return widget.ingressoBuilder(context);
+
     final loggato = _session != null;
-    return loggato
-        ? widget.signedInBuilder(context)
-        : widget.signedOutBuilder(context);
+
+    if (!loggato) {
+      return widget.signedOutBuilder(context);
+    }
+
+   if (_role == 'partner' && widget.partnerBuilder != null) {
+      return widget.partnerBuilder!(context);
+    }
+   return widget.signedInBuilder(context);
+
+  }
+
+
+  Future<void> _loadRole() async {
+    final uid = _session?.user.id;
+    if (uid == null) return;
+
+    setState(() => _caricandoRuolo = true);
+
+    try {
+      // Leggiamo SOLO la colonna 'role' dalla tabella user_profiles
+      final data = await _supabase
+          .from('user_profiles')
+          .select('role')
+          .eq('id', uid)
+          .limit(1);
+
+      String role = 'user';
+      if ( data.isNotEmpty) {
+        role = (data.first['role'] as String?) ?? 'user';
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _role = role;
+        _caricandoRuolo = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _role = 'user'; // fallback prudente
+        _caricandoRuolo = false;
+      });
+    }
   }
 }

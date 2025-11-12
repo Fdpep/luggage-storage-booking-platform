@@ -2,26 +2,27 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'routes/auth_gate.dart';                 // rimane com'è
+import 'routes/auth_gate.dart';            
 import 'schermate/home_shell.dart';
 import 'schermate/autenticazione/accesso.dart';
 import 'schermate/autenticazione/registrazione.dart';
 import 'schermate/autenticazione/reset_password.dart';
 import 'schermate/onboarding/start_onboarding.dart';       // <- il tuo onboarding
 import 'theme/app_theme.dart';
+import 'schermate/partner/partner_shell.dart'; // 
 
-/// ⚙️ In DEV metti true per forzare l’onboarding ad ogni avvio.
+
+
+/// In DEV metti true per forzare l’onboarding ad ogni avvio.
 /// In PROD lascialo false: verrà mostrato solo la prima volta.
 const bool kShowOnboardingEveryLaunch = true;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
   await Supabase.initialize(
     url: const String.fromEnvironment('SUPABASE_URL'),
     anonKey: const String.fromEnvironment('SUPABASE_ANON_KEY'),
   );
-
   runApp(const BagDropApp());
 }
 
@@ -49,6 +50,7 @@ class BagDropApp extends StatelessWidget {
 /// - altrimenti → AuthGate (che a sua volta mostra HomeShell loggato/non loggato)
 class RootGate extends StatefulWidget {
   const RootGate({super.key});
+
   @override
   State<RootGate> createState() => _RootGateState();
 }
@@ -75,17 +77,27 @@ class _RootGateState extends State<RootGate> {
   @override
   Widget build(BuildContext context) {
     if (_checking) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
 
     // 1) Decidi SUBITO se mostrare l’onboarding
-    final showOnboarding = kShowOnboardingEveryLaunch || !_onboardingSeen;
-    if (showOnboarding) {
-      return const StartOnboarding();
-    }
+   // final showOnboarding =
+   //     kShowOnboardingEveryLaunch || !_onboardingSeen;
+   // if (showOnboarding) {
+   //   return const StartOnboarding();
+   // }
+
+        // Altrimenti passa al tuo AuthGate (che mostra HomeShell loggato/non loggato)
+    return AuthGate(
+      ingressoBuilder: (_) => const _IngressoSplash(),
+      signedOutBuilder: (_) => const HomeShell(),
+      signedInBuilder: (_) => const HomeShell(),
+      partnerBuilder: (_) => const PartnerShell(),
+    );
 
     final session = Supabase.instance.client.auth.currentSession;
-
     if (session != null) {
       // Utente già loggato → vai subito alla Home
       return const HomeShell();
@@ -98,17 +110,12 @@ class _RootGateState extends State<RootGate> {
       return const StartOnboarding();
     }
 
-    // Altrimenti passa al tuo AuthGate (che mostra HomeShell loggato/non loggato)
-    return AuthGate(
-      ingressoBuilder: (_) => const _IngressoSplash(),
-      signedOutBuilder: (_) => const HomeShell(),
-      signedInBuilder: (_) => const HomeShell(),
-    );
   }
 }
 
 class _IngressoSplash extends StatelessWidget {
   const _IngressoSplash();
+
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
@@ -116,3 +123,4 @@ class _IngressoSplash extends StatelessWidget {
     );
   }
 }
+
