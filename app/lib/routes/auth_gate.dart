@@ -42,26 +42,27 @@ class _AuthGateState extends State<AuthGate> {
   @override
   void initState() {
     super.initState();
+    debugPrint('[AuthGate] initState');
 
     // 1) Legge l’eventuale sessione già presente
     _session = _supabase.auth.currentSession;
-        if (_session != null) {
-      _loadRole();               // <-- (NUOVO)
+    if (_session != null) {
+      _loadRole(); //  carica ruolo se già loggato
     }
 
-
     // 2) Ascolta i cambi di stato (login/logout)
-   _sub = _supabase.auth.onAuthStateChange.listen((s) {
+    _sub = _supabase.auth.onAuthStateChange.listen((s) {
+      debugPrint('[AuthGate] onAuthStateChange: ${s.event}');
       if (!mounted) return;
       setState(() {
         _session = s.session;
-        _role = null;            // resettiamo il ruolo quando cambia sessione
+        _role = null; // reset ruolo quando cambia sessione
+        _caricandoRuolo = false; // azzera eventuale spinner precedente
       });
       if (s.session != null) {
-        _loadRole();             // <-- carica ruolo appena loggati
+        _loadRole(); //  carica ruolo appena loggati
       }
     });
-
 
     // 3) Mostra la schermata d’ingresso per un breve tempo
     Future.delayed(const Duration(milliseconds: 2500), () {
@@ -78,47 +79,58 @@ class _AuthGateState extends State<AuthGate> {
 
   @override
   Widget build(BuildContext context) {
-    if (_mostraIngresso) return widget.ingressoBuilder(context);
+    debugPrint(
+      '[AuthGate] build: session=${_session != null}, role=$_role, loading=$_caricandoRuolo, ingresso=$_mostraIngresso',
+    );
+    // 1) Splash iniziale SEMPRE, oppure se sono loggato ma il ruolo non è pronto
+    if (_mostraIngresso ||
+        (_session != null && (_role == null || _caricandoRuolo))) {
+      return widget.ingressoBuilder(context);
+    }
 
-    final loggato = _session != null;
-
-    if (!loggato) {
+    // 2) Non loggato → flusso accesso
+    if (_session == null) {
       return widget.signedOutBuilder(context);
     }
 
-   if (_role == 'partner' && widget.partnerBuilder != null) {
+    // 3) Loggato e ruolo caricato → instrada per ruolo
+    if (_role == 'partner' && widget.partnerBuilder != null) {
       return widget.partnerBuilder!(context);
     }
-   return widget.signedInBuilder(context);
 
+    // (in futuro) if (_role == 'admin' && widget.adminBuilder != null) return widget.adminBuilder!(context);
+
+    // 4) Default: utente
+    return widget.signedInBuilder(context);
   }
-
 
   Future<void> _loadRole() async {
     final uid = _session?.user.id;
     if (uid == null) return;
 
-    setState(() => _caricandoRuolo = true);
+    if (mounted) {
+      setState(() => _caricandoRuolo = true);
+    }
 
     try {
       // Leggiamo SOLO la colonna 'role' dalla tabella user_profiles
-      final data = await _supabase
+      debugPrint('[AuthGate] _loadRole for uid=$uid');
+      final row = await _supabase
           .from('user_profiles')
           .select('role')
           .eq('id', uid)
-          .limit(1);
+          .maybeSingle(); // ← evita Liste e gestisce 0/1 riga
 
-      String role = 'user';
-      if ( data.isNotEmpty) {
-        role = (data.first['role'] as String?) ?? 'user';
-      }
+      String role = (row?['role'] as String?) ?? 'user';
+      debugPrint('[AuthGate] ruolo caricato: $role (row=$row)');
 
       if (!mounted) return;
       setState(() {
         _role = role;
         _caricandoRuolo = false;
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[AuthGate] ERRORE caricando ruolo: $e  (RLS? colonna role?)');
       if (!mounted) return;
       setState(() {
         _role = 'user'; // fallback prudente

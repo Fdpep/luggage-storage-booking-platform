@@ -63,6 +63,10 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final isGuest = Supabase.instance.client.auth.currentUser == null;
+    if (isGuest) {
+    debugPrint('[HomeShell] guest mode attiva (no session)');
+  }
 
     // Pagine con gating (tab 1 sempre visibile; 2-3 richiedono login)
     final pages = <Widget>[

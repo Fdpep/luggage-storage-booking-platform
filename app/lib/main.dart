@@ -2,16 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'routes/auth_gate.dart';            
+import 'routes/auth_gate.dart';
 import 'schermate/home_shell.dart';
 import 'schermate/autenticazione/accesso.dart';
 import 'schermate/autenticazione/registrazione.dart';
 import 'schermate/autenticazione/reset_password.dart';
-import 'schermate/onboarding/start_onboarding.dart';       // <- il tuo onboarding
+import 'schermate/onboarding/start_onboarding.dart'; // <- il tuo onboarding
 import 'theme/app_theme.dart';
-import 'schermate/partner/partner_shell.dart'; // 
-
-
+import 'schermate/partner/partner_shell.dart'; //
 
 /// In DEV metti true per forzare l’onboarding ad ogni avvio.
 /// In PROD lascialo false: verrà mostrato solo la prima volta.
@@ -39,7 +37,8 @@ class BagDropApp extends StatelessWidget {
         '/registrazione': (_) => const RegistrazioneScreen(),
         '/reset': (_) => const ResetPasswordScreen(),
       },
-      home: const RootGate(), // <-- usa il wrapper che decide Onboarding/AuthGate
+      home:
+          const RootGate(), // <-- usa il wrapper che decide Onboarding/AuthGate
     );
   }
 }
@@ -66,50 +65,33 @@ class _RootGateState extends State<RootGate> {
   }
 
   Future<void> _bootstrap() async {
-    // In DEV ignora il flag per forzare l’onboarding
-    if (!kShowOnboardingEveryLaunch) {
-      final prefs = await SharedPreferences.getInstance();
-      _onboardingSeen = prefs.getBool('onboarding_seen') ?? false;
-    }
+    // Leggi SEMPRE il flag salvato: evita loop anche in DEV
+    final prefs = await SharedPreferences.getInstance();
+    _onboardingSeen = prefs.getBool('onboarding_seen') ?? false;
+
     setState(() => _checking = false);
   }
 
   @override
   Widget build(BuildContext context) {
     if (_checking) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    // 1) Decidi SUBITO se mostrare l’onboarding
-   // final showOnboarding =
-   //     kShowOnboardingEveryLaunch || !_onboardingSeen;
-   // if (showOnboarding) {
-   //   return const StartOnboarding();
-   // }
-
-        // Altrimenti passa al tuo AuthGate (che mostra HomeShell loggato/non loggato)
-    return AuthGate(
-      ingressoBuilder: (_) => const _IngressoSplash(),
-      signedOutBuilder: (_) => const HomeShell(),
-      signedInBuilder: (_) => const HomeShell(),
-      partnerBuilder: (_) => const PartnerShell(),
-    );
-
-    final session = Supabase.instance.client.auth.currentSession;
-    if (session != null) {
-      // Utente già loggato → vai subito alla Home
-      return const HomeShell();
-    }
-
-    // Utente non loggato:
-    // - in DEV → mostra SEMPRE l’onboarding
-    // - in PROD → mostrala solo se non è stata vista
-    if (kShowOnboardingEveryLaunch || !_onboardingSeen) {
+    //  1) Decidi SUBITO se mostrare l’onboarding
+    final showOnboarding =  !_onboardingSeen;
+    if (showOnboarding) {
+      // Dopo termina, torna a '/' → RootGate → AuthGate decide
       return const StartOnboarding();
     }
 
+    // Altrimenti passa al tuo AuthGate (che mostra HomeShell loggato/non loggato)
+    return AuthGate(
+      ingressoBuilder: (_) => const _IngressoSplash(),
+      signedOutBuilder: (_) => const AccessoScreen(),
+      signedInBuilder: (_) => const HomeShell(),
+      partnerBuilder: (_) => const PartnerShell(),
+    );
   }
 }
 
@@ -118,9 +100,6 @@ class _IngressoSplash extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(child: CircularProgressIndicator()),
-    );
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
   }
 }
-

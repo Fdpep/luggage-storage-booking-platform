@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../utils/validators.dart';
 import '../../utils/last_email_store.dart';
 import '../../services/supabase/user_repo.dart';
+import '../../main.dart';
 import '../home_shell.dart';
 
 /// Schermata di **accesso con e-mail + password**
@@ -65,11 +66,11 @@ class _AccessoScreenState extends State<AccessoScreen> {
       }
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Accesso effettuato!')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Accesso effettuato!')));
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const HomeShell()),
+        MaterialPageRoute(builder: (_) => const RootGate()),
         (_) => false,
       );
     } on AuthException catch (e) {
@@ -77,14 +78,47 @@ class _AccessoScreenState extends State<AccessoScreen> {
       // Messaggi più chiari su alcuni casi comuni
       final msg = e.message.toLowerCase();
       String readable = 'Errore: ${e.message}';
-      if (msg.contains('invalid login') || msg.contains('invalid email or password')) {
+      if (msg.contains('invalid login') ||
+          msg.contains('invalid email or password')) {
         readable = 'Credenziali non valide. Controlla e riprova.';
       }
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(readable)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(readable)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Imprevisto: $e')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _enterAsGuest() async {
+    // Chiudi tastiera
+    FocusScope.of(context).unfocus();
+    setState(() => _busy = true);
+    final supabase = Supabase.instance.client;
+    try {
+      // 1) Logout sempre: nessun account attivo
+      await supabase.auth.signOut();
+      // 2) Pulisci eventuale email memorizzata (opzionale ma consigliato)
+      await LastEmailStore.save('');
+      // 3) Verifica che non ci sia utente
+      debugPrint(
+        '[Guest] currentUser dopo signOut = ${supabase.auth.currentUser}',
+      );
+      if (!mounted) return;
+      // 4) Vai diretto alla Home come OSPITE (no AuthGate per evitare rilogin)
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const HomeShell()),
+        (_) => false,
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Imprevisto: $e')),
+        SnackBar(content: Text('Impossibile entrare come ospite: $e')),
       );
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -110,14 +144,19 @@ class _AccessoScreenState extends State<AccessoScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Inserisci le tue credenziali per accedere.',
-                      style: Theme.of(context).textTheme.bodyLarge),
+                  Text(
+                    'Inserisci le tue credenziali per accedere.',
+                    style: Theme.of(context).textTheme.bodyLarge,
+                  ),
                   const SizedBox(height: 16),
 
                   // E-mail
                   TextFormField(
                     controller: _ctrlEmail,
-                    autofillHints: const [AutofillHints.username, AutofillHints.email],
+                    autofillHints: const [
+                      AutofillHints.username,
+                      AutofillHints.email,
+                    ],
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
                     onFieldSubmitted: (_) => _focusPwd.requestFocus(),
@@ -139,8 +178,12 @@ class _AccessoScreenState extends State<AccessoScreen> {
                     decoration: InputDecoration(
                       labelText: 'Password',
                       suffixIcon: IconButton(
-                        onPressed: _busy ? null : () => setState(() => _showPwd = !_showPwd),
-                        icon: Icon(_showPwd ? Icons.visibility_off : Icons.visibility),
+                        onPressed: _busy
+                            ? null
+                            : () => setState(() => _showPwd = !_showPwd),
+                        icon: Icon(
+                          _showPwd ? Icons.visibility_off : Icons.visibility,
+                        ),
                         tooltip: _showPwd ? 'Nascondi' : 'Mostra',
                       ),
                     ),
@@ -168,10 +211,22 @@ class _AccessoScreenState extends State<AccessoScreen> {
                       onPressed: _busy ? null : _login,
                       child: _busy
                           ? const SizedBox(
-                              width: 22, height: 22,
+                              width: 22,
+                              height: 22,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Text('Accedi'),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+                  // --- Entra come ospite (sempre senza account) ---
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _busy ? null : _enterAsGuest,
+                      icon: const Icon(Icons.explore_outlined),
+                      label: const Text('Entra come ospite'),
                     ),
                   ),
 
@@ -182,8 +237,9 @@ class _AccessoScreenState extends State<AccessoScreen> {
                       TextButton(
                         onPressed: _busy
                             ? null
-                            : () => Navigator.of(context)
-                                .pushReplacementNamed('/registrazione'),
+                            : () => Navigator.of(
+                                context,
+                              ).pushReplacementNamed('/registrazione'),
                         child: const Text('Registrati'),
                       ),
                     ],

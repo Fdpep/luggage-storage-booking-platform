@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../autenticazione/accesso.dart';
 import '../autenticazione/registrazione.dart';
-import '../../main.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../home_shell.dart';
 
 /// Onboarding moderno:
 /// - 3 pagine con layout "hero"
@@ -10,8 +11,7 @@ import '../../main.dart';
 /// - gradient di sfondo + card con angoli grandi
 /// - dots animati e CTA "Continua / Inizia ora"
 
-const bool kShowOnboardingEveryLaunch = true;
-// costante per gestire l'onboarding seen o true , per il momento fase di test 
+
 
 class StartOnboarding extends StatefulWidget {
   const StartOnboarding({super.key});
@@ -25,10 +25,9 @@ class _StartOnboardingState extends State<StartOnboarding> {
   int _index = 0;
 
   Future<void> _markSeen() async {
-    // In DEV non salviamo il flag (così la rivedi ogni volta)
-    if (kShowOnboardingEveryLaunch) return;
+
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('onboarding_seen', true);
+    await prefs.setBool('onboarding_seen', false );
   }
 
   void _next() {
@@ -80,7 +79,7 @@ class _StartOnboardingState extends State<StartOnboarding> {
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              scheme.surface,                                   // si adatta al tema
+              scheme.surface, // si adatta al tema
               scheme.surfaceVariant.withOpacity(0.85),
             ],
             begin: Alignment.topCenter,
@@ -122,7 +121,8 @@ class _StartOnboardingState extends State<StartOnboarding> {
                       animation: _controller,
                       builder: (context, _) {
                         // Page offset per effetto parallax
-                        final page = (_controller.hasClients && _controller.page != null)
+                        final page =
+                            (_controller.hasClients && _controller.page != null)
                             ? _controller.page!
                             : _controller.initialPage.toDouble();
 
@@ -131,7 +131,8 @@ class _StartOnboardingState extends State<StartOnboarding> {
                           onPageChanged: (i) => setState(() => _index = i),
                           children: [
                             _HeroCard(
-                              title: 'Deposita i tuoi bagagli\nin sicurezza, ovunque tu sia',
+                              title:
+                                  'Deposita i tuoi bagagli\nin sicurezza, ovunque tu sia',
                               subtitle:
                                   'Trova attività verificate vicino a te e libera la giornata.',
                               imagePath: 'assets/images/onboarding/hero1.png',
@@ -182,6 +183,7 @@ class _StartOnboardingState extends State<StartOnboarding> {
                                 onPressed: () async {
                                   await _markSeen();
                                   if (!mounted) return;
+                                  // Torna alla root: RootGate → AuthGate
                                   Navigator.of(context).pushReplacement(
                                     MaterialPageRoute(
                                       builder: (_) => const AccessoScreen(),
@@ -196,6 +198,7 @@ class _StartOnboardingState extends State<StartOnboarding> {
                                 onPressed: () async {
                                   await _markSeen();
                                   if (!mounted) return;
+                                  // Evita dipendenze incrociate → torna a '/'
                                   Navigator.of(context).pushReplacement(
                                     MaterialPageRoute(
                                       builder: (_) => const RegistrazioneScreen(),
@@ -206,13 +209,23 @@ class _StartOnboardingState extends State<StartOnboarding> {
                               ),
                               OutlinedButton.icon(
                                 onPressed: () async {
-                                  await _markSeen();                  // segna l’onboarding come visto
-                                  if (!mounted) return;
-                                  Navigator.of(context).pushAndRemoveUntil(
-                                    MaterialPageRoute(builder: (_) => const RootGate()),
-                                    (_) => false,
-                                  );
-                                },
+                                  await _markSeen(); // segna l’onboarding come visto
+                                  // 1) forza logout: nessuna sessione, nessuna email
+                                  try {
+                                    await Supabase.instance.client.auth.signOut();
+                                  } catch (e) {
+                                    debugPrint('[Guest] signOut error: $e');
+                                  }
+                                  // 2) doppia verifica (debug)
+                                   final u = Supabase.instance.client.auth.currentUser;
+                                   debugPrint('[Guest] after signOut → currentUser=${u?.id}');
+                                   if (!mounted) return;
+                                   // 3) resetta lo stack e apre HomeShell come GUEST
+                                   Navigator.of(context).pushAndRemoveUntil(
+                                     MaterialPageRoute(builder: (_) => const HomeShell()),
+                                     (_) => false,
+                                   );
+                                 },
                                 icon: const Icon(Icons.explore_outlined),
                                 label: const Text('Esplora come ospite'),
                               ),
@@ -271,14 +284,22 @@ class _HeroCard extends StatelessWidget {
               offset: const Offset(0, 8),
             ),
           ],
-          border: Border.all(color: scheme.outlineVariant.withOpacity(0.35), width: 1),
+          border: Border.all(
+            color: scheme.outlineVariant.withOpacity(0.35),
+            width: 1,
+          ),
         ),
         child: LayoutBuilder(
           builder: (_, c) {
             final isWide = c.maxWidth > 680;
 
             final textBlock = Padding(
-              padding: EdgeInsets.fromLTRB(isWide ? 32 : 20, 20, isWide ? 12 : 20, 8),
+              padding: EdgeInsets.fromLTRB(
+                isWide ? 32 : 20,
+                20,
+                isWide ? 12 : 20,
+                8,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -364,10 +385,7 @@ class _ImageStage extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         child: AspectRatio(
           aspectRatio: 1.3, // spazio gradevole per illustrazioni
-          child: Image.asset(
-            imagePath!,
-            fit: BoxFit.contain,
-          ),
+          child: Image.asset(imagePath!, fit: BoxFit.contain),
         ),
       );
     }
