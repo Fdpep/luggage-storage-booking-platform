@@ -41,9 +41,6 @@ flutter:
     - assets/images/brand/logo_splash.png   # aggiunta perché usata dallo splash
     - assets/images/onboarding/
 
-    # immagini dal secondo progetto
-    - assets/immagini/
-
 # Splash screen iniziale con logo
 flutter_native_splash:
   color: "#4B3FE4"
