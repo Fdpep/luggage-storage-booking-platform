@@ -129,35 +129,13 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
             })
             .eq('id', partnerId);
 
-        // 2b) UPDATE richiesta esistente oppure INSERT nuova
-        final existingReqRow = await client
-            .from('partner_requests')
-            .select('id,status')
-            .eq('partner_id', partnerId)
-            .order('created_at', ascending: false)
-            .limit(1)
-            .maybeSingle();
-
-        if (existingReqRow == null) {
-          await client.from('partner_requests').insert({
-            'user_id': userId,
-            'partner_id': partnerId,
-            'status': 'pending',
-            'message': note,
-          });
-        } else {
-          final reqId = existingReqRow['id'] as String;
-          await client
-              .from('partner_requests')
-              .update({
-                'status': 'pending',
-                'message': note,
-                'admin_note': null,
-                'reviewed_at': null,
-                'reviewed_by': null,
-              })
-              .eq('id', reqId);
-        }
+        // 2b) inserisce SEMPRE una nuova richiesta
+        await client.from('partner_requests').insert({
+          'user_id': userId,
+          'partner_id': partnerId,
+          'status': 'pending',
+          'message': note,
+        });
       }
 
       if (!mounted) return;

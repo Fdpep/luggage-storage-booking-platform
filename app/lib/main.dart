@@ -7,7 +7,7 @@ import 'schermate/home_shell.dart';
 import 'schermate/autenticazione/accesso.dart';
 import 'schermate/autenticazione/registrazione.dart';
 import 'schermate/autenticazione/reset_password.dart';
-import 'schermate/onboarding/start_onboarding.dart'; // <- onboarding
+//import 'schermate/onboarding/start_onboarding.dart'; // <- onboarding
 import 'schermate/partner/partner_shell.dart';
 import 'schermate/admin/admin_shell.dart';          // <- NUOVO
 import 'theme/app_theme.dart';
