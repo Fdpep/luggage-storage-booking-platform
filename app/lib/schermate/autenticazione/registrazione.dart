@@ -3,13 +3,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../utils/validators.dart';
 import '../../utils/last_email_store.dart';
 import 'verify_otp.dart';
+import '../partner/partner_signup_screen.dart';
 
 /// Registrazione con e-mail + password **confermata via OTP**
-/// Flusso:
-/// 1) signUp(email, password)
-/// 2) (se session attiva la chiudiamo per forzare verifica)
-/// 3) inviamo OTP sull’e-mail (signInWithOtp shouldCreateUser:false)
-/// 4) navighiamo alla schermata verifica OTP
 class RegistrazioneScreen extends StatefulWidget {
   const RegistrazioneScreen({super.key});
 
@@ -70,7 +66,6 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
       );
 
       // 2) Se ha creato una sessione subito, la chiudiamo:
-      // vogliamo che l'accesso vada avanti SOLO dopo verifica OTP.
       if (resp.session != null) {
         await supabase.auth.signOut();
       }
@@ -88,7 +83,6 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
         const SnackBar(content: Text('Codice inviato. Controlla la tua e-mail.')),
       );
 
-      // 4) Vai alla verifica OTP (postSignup = true solo per messaggistica/telemetria)
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => SchermataVerifyOtp(email: email, postSignup: true),
@@ -100,7 +94,9 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
       if (msg.toLowerCase().contains('user already registered')) {
         msg = 'Esiste già un account con questa e-mail.';
       }
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Errore: $msg')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Errore: $msg')),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -118,7 +114,8 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Registrati'),
-        backgroundColor: cs.primary, foregroundColor: cs.onPrimary,
+        backgroundColor: cs.primary,
+        foregroundColor: cs.onPrimary,
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -129,14 +126,19 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Crea il tuo account BagDrop (verifica via OTP).',
-                      style: Theme.of(context).textTheme.bodyLarge),
+                  Text(
+                    'Crea il tuo account BagDrop (verifica via OTP).',
+                    style: Theme.of(context).textTheme.bodyLarge,
+                  ),
                   const SizedBox(height: 16),
 
                   // E-mail
                   TextFormField(
                     controller: _ctrlEmail,
-                    autofillHints: const [AutofillHints.username, AutofillHints.email],
+                    autofillHints: const [
+                      AutofillHints.username,
+                      AutofillHints.email
+                    ],
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
                     decoration: const InputDecoration(
@@ -156,8 +158,11 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
                     decoration: InputDecoration(
                       labelText: 'Password',
                       suffixIcon: IconButton(
-                        onPressed: _busy ? null : () => setState(() => _showPwd = !_showPwd),
-                        icon: Icon(_showPwd ? Icons.visibility_off : Icons.visibility),
+                        onPressed: _busy
+                            ? null
+                            : () => setState(() => _showPwd = !_showPwd),
+                        icon: Icon(
+                            _showPwd ? Icons.visibility_off : Icons.visibility),
                       ),
                     ),
                     validator: Validators.password,
@@ -174,11 +179,15 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
                     decoration: InputDecoration(
                       labelText: 'Conferma password',
                       suffixIcon: IconButton(
-                        onPressed: _busy ? null : () => setState(() => _showPwd2 = !_showPwd2),
-                        icon: Icon(_showPwd2 ? Icons.visibility_off : Icons.visibility),
+                        onPressed: _busy
+                            ? null
+                            : () => setState(() => _showPwd2 = !_showPwd2),
+                        icon: Icon(
+                            _showPwd2 ? Icons.visibility_off : Icons.visibility),
                       ),
                     ),
-                    validator: (v) => Validators.confermaPassword(v, _ctrlPassword),
+                    validator: (v) =>
+                        Validators.confermaPassword(v, _ctrlPassword),
                     enabled: !_busy,
                     onFieldSubmitted: (_) => _register(),
                   ),
@@ -190,7 +199,8 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
                     children: [
                       Checkbox(
                         value: _accetto,
-                        onChanged: _busy ? null : (v) => setState(() => _accetto = v ?? false),
+                        onChanged:
+                            _busy ? null : (v) => setState(() => _accetto = v ?? false),
                       ),
                       const Expanded(
                         child: Text(
@@ -209,7 +219,8 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
                       onPressed: _busy ? null : _register,
                       child: _busy
                           ? const SizedBox(
-                              width: 22, height: 22,
+                              width: 22,
+                              height: 22,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Text('Registrati'),
@@ -223,10 +234,41 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
                       TextButton(
                         onPressed: _busy
                             ? null
-                            : () => Navigator.of(context).pushReplacementNamed('/accesso'),
+                            : () => Navigator.of(context)
+                                .pushReplacementNamed('/accesso'),
                         child: const Text('Accedi'),
                       ),
                     ],
+                  ),
+
+                  const SizedBox(height: 24),
+                  const Divider(),
+                  const SizedBox(height: 12),
+
+                  Center(
+                    child: Column(
+                      children: [
+                        const Text(
+                          'Sei un’attività e vuoi diventare partner BagDrop?',
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          onPressed: _busy
+                              ? null
+                              : () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          const PartnerSignUpScreen(),
+                                    ),
+                                  );
+                                },
+                          icon: const Icon(Icons.business_outlined),
+                          label: const Text('Registrati come partner'),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),

@@ -1,0 +1,4 @@
+Qui in migrations , avremo i file di report del database , che andranno copiati ed eseguiti.
+In pratica è la struttura del database , con triggher e RDL Policy.
+
+Per ogni tabella creare un file migrations con formato "Year-month-day_name.sql".

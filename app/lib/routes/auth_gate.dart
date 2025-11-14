@@ -13,9 +13,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// - Se non c’è sessione: albero "non loggato".
 class AuthGate extends StatefulWidget {
   final WidgetBuilder ingressoBuilder; // splash/ingresso
-  final WidgetBuilder signedInBuilder; // app privata
+  final WidgetBuilder signedInBuilder; // app privata (utente)
   final WidgetBuilder signedOutBuilder; // flusso accesso
-  final WidgetBuilder? partnerBuilder; //app privata (partner)
+  final WidgetBuilder? partnerBuilder; // app privata (partner)
+  final WidgetBuilder? adminBuilder; // app privata (admin)
 
   const AuthGate({
     super.key,
@@ -23,6 +24,7 @@ class AuthGate extends StatefulWidget {
     required this.signedInBuilder,
     required this.signedOutBuilder,
     this.partnerBuilder,
+    this.adminBuilder,
   });
 
   @override
@@ -37,7 +39,7 @@ class _AuthGateState extends State<AuthGate> {
   StreamSubscription<AuthState>? _sub;
 
   String? _role; // <-- ruolo dell’utente
-  bool _caricandoRuolo = false; // <-- ( flag caricamento ruolo
+  bool _caricandoRuolo = false; // <-- flag caricamento ruolo
 
   @override
   void initState() {
@@ -82,6 +84,7 @@ class _AuthGateState extends State<AuthGate> {
     debugPrint(
       '[AuthGate] build: session=${_session != null}, role=$_role, loading=$_caricandoRuolo, ingresso=$_mostraIngresso',
     );
+
     // 1) Splash iniziale SEMPRE, oppure se sono loggato ma il ruolo non è pronto
     if (_mostraIngresso ||
         (_session != null && (_role == null || _caricandoRuolo))) {
@@ -94,13 +97,15 @@ class _AuthGateState extends State<AuthGate> {
     }
 
     // 3) Loggato e ruolo caricato → instrada per ruolo
+    if (_role == 'admin' && widget.adminBuilder != null) {
+      return widget.adminBuilder!(context);
+    }
+
     if (_role == 'partner' && widget.partnerBuilder != null) {
       return widget.partnerBuilder!(context);
     }
 
-    // (in futuro) if (_role == 'admin' && widget.adminBuilder != null) return widget.adminBuilder!(context);
-
-    // 4) Default: utente
+    // 4) Default: utente normale
     return widget.signedInBuilder(context);
   }
 

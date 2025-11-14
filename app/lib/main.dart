@@ -7,9 +7,10 @@ import 'schermate/home_shell.dart';
 import 'schermate/autenticazione/accesso.dart';
 import 'schermate/autenticazione/registrazione.dart';
 import 'schermate/autenticazione/reset_password.dart';
-import 'schermate/onboarding/start_onboarding.dart'; // <- il tuo onboarding
+import 'schermate/onboarding/start_onboarding.dart'; // <- onboarding
+import 'schermate/partner/partner_shell.dart';
+import 'schermate/admin/admin_shell.dart';          // <- NUOVO
 import 'theme/app_theme.dart';
-import 'schermate/partner/partner_shell.dart'; //
 
 /// In DEV metti true per forzare l’onboarding ad ogni avvio.
 /// In PROD lascialo false: verrà mostrato solo la prima volta.
@@ -37,16 +38,15 @@ class BagDropApp extends StatelessWidget {
         '/registrazione': (_) => const RegistrazioneScreen(),
         '/reset': (_) => const ResetPasswordScreen(),
       },
-      home:
-          const RootGate(), // <-- usa il wrapper che decide Onboarding/AuthGate
+      home: const RootGate(),
     );
   }
 }
 
 /// RootGate decide cosa mostrare all’avvio:
-/// - se utente è loggato → HomeShell
-/// - se NON loggato e Onboarding non visto (o forzato in DEV) → StartOnboarding
-/// - altrimenti → AuthGate (che a sua volta mostra HomeShell loggato/non loggato)
+/// - se utente è loggato → HomeShell / PartnerShell / AdminShell (via AuthGate)
+/// - se NON loggato e Onboarding non visto → StartOnboarding
+/// - altrimenti → Accesso
 class RootGate extends StatefulWidget {
   const RootGate({super.key});
 
@@ -78,19 +78,21 @@ class _RootGateState extends State<RootGate> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    //  1) Decidi SUBITO se mostrare l’onboarding
-    final showOnboarding =  !_onboardingSeen;
+    // Se vuoi riattivare l'onboarding, decommenta qui:
+    /*
+    final showOnboarding = !_onboardingSeen;
     if (showOnboarding) {
-      // Dopo termina, torna a '/' → RootGate → AuthGate decide
       return const StartOnboarding();
     }
+    */
 
-    // Altrimenti passa al tuo AuthGate (che mostra HomeShell loggato/non loggato)
+    // Passiamo il controllo all'AuthGate
     return AuthGate(
       ingressoBuilder: (_) => const _IngressoSplash(),
       signedOutBuilder: (_) => const AccessoScreen(),
-      signedInBuilder: (_) => const HomeShell(),
-      partnerBuilder: (_) => const PartnerShell(),
+      signedInBuilder: (_) => const HomeShell(),      // utente normale
+      partnerBuilder: (_) => const PartnerShell(),    // partner
+      adminBuilder: (_) => const AdminShell(),        // admin
     );
   }
 }
@@ -100,6 +102,8 @@ class _IngressoSplash extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    return const Scaffold(
+      body: Center(child: CircularProgressIndicator()),
+    );
   }
 }

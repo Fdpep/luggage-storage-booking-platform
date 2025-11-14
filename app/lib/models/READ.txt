@@ -1,0 +1,5 @@
+Ciao cari programmatori , qui avremo i modelli delle nostre tabelle per la gestione del database ed il funzionamento delle query.
+Ogni modello va inserito qui per il corretto funzionamento di tutta la gestione del DB.
+
+Vedi cartella supabase/migrations , li saranno contenuti i codici relativi alle varie tabelle sql presenti nel database , in 
+modo da avere sempre sottomano la struttura completa , senza dover per forza visionare l'init su Supabase.

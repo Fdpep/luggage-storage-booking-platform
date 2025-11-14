@@ -1,21 +1,3 @@
-//A cosa serve user_profile.dart e perché in models/?
-//
-//È il modello dati del profilo: una classe Dart con campi tipizzati (id, createdAt, fullName, ecc.).
-//
-//In models/ perché è il posto “canonico” per i domain models (entity/DTO) dell’app.
-//
-//Vantaggi:
-//
-//autocomplete e controlli statici del compilatore
-//
-//meno errori di battitura sui nomi colonne
-//
-//conversioni centralizzate fromMap() / toMap()
-//
-//separa i dettagli di storage (Supabase) dalla logica applicativa
-
-
-
 /// Modello dati del profilo utente (tabella: public.user_profiles)
 class UserProfile {
   final String id;           // UUID utente (auth.users.id) - chiave primaria
@@ -57,4 +39,24 @@ class UserProfile {
       'role': role,
     };
   }
+
+  UserProfile copyWith({
+    String? fullName,
+    String? avatarUrl,
+    String? kycStatus,
+    String? role,
+  }) {
+    return UserProfile(
+      id: id,
+      createdAt: createdAt,
+      fullName: fullName ?? this.fullName,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
+      kycStatus: kycStatus ?? this.kycStatus,
+      role: role ?? this.role,
+    );
+  }
+
+  bool get isUser    => role == 'user';
+  bool get isPartner => role == 'partner';
+  bool get isAdmin   => role == 'admin';
 }
