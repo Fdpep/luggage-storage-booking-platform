@@ -66,11 +66,11 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       final pwd = _pwdCtrl.text;
 
       // 1) Crea account utente per l’attività
-      final resp = await supabase.auth.signUp(
+     /* final resp = await supabase.auth.signUp(
         email: email,
         password: pwd,
         data: {'source': 'bagdrop-partner-signup'},
-      );
+      );*/
 
       // Se Supabase non crea subito una sessione, eseguiamo login esplicito
       if (supabase.auth.currentSession == null) {

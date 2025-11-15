@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../autenticazione/accesso.dart';
 import '../autenticazione/registrazione.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import '../home_shell.dart';
+//import 'package:supabase_flutter/supabase_flutter.dart';
+//import '../home_shell.dart';
 
 /// Onboarding moderno:
 /// - 3 pagine con layout "hero"

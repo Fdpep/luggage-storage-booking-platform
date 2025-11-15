@@ -93,10 +93,7 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Verifica completata!')));
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const HomeShell()),
-          (_) => false,
-        );
+        Navigator.of(context).popUntil((route) => route.isFirst);
       }
     } on AuthException catch (e) {
       final msg = e.message.toLowerCase();

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+//import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'routes/auth_gate.dart';
@@ -56,7 +56,7 @@ class RootGate extends StatefulWidget {
 
 class _RootGateState extends State<RootGate> {
   bool _checking = true;
-  bool _onboardingSeen = false;
+  //bool _onboardingSeen = false;
 
   @override
   void initState() {
@@ -66,9 +66,9 @@ class _RootGateState extends State<RootGate> {
 
   Future<void> _bootstrap() async {
     // Leggi SEMPRE il flag salvato: evita loop anche in DEV
-    final prefs = await SharedPreferences.getInstance();
+    /*final prefs = await SharedPreferences.getInstance();
     _onboardingSeen = prefs.getBool('onboarding_seen') ?? false;
-
+    */
     setState(() => _checking = false);
   }
 
