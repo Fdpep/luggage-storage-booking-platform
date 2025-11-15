@@ -3,6 +3,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../services/supabase/partner_repo.dart';
 
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../../services/supabase/maps/map_geocoding_service.dart';
+
 class PartnerSignUpScreen extends StatefulWidget {
   const PartnerSignUpScreen({super.key});
 
@@ -31,6 +34,11 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
   bool _showPwd2 = false;
   bool _acceptDocs = false;
 
+  bool _isGeocoding = false;
+  double? _lat;
+  double? _lng;
+  String? _addressError;
+
   @override
   void dispose() {
     _emailCtrl.dispose();
@@ -52,7 +60,20 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-              'Devi accettare i Documenti contrattuali & Privacy per continuare.'),
+            'Devi accettare i Documenti contrattuali & Privacy per continuare.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    // Verifichiamo che l'indirizzo sia stato geocodificato.
+    if (_lat == null || _lng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Conferma l\'indirizzo cliccando sulla lente accanto al campo.',
+          ),
         ),
       );
       return;
@@ -66,12 +87,11 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       final pwd = _pwdCtrl.text;
 
       // 1) Crea account utente per l’attività
-     /* final resp = await supabase.auth.signUp(
+      await supabase.auth.signUp(
         email: email,
         password: pwd,
         data: {'source': 'bagdrop-partner-signup'},
-      );*/
-
+      );
       // Se Supabase non crea subito una sessione, eseguiamo login esplicito
       if (supabase.auth.currentSession == null) {
         await supabase.auth.signInWithPassword(email: email, password: pwd);
@@ -83,6 +103,14 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
           'Registrazione partner fallita: utente non autenticato dopo signUp.',
         );
       }
+
+      // 1bis) Marca il partner come "verificato" lato metadati → fa scattare il trigger SQL
+      final user = supabase.auth.currentUser!;
+      final meta = Map<String, dynamic>.from(user.userMetadata ?? {});
+      meta['otp_verified'] = true;
+      meta['source'] = 'bagdrop-partner-signup';
+
+      await supabase.auth.updateUser(UserAttributes(data: meta));
 
       // 2) Imposta ruolo 'partner' in user_profiles
       await supabase
@@ -99,14 +127,10 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       final capacity = int.tryParse(_capacityCtrl.text.trim()) ?? 0;
       final price2h = _price2hCtrl.text.trim().isEmpty
           ? null
-          : double.parse(
-              _price2hCtrl.text.trim().replaceAll(',', '.'),
-            );
+          : double.parse(_price2hCtrl.text.trim().replaceAll(',', '.'));
       final pricePerDay = _pricePerDayCtrl.text.trim().isEmpty
           ? null
-          : double.parse(
-              _pricePerDayCtrl.text.trim().replaceAll(',', '.'),
-            );
+          : double.parse(_pricePerDayCtrl.text.trim().replaceAll(',', '.'));
 
       await repo.submitPartnerApplication(
         name: _nameCtrl.text.trim(),
@@ -114,8 +138,11 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
         capacity: capacity,
         price2h: price2h,
         pricePerDay: pricePerDay,
-        message:
-            _messageCtrl.text.trim().isEmpty ? null : _messageCtrl.text.trim(),
+        message: _messageCtrl.text.trim().isEmpty
+            ? null
+            : _messageCtrl.text.trim(),
+        lat: _lat,
+        lng: _lng,
       );
 
       if (!mounted) return;
@@ -137,11 +164,65 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Imprevisto: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Imprevisto: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Usa la Google Geocoding API per convertire l'indirizzo in lat/lng
+  /// e salva il risultato in `_lat` e `_lng`.
+  Future<void> _geocodeAddress() async {
+    final rawAddress = _addressCtrl.text.trim();
+    if (rawAddress.isEmpty) {
+      setState(() {
+        _addressError = 'Inserisci un indirizzo prima di cercare.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isGeocoding = true;
+      _addressError = null;
+    });
+
+    try {
+      final apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'];
+      if (apiKey == null || apiKey.isEmpty) {
+        setState(() {
+          _addressError =
+              'API key Google Maps mancante. Definisci GOOGLE_MAPS_API_KEY in .env.';
+        });
+        return;
+      }
+
+      final service = MapGeocodingService(apiKey: apiKey);
+      final result = await service.geocodeAddress(rawAddress);
+
+      if (result == null) {
+        setState(() {
+          _addressError =
+              'Indirizzo non trovato. Prova con via, numero civico e città.';
+          _lat = null;
+          _lng = null;
+        });
+        return;
+      }
+
+      setState(() {
+        _lat = result.lat;
+        _lng = result.lng;
+        _addressCtrl.text = result.formattedAddress; // indirizzo pulito
+        _addressError = null;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isGeocoding = false;
+        });
+      }
     }
   }
 
@@ -172,7 +253,6 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
                   const SizedBox(height: 16),
 
                   // --- SEZIONE ACCOUNT ---
-
                   const Text(
                     'Dati account',
                     style: TextStyle(fontWeight: FontWeight.w700),
@@ -256,7 +336,6 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
                   const SizedBox(height: 24),
 
                   // --- SEZIONE ATTIVITÀ ---
-
                   const Text(
                     'Dati attività',
                     style: TextStyle(fontWeight: FontWeight.w700),
@@ -280,9 +359,22 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
 
                   TextFormField(
                     controller: _addressCtrl,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Indirizzo',
                       hintText: 'Via / Piazza, numero civico, città',
+                      suffixIcon: IconButton(
+                        tooltip: 'Cerca sulla mappa',
+                        icon: _isGeocoding
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.search),
+                        onPressed: _isGeocoding ? null : _geocodeAddress,
+                      ),
                     ),
                     validator: (v) {
                       final t = (v ?? '').trim();
@@ -291,6 +383,15 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
                     },
                     enabled: !_busy,
                   ),
+                  if (_addressError != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      _addressError!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
 
                   TextFormField(
@@ -319,8 +420,9 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
                       labelText: 'Prezzo per 2 ore (EUR, opzionale)',
                       hintText: 'Es: 5.00',
                     ),
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     enabled: !_busy,
                   ),
                   const SizedBox(height: 12),
@@ -331,8 +433,9 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
                       labelText: 'Prezzo per giorno (EUR, opzionale)',
                       hintText: 'Es: 12.00',
                     ),
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     enabled: !_busy,
                   ),
                   const SizedBox(height: 12),

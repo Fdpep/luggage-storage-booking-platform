@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'services/supabase/client.dart';
 //import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -17,6 +19,12 @@ import 'theme/app_theme.dart';
 const bool kShowOnboardingEveryLaunch = true;
 
 Future<void> main() async {
+
+  // 1) Carichiamo le variabili dal file .env
+  await dotenv.load(fileName: '.env');
+    // 2) Inizializziamo Supabase
+  await SupabaseService.init();
+
   WidgetsFlutterBinding.ensureInitialized();
   await Supabase.initialize(
     url: const String.fromEnvironment('SUPABASE_URL'),

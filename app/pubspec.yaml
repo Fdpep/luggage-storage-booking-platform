@@ -21,6 +21,9 @@ dependencies:
   collection: ^1.19.1
   smooth_page_indicator: ^1.2.0
   shared_preferences: ^2.3.2
+  geolocator: ^12.0.0  # Plugin per ottenere la posizione GPS
+  http: ^1.2.2         # per chiamare le API di geocoding
+  image_picker: ^1.1.2 # per scegliere le foto dal dispositivo
 
 dev_dependencies:
   flutter_test:

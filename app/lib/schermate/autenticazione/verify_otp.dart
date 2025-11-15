@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/supabase/user_repo.dart';
 import '../../utils/last_email_store.dart';
-import '../home_shell.dart';
+//import '../home_shell.dart';
 
 /// Verifica OTP con:
 /// - Validazione 6 cifre

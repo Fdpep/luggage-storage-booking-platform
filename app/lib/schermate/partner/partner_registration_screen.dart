@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'partner_waiting_screen.dart';
 
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../../services/supabase/partner_repo.dart';
+import '../../services/supabase/maps/map_geocoding_service.dart';
+
 /// Form per registrare/modificare un’attività come Partner BagDrop.
 ///
 /// Flusso:
@@ -37,6 +41,10 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
   final _noteCtrl = TextEditingController();
 
   bool _busy = false;
+  bool _isGeocoding = false;
+  double? _lat;
+  double? _lng;
+  String? _addressError;
 
   @override
   void dispose() {
@@ -52,6 +60,19 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
+    // Verifichiamo che l'indirizzo sia stato geocodificato
+    // e che abbiamo lat/lng da salvare.
+    if (_lat == null || _lng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Clicca sulla lente accanto all\'indirizzo per confermare la posizione.',
+          ),
+        ),
+      );
+      return;
+    }
+
     FocusScope.of(context).unfocus();
     setState(() => _busy = true);
 
@@ -60,9 +81,9 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
 
     if (userId == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Utente non autenticato')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Utente non autenticato')));
       }
       setState(() => _busy = false);
       return;
@@ -74,6 +95,8 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
       final priceDay = double.tryParse(_priceDayCtrl.text.trim());
       final note = _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim();
 
+      /*    BLOCCO PRECEDENTE,GESTIVA UPDATE E INSERT IN MODO DIFFERENTE
+      
       // 0) Controlla se esiste già un partner per questo owner_id
       final existingPartnerRow = await client
           .from('partners')
@@ -137,6 +160,21 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
           'message': note,
         });
       }
+      */
+
+      // Usiamo il repository per gestire INSERT/UPDATE + partner_requests.
+      final repo = PartnerRepo(client);
+
+      await repo.submitPartnerApplication(
+        name: _nameCtrl.text.trim(),
+        address: _addressCtrl.text.trim(),
+        capacity: capacity,
+        price2h: price2h,
+        pricePerDay: priceDay,
+        message: note,
+        lat: _lat,
+        lng: _lng,
+      );
 
       if (!mounted) return;
 
@@ -151,22 +189,74 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
 
       // 🔴 IMPORTANTE: non distruggiamo lo stack (RootGate/AuthGate devono restare)
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => const PartnerWaitingScreen(),
-        ),
+        MaterialPageRoute(builder: (_) => const PartnerWaitingScreen()),
       );
     } on PostgrestException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Errore database: ${e.message}')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Errore database: ${e.message}')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Imprevisto: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Imprevisto: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Usa la Google Geocoding API per tradurre l'indirizzo in lat/lng
+  /// e li salva in `_lat` e `_lng`.
+  Future<void> _geocodeAddress() async {
+    final rawAddress = _addressCtrl.text.trim();
+    if (rawAddress.isEmpty) {
+      setState(() {
+        _addressError = 'Inserisci un indirizzo prima di cercare.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isGeocoding = true;
+      _addressError = null;
+    });
+
+    try {
+      final apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'];
+      if (apiKey == null || apiKey.isEmpty) {
+        setState(() {
+          _addressError =
+              'API key Google Maps mancante. Definisci GOOGLE_MAPS_API_KEY in .env.';
+        });
+        return;
+      }
+
+      final service = MapGeocodingService(apiKey: apiKey);
+      final result = await service.geocodeAddress(rawAddress);
+
+      if (result == null) {
+        setState(() {
+          _addressError =
+              'Indirizzo non trovato. Prova a essere più preciso (via, numero, città).';
+          _lat = null;
+          _lng = null;
+        });
+        return;
+      }
+
+      setState(() {
+        _lat = result.lat;
+        _lng = result.lng;
+        _addressCtrl.text = result.formattedAddress; // indirizzo "pulito"
+        _addressError = null;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isGeocoding = false;
+        });
+      }
     }
   }
 
@@ -216,9 +306,20 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
                 // Indirizzo
                 TextFormField(
                   controller: _addressCtrl,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Indirizzo',
                     hintText: 'Via e numero civico, città',
+                    suffixIcon: IconButton(
+                      tooltip: 'Cerca sulla mappa',
+                      icon: _isGeocoding
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.search),
+                      onPressed: _isGeocoding ? null : _geocodeAddress,
+                    ),
                   ),
                   textInputAction: TextInputAction.next,
                   validator: (v) {
@@ -229,6 +330,15 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
                   },
                   enabled: !_busy,
                 ),
+                if (_addressError != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    _addressError!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 12),
 
                 // Capacità
@@ -258,8 +368,9 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
                     labelText: 'Prezzo per 2 ore (opzionale)',
                     hintText: 'Es. 4.50',
                   ),
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                   textInputAction: TextInputAction.next,
                   enabled: !_busy,
                 ),
@@ -272,8 +383,9 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
                     labelText: 'Prezzo per giorno (opzionale)',
                     hintText: 'Es. 10.00',
                   ),
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                   textInputAction: TextInputAction.next,
                   enabled: !_busy,
                 ),

@@ -18,7 +18,7 @@ class PartnerWaitingScreen extends StatelessWidget {
 
     // 2) NON andare direttamente su /accesso,
     //    torniamo alla root dello stack (dove c'è RootGate/AuthGate)
-    Navigator.of(context).popUntil((route) => route.isFirst);
+    //Navigator.of(context).popUntil((route) => route.isFirst);
     // AuthGate vedrà session == null e mostrerà signedOutBuilder (AccessoScreen)
   }
 

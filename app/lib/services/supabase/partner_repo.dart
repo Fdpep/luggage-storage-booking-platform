@@ -1,11 +1,17 @@
 // lib/services/supabase/partner_repo.dart
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/partner.dart';
+import 'client.dart';
+import 'dart:math' as math;
 
 /// Repository minimale per gestire i dati Partner su Supabase.
 class PartnerRepo {
   final SupabaseClient _db;
   const PartnerRepo(this._db);
+
+  /// Accesso comodo al client Supabase globale,
+  /// esposto tramite SupabaseService.
+  SupabaseClient get _client => SupabaseService.client;
 
   /// Ritorna l'attività associata all'utente loggato (se esiste).
   Future<Partner?> getMyPartner() async {
@@ -60,6 +66,8 @@ class PartnerRepo {
     double? price2h,
     double? pricePerDay,
     String? message,
+    double? lat,     
+    double? lng,
   }) async {
     final uid = _db.auth.currentUser?.id;
     if (uid == null) {
@@ -83,12 +91,14 @@ class PartnerRepo {
             'owner_id': uid,
             'name': name,
             'address': address,
+            'lat': lat,              
+            'lng': lng,              
             'capacity': capacity,
             'price_2h': price2h,
             'price_per_day': pricePerDay,
-            'status': 'pending',      // in attesa di approvazione admin
-            'is_active': false,       // verrà messa attiva solo se approvata
-            'reject_reason': null,    // nessun rifiuto al primo invio
+            'status': 'pending', // in attesa di approvazione admin
+            'is_active': false, // verrà messa attiva solo se approvata
+            'reject_reason': null, // nessun rifiuto al primo invio
           })
           .select()
           .single();
@@ -99,15 +109,18 @@ class PartnerRepo {
           .update({
             'name': name,
             'address': address,
+            'lat': lat,              
+            'lng': lng,              
             'capacity': capacity,
             'price_2h': price2h,
             'price_per_day': pricePerDay,
-            'status': 'pending',      // reset a pending
-            'reject_reason': null,    // reset motivazione rifiuto
+            'status': 'pending', // reset a pending
+            'is_active': false,
+            'reject_reason': null, // reset motivazione rifiuto
           })
           .eq('owner_id', uid)
           .select()
-          .single() ;
+          .single();
     }
 
     final partner = Partner.fromMap(row);
@@ -121,5 +134,70 @@ class PartnerRepo {
     });
 
     return partner;
+  }
+
+  /// Carica la lista di partner APPROVATI e ATTIVI nelle vicinanze di un punto.
+  ///
+  /// [centerLat], [centerLng] → centro della ricerca (es. posizione utente).
+  /// [radiusKm] → raggio di ricerca in chilometri (di default 3 km).
+  ///
+  /// Implementazione:
+  /// - calcoliamo una "bounding box" approssimata attorno al centro
+  /// - eseguiamo una query su Supabase filtrando:
+  ///   - status = 'approved'
+  ///   - is_active = true
+  ///   - lat/lng dentro l'intervallo calcolato
+  ///
+  /// NOTA: questa è una semplificazione; per ricerche molto precise
+  /// si potrebbe usare PostGIS, ma per una prima versione va più che bene.
+  Future<List<Partner>> fetchNearbyPartners({
+    required double centerLat,
+    required double centerLng,
+    double radiusKm = 3.0,
+  }) async {
+    // 1) Convertiamo il raggio in "gradi" di latitudine/longitudine.
+    //
+    //    Circa:
+    //    - 1 grado di latitudine ≈ 111 km
+    //    - 1 grado di longitudine ≈ 111 km * cos(latitudine)
+    const double kmPerDegreeLat = 111.0;
+    final double latDelta = radiusKm / kmPerDegreeLat;
+
+    // Per la longitudine teniamo conto della latitudine (in radianti).
+    final double latRad = centerLat * (3.1415926535 / 180.0);
+    final double kmPerDegreeLng = 111.0 * math.cos(latRad);
+    final double lngDelta = radiusKm / kmPerDegreeLng;
+
+    final double minLat = centerLat - latDelta;
+    final double maxLat = centerLat + latDelta;
+    final double minLng = centerLng - lngDelta;
+    final double maxLng = centerLng + lngDelta;
+
+    // 2) Eseguiamo la query su Supabase.
+    //
+    // Filtri:
+    // - status = 'approved'
+    // - is_active = true
+    // - lat tra [minLat, maxLat]
+    // - lng tra [minLng, maxLng]
+    //
+    // IMPORTANTE: Assumiamo che i partner APPROVATI abbiano sempre lat/lng non null.
+    final response = await _client
+        .from('partners')
+        .select()
+        .eq('status', 'approved')
+        .eq('is_active', true)
+        .gte('lat', minLat)
+        .lte('lat', maxLat)
+        .gte('lng', minLng)
+        .lte('lng', maxLng);
+
+    // 3) Convertiamo il risultato (List<dynamic>) in List<Partner>.
+    //
+    // Se la tabella è vuota in quell'area, torniamo una lista vuota.
+    final data = response as List<dynamic>;
+    return data
+        .map((raw) => Partner.fromMap(raw as Map<String, dynamic>))
+        .toList();
   }
 }
