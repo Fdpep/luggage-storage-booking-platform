@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
+import 'autenticazione/auth_actions.dart';
 
 /// HomeShell = contenitore della home:
 /// - AppBar: hamburger (Drawer), titolo "BagDrop", icona filtro
@@ -65,8 +66,8 @@ class _HomeShellState extends State<HomeShell> {
     final cs = Theme.of(context).colorScheme;
     final isGuest = Supabase.instance.client.auth.currentUser == null;
     if (isGuest) {
-    debugPrint('[HomeShell] guest mode attiva (no session)');
-  }
+      debugPrint('[HomeShell] guest mode attiva (no session)');
+    }
 
     // Pagine con gating (tab 1 sempre visibile; 2-3 richiedono login)
     final pages = <Widget>[
@@ -203,7 +204,11 @@ class _HomeShellState extends State<HomeShell> {
                     children: [
                       ElevatedButton.icon(
                         onPressed: () async {
-                          await _supabase.auth.signOut();
+                          final didLogout = await AuthActions.confirmAndLogout(
+                            context,
+                          );
+                          if (!didLogout)
+                            return; // utente ha annullato o errore
                           if (!mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('Disconnesso')),

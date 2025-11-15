@@ -207,7 +207,9 @@ class _StartOnboardingState extends State<StartOnboarding> {
                                 },
                                 child: const Text('Crea un account'),
                               ),
-                              OutlinedButton.icon(
+                              
+                              // SBAGLIATO, DA RIVEDERE L'ACCEDI COME OSPITE, è l'authgate che deve decidere dove reindirizzare, altrimenti salta tutto.
+                              /*OutlinedButton.icon(
                                 onPressed: () async {
                                   await _markSeen(); // segna l’onboarding come visto
                                   // 1) forza logout: nessuna sessione, nessuna email
@@ -228,7 +230,7 @@ class _StartOnboardingState extends State<StartOnboarding> {
                                  },
                                 icon: const Icon(Icons.explore_outlined),
                                 label: const Text('Esplora come ospite'),
-                              ),
+                              ),  */
                             ],
                           ),
                   ),

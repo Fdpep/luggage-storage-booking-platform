@@ -91,6 +91,29 @@ class _AuthGateState extends State<AuthGate> {
       return widget.ingressoBuilder(context);
     }
 
+    // 1bis) Se c'è una sessione ma otp_verified NON è true, lo tratto come non loggato
+    if (_session != null) {
+      final user = _session!.user;
+      final meta = user.userMetadata ?? {};
+      final otpVerified = meta['otp_verified'] == true;
+
+      if (!otpVerified) {
+        // Evito side-effect diretti nel build
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          await _supabase.auth.signOut();
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Completa prima la verifica via codice OTP.'),
+            ),
+          );
+        });
+
+        // Mostro comunque il flusso non loggato
+        return widget.signedOutBuilder(context);
+      }
+    }
+
     // 2) Non loggato → flusso accesso
     if (_session == null) {
       return widget.signedOutBuilder(context);

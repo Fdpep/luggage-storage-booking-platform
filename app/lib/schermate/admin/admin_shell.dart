@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import '../autenticazione/auth_actions.dart';
 import 'admin_partner_requests_screen.dart';
 
 /// Shell principale per l’area Admin.
@@ -67,8 +67,8 @@ class _AdminDashboardPage extends StatelessWidget {
           IconButton(
             tooltip: 'Disconnetti',
             icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await Supabase.instance.client.auth.signOut();
+            onPressed: () {
+              AuthActions.confirmAndLogout(context);
             },
           ),
         ],
@@ -150,9 +150,7 @@ class _AdminPartnersListPageState extends State<_AdminPartnersListPage> {
     final cs = Theme.of(context).colorScheme;
 
     if (_loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     if (_error != null) {
@@ -181,8 +179,7 @@ class _AdminPartnersListPageState extends State<_AdminPartnersListPage> {
             final status = p['status'] as String? ?? 'pending';
             final isActive = p['is_active'] as bool? ?? false;
             final name = p['name'] as String? ?? 'Senza nome';
-            final addr =
-                p['address'] as String? ?? 'Indirizzo non specificato';
+            final addr = p['address'] as String? ?? 'Indirizzo non specificato';
 
             Color chipColor;
             switch (status) {

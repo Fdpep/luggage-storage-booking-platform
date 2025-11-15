@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/partner.dart';
 import '../../services/supabase/partner_repo.dart';
 import 'partner_registration_screen.dart';
+import '../autenticazione/auth_actions.dart';
 
 class PartnerShell extends StatefulWidget {
   const PartnerShell({super.key});
@@ -47,9 +48,7 @@ class _PartnerShellState extends State<PartnerShell> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     final partner = _partner;
@@ -224,10 +223,7 @@ class _PartnerRestrictedScreen extends StatelessWidget {
               ),
               if ((address ?? '').isNotEmpty) ...[
                 const SizedBox(height: 4),
-                Text(
-                  address!,
-                  textAlign: TextAlign.center,
-                ),
+                Text(address!, textAlign: TextAlign.center),
               ],
               const SizedBox(height: 24),
               if (isRejected) ...[
@@ -237,13 +233,13 @@ class _PartnerRestrictedScreen extends StatelessWidget {
                     onPressed: () {
                       Navigator.of(context)
                           .push(
-                        MaterialPageRoute(
-                          builder: (_) => const PartnerRegistrationScreen(),
-                        ),
-                      )
+                            MaterialPageRoute(
+                              builder: (_) => const PartnerRegistrationScreen(),
+                            ),
+                          )
                           .then((_) {
-                        onReapplyCompleted();
-                      });
+                            onReapplyCompleted();
+                          });
                     },
                     child: const Text('Riprova a inviare richiesta'),
                   ),
@@ -323,13 +319,13 @@ class _DashPartnerPage extends StatelessWidget {
               onPressed: () {
                 Navigator.of(context)
                     .push(
-                  MaterialPageRoute(
-                    builder: (_) => const PartnerRegistrationScreen(),
-                  ),
-                )
+                      MaterialPageRoute(
+                        builder: (_) => const PartnerRegistrationScreen(),
+                      ),
+                    )
                     .then((_) {
-                  onPartnerChanged();
-                });
+                      onPartnerChanged();
+                    });
               },
               icon: const Icon(Icons.business_outlined),
               label: const Text('Compila domanda partner'),
@@ -345,10 +341,7 @@ class _DashPartnerPage extends StatelessWidget {
       children: [
         Text(
           p.name,
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         Text(p.address ?? 'Indirizzo non specificato'),
@@ -356,10 +349,7 @@ class _DashPartnerPage extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: _InfoTile(
-                label: 'Capacità',
-                value: '${p.capacity}',
-              ),
+              child: _InfoTile(label: 'Capacità', value: '${p.capacity}'),
             ),
             Expanded(
               child: _InfoTile(
@@ -376,10 +366,7 @@ class _DashPartnerPage extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 16),
-        _InfoTile(
-          label: 'Stato',
-          value: p.isActive ? 'Attivo' : 'Sospeso',
-        ),
+        _InfoTile(label: 'Stato', value: p.isActive ? 'Attivo' : 'Sospeso'),
         const SizedBox(height: 24),
         const Text(
           'Prossimi step:\n'
@@ -466,16 +453,13 @@ class _ProfiloPartnerPage extends StatelessWidget {
             const SizedBox(height: 8),
             Text('Email: ${user?.email ?? "-"}'),
             const SizedBox(height: 24),
-            const Text(
-              'Azioni',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
+            const Text('Azioni', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             ElevatedButton.icon(
               icon: const Icon(Icons.logout),
               label: const Text('Logout'),
-              onPressed: () async {
-                await Supabase.instance.client.auth.signOut();
+              onPressed: () {
+                AuthActions.confirmAndLogout(context);
               },
             ),
           ],
@@ -500,18 +484,12 @@ class _InfoTile extends StatelessWidget {
           children: [
             Text(
               label,
-              style: const TextStyle(
-                fontSize: 12,
-                color: Colors.black54,
-              ),
+              style: const TextStyle(fontSize: 12, color: Colors.black54),
             ),
             const SizedBox(height: 6),
             Text(
               value,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ],
         ),
@@ -557,10 +535,7 @@ class _PartnerStatusIcon extends StatelessWidget {
               child: Container(
                 width: 10,
                 height: 10,
-                decoration: BoxDecoration(
-                  color: color,
-                  shape: BoxShape.circle,
-                ),
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
               ),
             ),
           ],

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import '../home_shell.dart';
 import 'registrazione.dart';
 
 class AccessoScreen extends StatefulWidget {
@@ -58,9 +58,9 @@ class _AccessoScreenState extends State<AccessoScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Imprevisto: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Imprevisto: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -159,14 +159,48 @@ class _AccessoScreenState extends State<AccessoScreen> {
                           : () {
                               Navigator.of(context).push(
                                 MaterialPageRoute(
-                                  builder: (_) =>
-                                      const RegistrazioneScreen(),
+                                  builder: (_) => const RegistrazioneScreen(),
                                 ),
                               );
                             },
                       child: const Text('Registrati'),
                     ),
                   ],
+                ),
+                const SizedBox(height: 24),
+                const Divider(),
+                const SizedBox(height: 12),
+                Center(
+                  child: Text(
+                    'Oppure esplora senza registrarti',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _busy
+                        ? null
+                        : () async {
+                            // 1) forza logout: nessuna sessione, nessuna email
+                            try {
+                              await Supabase.instance.client.auth.signOut();
+                            } catch (e) {
+                              debugPrint('[Guest] signOut error: $e');
+                            }
+
+                            if (!mounted) return;
+
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const HomeShell(),
+                              ),
+                            );
+                          },
+                    icon: const Icon(Icons.explore_outlined),
+                    label: const Text('Esplora come ospite'),
+                  ),
                 ),
               ],
             ),

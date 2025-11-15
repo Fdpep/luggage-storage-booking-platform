@@ -14,7 +14,11 @@ class SchermataVerifyOtp extends StatefulWidget {
   final String email;
   final bool postSignup; // ci arriva dalla registrazione
 
-  const SchermataVerifyOtp({super.key, required this.email, this.postSignup = false});
+  const SchermataVerifyOtp({
+    super.key,
+    required this.email,
+    this.postSignup = false,
+  });
 
   @override
   State<SchermataVerifyOtp> createState() => _SchermataVerifyOtpState();
@@ -53,7 +57,9 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
     final codice = _ctrlCodice.text.trim();
     final errore = _validaCodice(codice);
     if (errore != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errore)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(errore)));
       return;
     }
 
@@ -61,21 +67,32 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
     final supabase = Supabase.instance.client;
 
     try {
+      // 1) Verifica OTP → qui Supabase crea/aggiorna la sessione
       await supabase.auth.verifyOTP(
         email: widget.email,
         token: codice,
         type: OtpType.email,
       );
 
-      // Salva e-mail e upsert profilo
+      // 2) Segna l'utente come "verificato via OTP" nei metadati
+      final currentUser = supabase.auth.currentUser;
+      final currentMeta = Map<String, dynamic>.from(
+        currentUser?.userMetadata ?? {},
+      );
+      currentMeta['otp_verified'] = true;
+
+      await supabase.auth.updateUser(UserAttributes(data: currentMeta));
+
+      // 3) Salva e-mail e upsert profilo
       await LastEmailStore.save(widget.email);
       await UserRepo().upsertMe();
 
       if (mounted) {
+         // 4) Vai in HomeShell (per gli utenti "normali")
         // In entrambi i casi (postSignup o login OTP) → vai in Home
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Verifica completata!')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Verifica completata!')));
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const HomeShell()),
           (_) => false,
@@ -84,12 +101,15 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
     } on AuthException catch (e) {
       final msg = e.message.toLowerCase();
       String readable = 'Codice non valido: ${e.message}';
-      if (msg.contains('expired')) readable = 'Codice scaduto. Richiedi un nuovo codice.';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(readable)));
+      if (msg.contains('expired'))
+        readable = 'Codice scaduto. Richiedi un nuovo codice.';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(readable)));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Imprevisto: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Imprevisto: $e')));
     } finally {
       if (mounted) setState(() => _caricamento = false);
     }
@@ -102,9 +122,9 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
     try {
       await supabase.auth.signInWithOtp(email: widget.email);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Nuovo codice inviato.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Nuovo codice inviato.')));
       }
       _startCooldown(45);
     } on AuthException catch (e) {
@@ -113,13 +133,15 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
         readable = 'Hai richiesto troppi codici: riprova più tardi.';
       }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(readable)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(readable)));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Errore invio codice: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Errore invio codice: $e')));
       }
     }
   }
@@ -147,8 +169,10 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('E-mail: ${widget.email}',
-                  style: Theme.of(context).textTheme.bodyLarge),
+              Text(
+                'E-mail: ${widget.email}',
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
               const SizedBox(height: 8),
               Text(
                 'Inserisci il codice (6 cifre) che ti abbiamo inviato via e-mail.',
@@ -181,7 +205,8 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
                       onPressed: _caricamento ? null : _verificaOTP,
                       child: _caricamento
                           ? const SizedBox(
-                              width: 22, height: 22,
+                              width: 22,
+                              height: 22,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Text('Verifica e accedi'),
@@ -189,9 +214,13 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
                   ),
                   const SizedBox(width: 12),
                   TextButton(
-                    onPressed: (_caricamento || _secondsLeft > 0) ? null : _reinviaCodice,
+                    onPressed: (_caricamento || _secondsLeft > 0)
+                        ? null
+                        : _reinviaCodice,
                     child: Text(
-                      _secondsLeft > 0 ? 'Re-invia (${_secondsLeft}s)' : 'Re-invia codice',
+                      _secondsLeft > 0
+                          ? 'Re-invia (${_secondsLeft}s)'
+                          : 'Re-invia codice',
                     ),
                   ),
                 ],

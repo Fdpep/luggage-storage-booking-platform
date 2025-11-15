@@ -47,7 +47,9 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     if (!_accetto) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Devi accettare i termini per continuare')),
+        const SnackBar(
+          content: Text('Devi accettare i termini per continuare'),
+        ),
       );
       return;
     }
@@ -62,7 +64,10 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
       final resp = await supabase.auth.signUp(
         email: email,
         password: password,
-        data: {'source': 'bagdrop-app'},
+        data: {
+          'source': 'bagdrop-app',
+          'otp_verified': false, // <-- flag custom},
+        },
       );
 
       // 2) Se ha creato una sessione subito, la chiudiamo:
@@ -71,16 +76,15 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
       }
 
       // 3) Invio OTP per verifica e-mail (non ricreare l'utente)
-      await supabase.auth.signInWithOtp(
-        email: email,
-        shouldCreateUser: false,
-      );
+      await supabase.auth.signInWithOtp(email: email, shouldCreateUser: false);
 
       await LastEmailStore.save(email);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Codice inviato. Controlla la tua e-mail.')),
+        const SnackBar(
+          content: Text('Codice inviato. Controlla la tua e-mail.'),
+        ),
       );
 
       Navigator.of(context).pushReplacement(
@@ -94,14 +98,14 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
       if (msg.toLowerCase().contains('user already registered')) {
         msg = 'Esiste già un account con questa e-mail.';
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Errore: $msg')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Errore: $msg')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Imprevisto: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Imprevisto: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -137,7 +141,7 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
                     controller: _ctrlEmail,
                     autofillHints: const [
                       AutofillHints.username,
-                      AutofillHints.email
+                      AutofillHints.email,
                     ],
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
@@ -162,7 +166,8 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
                             ? null
                             : () => setState(() => _showPwd = !_showPwd),
                         icon: Icon(
-                            _showPwd ? Icons.visibility_off : Icons.visibility),
+                          _showPwd ? Icons.visibility_off : Icons.visibility,
+                        ),
                       ),
                     ),
                     validator: Validators.password,
@@ -183,7 +188,8 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
                             ? null
                             : () => setState(() => _showPwd2 = !_showPwd2),
                         icon: Icon(
-                            _showPwd2 ? Icons.visibility_off : Icons.visibility),
+                          _showPwd2 ? Icons.visibility_off : Icons.visibility,
+                        ),
                       ),
                     ),
                     validator: (v) =>
@@ -199,8 +205,9 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
                     children: [
                       Checkbox(
                         value: _accetto,
-                        onChanged:
-                            _busy ? null : (v) => setState(() => _accetto = v ?? false),
+                        onChanged: _busy
+                            ? null
+                            : (v) => setState(() => _accetto = v ?? false),
                       ),
                       const Expanded(
                         child: Text(
@@ -234,8 +241,9 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
                       TextButton(
                         onPressed: _busy
                             ? null
-                            : () => Navigator.of(context)
-                                .pushReplacementNamed('/accesso'),
+                            : () => Navigator.of(
+                                context,
+                              ).pushReplacementNamed('/accesso'),
                         child: const Text('Accedi'),
                       ),
                     ],
