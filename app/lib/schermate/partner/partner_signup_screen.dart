@@ -104,10 +104,11 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
         );
       }
 
-      // 1bis) Marca il partner come "verificato" lato metadati → fa scattare il trigger SQL
+      // 1bis) Marca il partner come "verificato" lato metadati → fa scattare il trigger SQL  
+   
       final user = supabase.auth.currentUser!;
       final meta = Map<String, dynamic>.from(user.userMetadata ?? {});
-      meta['otp_verified'] = true;
+      meta['otp_verified'] = true;  //COMMENTARE SE SI VUOLE LASCIARE A FALSE E CANCELLARE SE NON VERIFICATO
       meta['source'] = 'bagdrop-partner-signup';
 
       await supabase.auth.updateUser(UserAttributes(data: meta));
