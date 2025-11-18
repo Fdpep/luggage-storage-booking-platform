@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../services/supabase/partner_repo.dart';
+import '../autenticazione/verify_otp.dart';
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../../services/supabase/maps/map_geocoding_service.dart';
@@ -54,6 +54,7 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
   }
 
   Future<void> _submit() async {
+    // 1) Validazione form
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     if (!_acceptDocs) {
@@ -67,7 +68,7 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       return;
     }
 
-    // Verifichiamo che l'indirizzo sia stato geocodificato.
+    // 2) Controllo geocoding
     if (_lat == null || _lng == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -86,45 +87,7 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       final email = _emailCtrl.text.trim();
       final pwd = _pwdCtrl.text;
 
-      // 1) Crea account utente per l’attività
-      await supabase.auth.signUp(
-        email: email,
-        password: pwd,
-        data: {'source': 'bagdrop-partner-signup'},
-      );
-      // Se Supabase non crea subito una sessione, eseguiamo login esplicito
-      if (supabase.auth.currentSession == null) {
-        await supabase.auth.signInWithPassword(email: email, password: pwd);
-      }
-
-      final uid = supabase.auth.currentUser?.id;
-      if (uid == null) {
-        throw Exception(
-          'Registrazione partner fallita: utente non autenticato dopo signUp.',
-        );
-      }
-
-      // 1bis) Marca il partner come "verificato" lato metadati → fa scattare il trigger SQL  
-   
-      final user = supabase.auth.currentUser!;
-      final meta = Map<String, dynamic>.from(user.userMetadata ?? {});
-      meta['otp_verified'] = true;  //COMMENTARE SE SI VUOLE LASCIARE A FALSE E CANCELLARE SE NON VERIFICATO
-      meta['source'] = 'bagdrop-partner-signup';
-
-      await supabase.auth.updateUser(UserAttributes(data: meta));
-
-      // 2) Imposta ruolo 'partner' in user_profiles
-      await supabase
-          .from('user_profiles')
-          .update({'role': 'partner'})
-          .eq('id', uid);
-
-      // 🔁 forza il refresh della sessione per far ricaricare il ruolo all’AuthGate
-      await supabase.auth.refreshSession();
-
-      // 3) Crea la richiesta partner (partners + partner_requests)
-      final repo = PartnerRepo(supabase);
-
+      // per creare la richiesta partner
       final capacity = int.tryParse(_capacityCtrl.text.trim()) ?? 0;
       final price2h = _price2hCtrl.text.trim().isEmpty
           ? null
@@ -132,32 +95,67 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       final pricePerDay = _pricePerDayCtrl.text.trim().isEmpty
           ? null
           : double.parse(_pricePerDayCtrl.text.trim().replaceAll(',', '.'));
+      final message = _messageCtrl.text.trim().isEmpty
+          ? null
+          : _messageCtrl.text.trim();
 
-      await repo.submitPartnerApplication(
-        name: _nameCtrl.text.trim(),
-        address: _addressCtrl.text.trim(),
-        capacity: capacity,
-        price2h: price2h,
-        pricePerDay: pricePerDay,
-        message: _messageCtrl.text.trim().isEmpty
-            ? null
-            : _messageCtrl.text.trim(),
-        lat: _lat,
-        lng: _lng,
+      // 3) Crea account auth per il partner
+      await supabase.auth.signUp(
+        email: email,
+        password: pwd,
+        data: {
+          'source': 'bagdrop-partner-signup',
+          'otp_verified': false, // parte sempre non verificato
+        },
       );
+
+      // 4) Se non ha creato sessione subito, fai login esplicito
+     /* if (supabase.auth.currentSession == null) {
+        await supabase.auth.signInWithPassword(email: email, password: pwd);
+      }  */
+      //mando otp
+      //await supabase.auth.signInWithOtp(email: email);
+
+      final currentUser = supabase.auth.currentUser;
+      if (currentUser == null) {
+        throw AuthException(
+          'Registrazione partner completata ma sessione non trovata. Riprova ad accedere.',
+        );
+      }
+
+      // DEBUG
+      // ignore: avoid_print
+      print('[PartnerSignup] userId (currentUser.id) = ${currentUser.id}');
 
       if (!mounted) return;
 
+      // 5) Avvisa che deve completare la verifica
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Richiesta inviata! Il nostro team la valuterà a breve.',
+            'Registrazione effettuata. Invia e verifica codice OTP per completare.',
           ),
         ),
       );
 
-      // Torna alla root: l’AuthGate ora vede role=partner e mostrerà PartnerShell
-      Navigator.of(context).popUntil((route) => route.isFirst);
+      // 6) Vai alla schermata di verifica OTP, passando i dati partner
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => SchermataVerifyOtp(
+            email: email,
+            postSignup: true,
+            isPartnerFlow: true,
+            partnerName: _nameCtrl.text.trim(),
+            partnerAddress: _addressCtrl.text.trim(),
+            partnerCapacity: capacity,
+            partnerPrice2h: price2h,
+            partnerPricePerDay: pricePerDay,
+            partnerMessage: message,
+            partnerLat: _lat!, // safe: li abbiamo controllati sopra
+            partnerLng: _lng!,
+          ),
+        ),
+      );
     } on AuthException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../home_shell.dart';
 import 'registrazione.dart';
+//import 'auth_actions.dart';
 
 class AccessoScreen extends StatefulWidget {
   const AccessoScreen({super.key});
@@ -167,7 +167,7 @@ class _AccessoScreenState extends State<AccessoScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 24),
+                /*const SizedBox(height: 24),
                 const Divider(),
                 const SizedBox(height: 12),
                 Center(
@@ -181,27 +181,15 @@ class _AccessoScreenState extends State<AccessoScreen> {
                   width: double.infinity,
                   child: OutlinedButton.icon(
                     onPressed: _busy
-                        ? null
-                        : () async {
-                            // 1) forza logout: nessuna sessione, nessuna email
-                            try {
-                              await Supabase.instance.client.auth.signOut();
-                            } catch (e) {
-                              debugPrint('[Guest] signOut error: $e');
-                            }
+                         ? null
+    : () async {
+        await AuthActions.enterAsGuest(context);
+      },
 
-                            if (!mounted) return;
-
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const HomeShell(),
-                              ),
-                            );
-                          },
                     icon: const Icon(Icons.explore_outlined),
                     label: const Text('Esplora come ospite'),
                   ),
-                ),
+                ),            */
               ],
             ),
           ),

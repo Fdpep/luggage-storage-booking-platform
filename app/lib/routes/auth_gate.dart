@@ -41,6 +41,8 @@ class _AuthGateState extends State<AuthGate> {
   String? _role; // <-- ruolo dell’utente
   bool _caricandoRuolo = false; // <-- flag caricamento ruolo
 
+  bool _shownIncompleteWarning = false;
+
   @override
   void initState() {
     super.initState();
@@ -60,6 +62,7 @@ class _AuthGateState extends State<AuthGate> {
         _session = s.session;
         _role = null; // reset ruolo quando cambia sessione
         _caricandoRuolo = false; // azzera eventuale spinner precedente
+        _shownIncompleteWarning = false; // nuovo login / nuova sessione → reset
       });
       if (s.session != null) {
         _loadRole(); //  carica ruolo appena loggati
@@ -86,8 +89,7 @@ class _AuthGateState extends State<AuthGate> {
     );
 
     // 1) Splash iniziale SEMPRE, oppure se sono loggato ma il ruolo non è pronto
-    if (_mostraIngresso ||
-        (_session != null && (_role == null || _caricandoRuolo))) {
+    if (_mostraIngresso || (_session != null && _caricandoRuolo)) {
       return widget.ingressoBuilder(context);
     }
 
@@ -99,6 +101,7 @@ class _AuthGateState extends State<AuthGate> {
 
       if (!otpVerified) {
         // Evito side-effect diretti nel build
+        /*
         WidgetsBinding.instance.addPostFrameCallback((_) async {
           await _supabase.auth.signOut();
           if (!mounted) return;
@@ -109,13 +112,37 @@ class _AuthGateState extends State<AuthGate> {
           );
         });
 
+*/
         // Mostro comunque il flusso non loggato
         return widget.signedOutBuilder(context);
       }
     }
 
     // 2) Non loggato → flusso accesso
+
     if (_session == null) {
+
+      // Altrimenti flusso di accesso normale (Accesso / Registrazione)
+      return widget.signedOutBuilder(context);
+    }
+
+    // 2bis) Loggato ma SENZA ruolo in user_profiles → registrazione non completata
+    if (_role == null) {
+      if (!_shownIncompleteWarning) {
+        _shownIncompleteWarning = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Registrazione non completata correttamente. '
+                'Per favore ripeti la registrazione.',
+              ),
+            ),
+          );
+        });
+      }
+      // Lo tratto come non loggato: torno al flusso di accesso/registrazione
       return widget.signedOutBuilder(context);
     }
 
@@ -149,7 +176,7 @@ class _AuthGateState extends State<AuthGate> {
           .eq('id', uid)
           .maybeSingle(); // ← evita Liste e gestisce 0/1 riga
 
-      String role = (row?['role'] as String?) ?? 'user';
+      final String? role = row?['role'] as String?;
       debugPrint('[AuthGate] ruolo caricato: $role (row=$row)');
 
       if (!mounted) return;
@@ -161,7 +188,7 @@ class _AuthGateState extends State<AuthGate> {
       debugPrint('[AuthGate] ERRORE caricando ruolo: $e  (RLS? colonna role?)');
       if (!mounted) return;
       setState(() {
-        _role = 'user'; // fallback prudente
+        // _role = 'user'; // fallback prudente
         _caricandoRuolo = false;
       });
     }

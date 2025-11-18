@@ -4,6 +4,7 @@ import '../../utils/validators.dart';
 import '../../utils/last_email_store.dart';
 import 'verify_otp.dart';
 import '../partner/partner_signup_screen.dart';
+//import 'auth_actions.dart';
 
 /// Registrazione con e-mail + password **confermata via OTP**
 class RegistrazioneScreen extends StatefulWidget {
@@ -61,7 +62,7 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
 
     try {
       // 1) Creazione account con password
-      final resp = await supabase.auth.signUp(
+      await supabase.auth.signUp(
         email: email,
         password: password,
         data: {
@@ -70,10 +71,11 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
         },
       );
 
+      /*
       // 2) Se ha creato una sessione subito, la chiudiamo:
       if (resp.session != null) {
-        await supabase.auth.signOut();
-      }
+        await supabase.auth.signOut();  
+      }*/
 
       // 3) Invio OTP per verifica e-mail (non ricreare l'utente)
       await supabase.auth.signInWithOtp(email: email, shouldCreateUser: false);
@@ -248,7 +250,31 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
                       ),
                     ],
                   ),
+/*
+                  const SizedBox(height: 24),
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  Center(
+                    child: Text(
+                      'Oppure esplora senza registrarti',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _busy
+                          ? null
+                          : () async {
+                              await AuthActions.enterAsGuest(context);
+                            },
 
+                      icon: const Icon(Icons.explore_outlined),
+                      label: const Text('Esplora come ospite'),
+                    ),
+                  ),
+*/
                   const SizedBox(height: 24),
                   const Divider(),
                   const SizedBox(height: 12),

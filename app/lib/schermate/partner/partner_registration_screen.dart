@@ -58,114 +58,56 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
   }
 
   Future<void> _submit() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
+  if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    // Verifichiamo che l'indirizzo sia stato geocodificato
-    // e che abbiamo lat/lng da salvare.
-    if (_lat == null || _lng == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Clicca sulla lente accanto all\'indirizzo per confermare la posizione.',
-          ),
+  // Verifica geocoding
+  if (_lat == null || _lng == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Clicca sulla lente accanto all\'indirizzo per confermare la posizione.',
         ),
+      ),
+    );
+    return;
+  }
+
+  FocusScope.of(context).unfocus();
+  setState(() => _busy = true);
+
+  final client = Supabase.instance.client;
+
+  // 🔍 DEBUG: controlliamo subito lo stato auth
+  final session = client.auth.currentSession;
+  final user = client.auth.currentUser;
+  // ignore: avoid_print
+  print('[PartnerRegistration] currentSession=${session != null}, userId=${user?.id}');
+
+  final userId = user?.id;
+
+  if (userId == null) {
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(
+        const SnackBar(content: Text('Utente non autenticato (nessuna sessione attiva).')),
       );
-      return;
     }
+    setState(() => _busy = false);
+    return;
+  }
 
-    FocusScope.of(context).unfocus();
-    setState(() => _busy = true);
+  try {
+    final capacity = int.tryParse(_capacityCtrl.text.trim()) ?? 0;
+    final price2h = double.tryParse(_price2hCtrl.text.trim());
+    final priceDay = double.tryParse(_priceDayCtrl.text.trim());
+    final note = _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim();
 
-    final client = Supabase.instance.client;
-    final userId = client.auth.currentUser?.id;
-
-    if (userId == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Utente non autenticato')));
-      }
-      setState(() => _busy = false);
-      return;
-    }
-
-    try {
-      final capacity = int.tryParse(_capacityCtrl.text.trim()) ?? 0;
-      final price2h = double.tryParse(_price2hCtrl.text.trim());
-      final priceDay = double.tryParse(_priceDayCtrl.text.trim());
-      final note = _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim();
-
-      /*    BLOCCO PRECEDENTE,GESTIVA UPDATE E INSERT IN MODO DIFFERENTE
-      
-      // 0) Controlla se esiste già un partner per questo owner_id
-      final existingPartnerRow = await client
-          .from('partners')
-          .select('id,status')
-          .eq('owner_id', userId)
-          .limit(1)
-          .maybeSingle();
-
-      String partnerId;
-
-      if (existingPartnerRow == null) {
-        // 1) PRIMA DOMANDA: INSERT partner
-        final insertPartner = await client
-            .from('partners')
-            .insert({
-              'owner_id': userId,
-              'name': _nameCtrl.text.trim(),
-              'address': _addressCtrl.text.trim(),
-              'capacity': capacity,
-              'price_2h': price2h,
-              'price_per_day': priceDay,
-              'status': 'pending',
-              'is_active': false,
-              'reject_reason': null,
-            })
-            .select()
-            .single();
-
-        partnerId = insertPartner['id'] as String;
-
-        // 2) INSERT richiesta associata
-        await client.from('partner_requests').insert({
-          'user_id': userId,
-          'partner_id': partnerId,
-          'status': 'pending',
-          'message': note,
-        });
-      } else {
-        // 1b) RIPROVA: UPDATE partner esistente
-        partnerId = existingPartnerRow['id'] as String;
-
-        await client
-            .from('partners')
-            .update({
-              'name': _nameCtrl.text.trim(),
-              'address': _addressCtrl.text.trim(),
-              'capacity': capacity,
-              'price_2h': price2h,
-              'price_per_day': priceDay,
-              'status': 'pending', // torna pending
-              'is_active': false, // disattivo finché non approvato
-              'reject_reason': null, // pulisco eventuale motivazione precedente
-            })
-            .eq('id', partnerId);
-
-        // 2b) inserisce SEMPRE una nuova richiesta
-        await client.from('partner_requests').insert({
-          'user_id': userId,
-          'partner_id': partnerId,
-          'status': 'pending',
-          'message': note,
-        });
-      }
-      */
-
-      // Usiamo il repository per gestire INSERT/UPDATE + partner_requests.
-      final repo = PartnerRepo(client);
+    // 🔧 Usiamo il repository, passandogli ANCHE lo userId
+    final repo = PartnerRepo(client);
 
       await repo.submitPartnerApplication(
+        userId: userId,
         name: _nameCtrl.text.trim(),
         address: _addressCtrl.text.trim(),
         capacity: capacity,
@@ -176,35 +118,39 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
         lng: _lng,
       );
 
-      if (!mounted) return;
+    if (!mounted) return;
 
-      // 3) Feedback + navigazione alla schermata "In attesa"
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Domanda inviata. Il nostro team la visionerà a breve.',
-          ),
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Domanda inviata. Il nostro team la visionerà a breve.',
         ),
-      );
+      ),
+    );
 
-      // 🔴 IMPORTANTE: non distruggiamo lo stack (RootGate/AuthGate devono restare)
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const PartnerWaitingScreen()),
-      );
-    } on PostgrestException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Errore database: ${e.message}')));
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Imprevisto: $e')));
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const PartnerWaitingScreen()),
+    );
+  } on PostgrestException catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Errore database: ${e.message}')));
+  } on AuthException catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Errore di autenticazione: ${e.message}')));
+  } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Imprevisto: $e')));
+  } finally {
+    if (mounted) setState(() => _busy = false);
   }
+}
+
 
   /// Usa la Google Geocoding API per tradurre l'indirizzo in lat/lng
   /// e li salva in `_lat` e `_lng`.

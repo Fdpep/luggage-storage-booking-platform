@@ -35,11 +35,25 @@ class AuthActions {
 
     try {
       await Supabase.instance.client.auth.signOut();
+      if (context.mounted) {
+        // Torna alla prima route (RootGate).
+        // Da lì RootGate + AuthGate vedono session=null
+        // e ti portano all'AccessoScreen.
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
       return true;
     } catch (e) {
       debugPrint('[Logout] signOut error: $e');
       // volendo puoi mostrare uno snackBar di errore qui
       return false;
     }
+  }
+
+  static Future<void> enterAsGuest(BuildContext context) async {
+
+    if (!context.mounted) return;
+
+    // Ripartiamo dalla root: AuthGate vedrà session=null + guest=true
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 }

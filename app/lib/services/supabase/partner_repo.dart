@@ -60,6 +60,7 @@ class PartnerRepo {
   /// - se esiste partner → UPDATE dei campi base + reset stato a 'pending'
   /// In entrambi i casi viene creata una riga in public.partner_requests.
   Future<Partner> submitPartnerApplication({
+    required String userId,
     required String name,
     required String address,
     required int capacity,
@@ -69,10 +70,8 @@ class PartnerRepo {
     double? lat,     
     double? lng,
   }) async {
-    final uid = _db.auth.currentUser?.id;
-    if (uid == null) {
-      throw Exception('Utente non autenticato');
-    }
+    final uid = userId;
+
 
     // 1) Verifica se esiste già un partner associato a questo utente
     final existing = await _db

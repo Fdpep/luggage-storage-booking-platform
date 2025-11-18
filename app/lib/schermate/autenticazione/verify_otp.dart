@@ -4,6 +4,9 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/supabase/user_repo.dart';
 import '../../utils/last_email_store.dart';
+import '../../services/supabase/partner_repo.dart';
+import '../partner/partner_waiting_screen.dart';
+
 //import '../home_shell.dart';
 
 /// Verifica OTP con:
@@ -13,11 +16,31 @@ import '../../utils/last_email_store.dart';
 class SchermataVerifyOtp extends StatefulWidget {
   final String email;
   final bool postSignup; // ci arriva dalla registrazione
+  final bool isPartnerFlow;
+
+  //  Dati extra usati SOLO nel flusso partner
+  final String? partnerName;
+  final String? partnerAddress;
+  final int? partnerCapacity;
+  final double? partnerPrice2h;
+  final double? partnerPricePerDay;
+  final String? partnerMessage;
+  final double? partnerLat;
+  final double? partnerLng;
 
   const SchermataVerifyOtp({
     super.key,
     required this.email,
     this.postSignup = false,
+    this.isPartnerFlow = false,
+    this.partnerName,
+    this.partnerAddress,
+    this.partnerCapacity,
+    this.partnerPrice2h,
+    this.partnerPricePerDay,
+    this.partnerMessage,
+    this.partnerLat,
+    this.partnerLng,
   });
 
   @override
@@ -76,20 +99,92 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
 
       // 2) Segna l'utente come "verificato via OTP" nei metadati
       final currentUser = supabase.auth.currentUser;
+      if (currentUser == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Verifica riuscita ma sessione non trovata. Riprova ad accedere.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      // 3) Segna l'utente come "verificato via OTP" nei metadati
       final currentMeta = Map<String, dynamic>.from(
-        currentUser?.userMetadata ?? {},
+        currentUser.userMetadata ?? {},
       );
       currentMeta['otp_verified'] = true;
 
       await supabase.auth.updateUser(UserAttributes(data: currentMeta));
 
-      // 3) Salva e-mail e upsert profilo
-      await LastEmailStore.save(widget.email);
-      await UserRepo().upsertMe();
+      // (opzionale, ma utile) forza refresh della sessione
+      await supabase.auth.refreshSession();
 
-      if (mounted) {
-         // 4) Vai in HomeShell (per gli utenti "normali")
-        // In entrambi i casi (postSignup o login OTP) → vai in Home
+      // 4) Salva e-mail e upsert profilo
+      await LastEmailStore.save(widget.email);
+      if (!widget.isPartnerFlow) {
+        await UserRepo().upsertMe();
+      }
+
+      if (!mounted) return;
+
+      // 5) Navigazione diversa a seconda del flusso:
+      if (widget.isPartnerFlow) {
+        // ----- FLUSSO PARTNER -----
+
+        final userId = currentUser.id;
+
+        // Controllo che i dati partner fondamentali ci siano
+        if (widget.partnerName == null ||
+            widget.partnerAddress == null ||
+            widget.partnerLat == null ||
+            widget.partnerLng == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Dati registrazione partner mancanti. Ripeti la registrazione.',
+              ),
+            ),
+          );
+          return;
+        }
+
+        // 5a) Imposta ruolo 'partner' in user_profiles
+        await supabase
+            .from('user_profiles')
+            .update({'role': 'partner'})
+            .eq('id', userId);
+
+        // 5b) Crea la richiesta partner (partners + partner_requests)
+        final repo = PartnerRepo(supabase);
+        await repo.submitPartnerApplication(
+          userId: userId,
+          name: widget.partnerName!,
+          address: widget.partnerAddress!,
+          capacity: widget.partnerCapacity ?? 0,
+          price2h: widget.partnerPrice2h,
+          pricePerDay: widget.partnerPricePerDay,
+          message: widget.partnerMessage,
+          lat: widget.partnerLat,
+          lng: widget.partnerLng,
+        );
+
+        // 5c) Snack + vai alla schermata di attesa partner
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Verifica completata! Richiesta partner inviata.'),
+          ),
+        );
+
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const PartnerWaitingScreen()),
+          (route) => route.isFirst,
+        );
+      } else {
+        // ----- FLUSSO USER NORMALE -----
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Verifica completata!')));
@@ -98,8 +193,9 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
     } on AuthException catch (e) {
       final msg = e.message.toLowerCase();
       String readable = 'Codice non valido: ${e.message}';
-      if (msg.contains('expired'))
+      if (msg.contains('expired')) {
         readable = 'Codice scaduto. Richiedi un nuovo codice.';
+      }
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(readable)));
@@ -147,8 +243,11 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
   void dispose() {
     _timer?.cancel();
     _ctrlCodice.dispose();
+
     super.dispose();
   }
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -216,8 +315,8 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
                         : _reinviaCodice,
                     child: Text(
                       _secondsLeft > 0
-                          ? 'Re-invia (${_secondsLeft}s)'
-                          : 'Re-invia codice',
+                          ? 'Invia (${_secondsLeft}s)'
+                          : 'Invia codice',
                     ),
                   ),
                 ],

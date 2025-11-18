@@ -1,10 +1,11 @@
 import 'dart:async';
+import 'package:BagDrop/schermate/autenticazione/registrazione.dart';
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
 import 'autenticazione/auth_actions.dart';
-import '../models/partner.dart';
+import 'map/user_map_page.dart';
+import 'autenticazione/accesso.dart';
 
 /// HomeShell = contenitore della home:
 /// - AppBar: hamburger (Drawer), titolo "BagDrop", icona filtro
@@ -46,6 +47,7 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
+    _checkOtpVerified();
     _authSub = _supabase.auth.onAuthStateChange.listen((data) {
       if (!mounted) return;
       // Refresh UI (icone/menu)
@@ -55,6 +57,42 @@ class _HomeShellState extends State<HomeShell> {
         _showPasswordResetSheet();
       }
     });
+  }
+
+  // Controlla se l’utente ha verificato l’OTP (e-mail).
+  // Se non è verificato, lo disconnette e lo riporta alla root.
+
+  Future<void> _checkOtpVerified() async {
+    final session = _supabase.auth.currentSession;
+    final user = session?.user;
+
+    // Nessuna sessione = può essere OSPITE → non faccio nulla
+    if (user == null) {
+      return;
+    }
+
+    final meta = user.userMetadata ?? {};
+    final otpVerified = meta['otp_verified'] == true;
+
+    // Se ha sessione ma NON è verificato, non deve stare in HomeShell
+    if (!otpVerified) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await _supabase.auth.signOut();
+        if (!mounted) return;
+
+        // Torna alla root dell'app (RootGate) oppure alla schermata di accesso
+        Navigator.of(context).popUntil((route) => route.isFirst);
+
+        // Volendo, puoi anche mostrare un messaggio:
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Completa prima la verifica dell’e-mail per accedere all’area utente.',
+            ),
+          ),
+        );
+      });
+    }
   }
 
   @override
@@ -73,7 +111,7 @@ class _HomeShellState extends State<HomeShell> {
 
     // Pagine con gating (tab 1 sempre visibile; 2-3 richiedono login)
     final pages = <Widget>[
-      const _MappaPage(),
+      const UserMapPage(),
       _isLoggedIn
           ? const _PrenotazioniPage()
           : const _RequireAuthCard(tabTitle: 'Prenotazioni'),
@@ -118,12 +156,22 @@ class _HomeShellState extends State<HomeShell> {
                 _ItemTile(
                   icon: Icons.login,
                   label: 'Accedi',
-                  onTap: (ctx) => Navigator.of(ctx).pushNamed('/accesso'),
+                  onTap: (ctx) {
+                    Navigator.of(ctx).pushNamedAndRemoveUntil(
+                      '/accesso',
+                      (route) => false, // svuota lo stack
+                    );
+                  },
                 ),
                 _ItemTile(
                   icon: Icons.person_add_outlined,
                   label: 'Registrati',
-                  onTap: (ctx) => Navigator.of(ctx).pushNamed('/registrazione'),
+                  onTap: (ctx) {
+                    Navigator.of(ctx).pushNamedAndRemoveUntil(
+                      '/registrazione',
+                      (route) => false,
+                    );
+                  },
                 ),
                 const Divider(height: 24),
 
@@ -535,436 +583,6 @@ class _ItemTile extends StatelessWidget {
 
 /// PAGINE (scheletri)
 
-/// Pagina mappa utente basata su Google Maps:
-/// - mostra una mappa centrata su Milano (per ora)
-/// - carica i partner approvati + attivi da Supabase (lat/lng non null)
-/// - mostra un marker per partner
-/// - tap marker → seleziona partner e mostra card in basso
-/// - pulsanti + / - per zoom
-/// - pulsante "Cerca attività" (per ora ricarica i partner, in futuro aprirà la search avanzata)
-class _MappaPage extends StatefulWidget {
-  const _MappaPage();
-
-  @override
-  State<_MappaPage> createState() => _MappaPageState();
-}
-
-class _MappaPageState extends State<_MappaPage> {
-  /// Client Supabase per leggere i partner
-  final SupabaseClient _supabase = Supabase.instance.client;
-
-  /// Lista dei partner da visualizzare
-  List<Partner> _partners = [];
-
-  /// Partner attualmente selezionato
-  Partner? _selectedPartner;
-
-  /// Stato di caricamento / errore
-  bool _isLoading = true;
-  String? _errorMessage;
-
-  /// Controller della Google Map per muovere la camera (zoom, ecc.)
-  GoogleMapController? _mapController;
-
-  /// Centro di default: Milano
-  static const LatLng _defaultCenter = LatLng(45.4642, 9.19);
-  static const double _defaultZoom = 13.0;
-
-  /// Icone per marker normale e selezionato
-  static final BitmapDescriptor _markerDefaultIcon =
-      BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
-  static final BitmapDescriptor _markerSelectedIcon =
-      BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
-
-  @override
-  void initState() {
-    super.initState();
-    // All'avvio carichiamo i partner
-    _loadPartners();
-  }
-
-  @override
-  void dispose() {
-    _mapController?.dispose();
-    super.dispose();
-  }
-
-  /// Carica i partner approvati + attivi da Supabase
-  Future<void> _loadPartners() async {
-    try {
-      setState(() {
-        _isLoading = true;
-        _errorMessage = null;
-      });
-
-      final data = await _supabase
-          .from('partners')
-          .select()
-          .eq('status', 'approved')
-          .eq('is_active', true)
-          .not('lat', 'is', null)
-          .not('lng', 'is', null);
-
-      final partners = (data as List<dynamic>)
-          .map((row) => Partner.fromMap(row as Map<String, dynamic>))
-          .toList();
-
-      setState(() {
-        _partners = partners;
-        _isLoading = false;
-      });
-    } catch (e, st) {
-      debugPrint('Errore caricamento partner per mappa: $e\n$st');
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'Impossibile caricare i partner in questo momento.';
-      });
-    }
-  }
-
-  /// Costruisce il set di marker per Google Maps
-  Set<Marker> _buildMarkers() {
-    // 1) Filtra solo i partner che hanno lat/lng non null (sicurezza lato Dart)
-    final validPartners = _partners.where(
-      (p) => p.lat != null && p.lng != null,
-    );
-
-    // 2) Crea un Marker per ogni partner valido
-    return validPartners.map((partner) {
-      final isSelected = _selectedPartner?.id == partner.id;
-
-      return Marker(
-        markerId: MarkerId(partner.id),
-        position: LatLng(
-          partner.lat!,
-          partner.lng!,
-        ), // qui uso ! perché ho filtrato sopra
-        icon: isSelected ? _markerSelectedIcon : _markerDefaultIcon,
-        onTap: () {
-          setState(() {
-            _selectedPartner = partner;
-          });
-        },
-      );
-    }).toSet();
-  }
-
-  /// Tap sulla mappa "vuota" → deseleziona il partner
-  void _onMapTap(LatLng position) {
-    setState(() {
-      _selectedPartner = null;
-    });
-  }
-
-  /// Zoom in
-  Future<void> _zoomIn() async {
-    final controller = _mapController;
-    if (controller == null) return;
-    await controller.animateCamera(CameraUpdate.zoomIn());
-  }
-
-  /// Zoom out
-  Future<void> _zoomOut() async {
-    final controller = _mapController;
-    if (controller == null) return;
-    await controller.animateCamera(CameraUpdate.zoomOut());
-  }
-
-  /// Pulsante "Cerca attività":
-  /// per ora fa semplicemente un refresh dei partner e mostra uno SnackBar.
-  /// In futuro lo userai per:
-  /// - cercare per zona / indirizzo
-  /// - filtrare per prezzo, tipo locale, ecc.
-  Future<void> _onSearchPressed() async {
-    await _loadPartners();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Attività aggiornate. In futuro qui ci sarà la ricerca avanzata.',
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    return Stack(
-      children: [
-        // 1) Google Map principale
-        GoogleMap(
-          initialCameraPosition: const CameraPosition(
-            target: _defaultCenter,
-            zoom: _defaultZoom,
-          ),
-          markers: _buildMarkers(),
-          onMapCreated: (controller) {
-            _mapController = controller;
-          },
-          onTap: _onMapTap,
-          // Per ora niente posizione utente, la aggiungeremo con un LocationService
-          myLocationEnabled: false,
-          myLocationButtonEnabled: false,
-          zoomControlsEnabled: false, // usiamo i nostri pulsanti custom
-          mapToolbarEnabled: false,
-        ),
-
-        // 2) Overlay caricamento
-        if (_isLoading)
-          const Positioned.fill(
-            child: IgnorePointer(
-              ignoring: true,
-              child: Center(child: CircularProgressIndicator()),
-            ),
-          ),
-
-        // 3) Overlay errore
-        if (_errorMessage != null && !_isLoading)
-          Positioned(
-            top: 16,
-            left: 16,
-            right: 16,
-            child: Card(
-              color: cs.errorContainer,
-              child: Padding(
-                padding: const EdgeInsets.all(12.0),
-                child: Text(
-                  _errorMessage!,
-                  style: textTheme.bodyMedium?.copyWith(
-                    color: cs.onErrorContainer,
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-        // 4) Messaggio "nessun partner"
-        if (!_isLoading && _errorMessage == null && _partners.isEmpty)
-          Positioned(
-            top: 16,
-            left: 16,
-            right: 16,
-            child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12.0),
-                child: Text(
-                  'Nessun partner disponibile in questa zona.\n'
-                  'Prova a ricaricare più tardi.',
-                  style: textTheme.bodyMedium,
-                ),
-              ),
-            ),
-          ),
-
-        // 5) Pulsante "Cerca attività" in alto
-        Positioned(
-          top: 16,
-          left: 16,
-          right: 16,
-          child: Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: _onSearchPressed,
-                  icon: const Icon(Icons.search),
-                  label: const Text('Cerca attività'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    backgroundColor: cs.primary,
-                    foregroundColor: cs.onPrimary,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        // 6) Pulsanti zoom + / - in basso a destra
-        Positioned(
-          right: 16,
-          bottom: _selectedPartner != null
-              ? 140
-              : 24, // se c'è la card li spostiamo più in alto
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              FloatingActionButton.small(
-                heroTag: 'zoom_in',
-                onPressed: _zoomIn,
-                child: const Icon(Icons.add),
-              ),
-              const SizedBox(height: 8),
-              FloatingActionButton.small(
-                heroTag: 'zoom_out',
-                onPressed: _zoomOut,
-                child: const Icon(Icons.remove),
-              ),
-            ],
-          ),
-        ),
-
-        // 7) Card in basso con il partner selezionato
-        if (_selectedPartner != null)
-          _PartnerBottomCard(
-            partner: _selectedPartner!,
-            onClose: () {
-              setState(() {
-                _selectedPartner = null;
-              });
-            },
-            onOpenDetail: () {
-              // TODO: navigazione alla schermata dettagli partner
-              // Navigator.of(context).push(...);
-            },
-          ),
-      ],
-    );
-  }
-}
-
-/// Card in basso che mostra le informazioni principali
-/// del partner selezionato sulla mappa.
-///
-/// Per ora:
-/// - mostra nome, prezzi, capacità
-/// - ha un placeholder per l'immagine di copertina
-/// - espone un bottone "Apri scheda" (callback onOpenDetail)
-class _PartnerBottomCard extends StatelessWidget {
-  final Partner partner;
-  final VoidCallback onClose;
-  final VoidCallback onOpenDetail;
-
-  const _PartnerBottomCard({
-    required this.partner,
-    required this.onClose,
-    required this.onOpenDetail,
-  });
-
-  /// Helper per formattare i prezzi se presenti
-  String _formatPrice(double? value, String label) {
-    if (value == null) return '';
-    // In futuro potrai internazionalizzare/format tare meglio con intl
-    return '$label ${value.toStringAsFixed(2)} €';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    final price2h = _formatPrice(partner.price2h, '2h da');
-    final pricePerDay = _formatPrice(partner.pricePerDay, 'Giorno da');
-
-    return Positioned(
-      left: 0,
-      right: 0,
-      bottom: 0,
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Card(
-          elevation: 8,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Riga principale: immagine + info + X di chiusura
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Placeholder per immagine di copertina:
-                    // in futuro potrai collegare PartnerPhotoRepo.fetchCoverPhoto(partner.id)
-                    Container(
-                      width: 72,
-                      height: 72,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        color: cs.surfaceVariant,
-                      ),
-                      child: const Icon(Icons.photo, size: 32),
-                    ),
-                    const SizedBox(width: 12),
-                    // Testi (nome, indirizzo, prezzi)
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            partner.name,
-                            style: textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          if (partner.address != null &&
-                              partner.address!.trim().isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4.0),
-                              child: Text(
-                                partner.address!,
-                                style: textTheme.bodySmall,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              if (price2h.isNotEmpty)
-                                Text(
-                                  price2h,
-                                  style: textTheme.bodyMedium?.copyWith(
-                                    color: cs.primary,
-                                  ),
-                                ),
-                              if (price2h.isNotEmpty && pricePerDay.isNotEmpty)
-                                const SizedBox(width: 8),
-                              if (pricePerDay.isNotEmpty)
-                                Text(pricePerDay, style: textTheme.bodyMedium),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Pulsante chiusura card
-                    IconButton(
-                      onPressed: onClose,
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                // Riga inferiore: info extra + bottone "Apri scheda"
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Capacità: ${partner.capacity}',
-                      style: textTheme.bodySmall,
-                    ),
-                    TextButton(
-                      onPressed: onOpenDetail,
-                      child: const Text('Apri scheda'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _PrenotazioniPage extends StatelessWidget {
   const _PrenotazioniPage();
 
@@ -1040,16 +658,26 @@ class _RequireAuthCard extends StatelessWidget {
                   children: [
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: () =>
-                            Navigator.of(context).pushNamed('/registrazione'),
+                        onPressed: () {
+                          Navigator.of(context).pushReplacement(
+                            MaterialPageRoute(
+                              builder: (_) => const RegistrazioneScreen(),
+                            ),
+                          );
+                        },
                         child: const Text('Registrati'),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: () =>
-                            Navigator.of(context).pushNamed('/accesso'),
+                        onPressed: () {
+                          Navigator.of(context).pushReplacement(
+                            MaterialPageRoute(
+                              builder: (_) => const AccessoScreen(),
+                            ),
+                          );
+                        },
                         child: const Text('Accedi'),
                       ),
                     ),
