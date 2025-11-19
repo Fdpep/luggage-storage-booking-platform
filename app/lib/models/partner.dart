@@ -1,7 +1,7 @@
 /// Modello dati per la tabella public.partners
 class Partner {
   final String id;
-  final String ownerId;            // FK verso auth.users.id
+  final String ownerId; // FK verso auth.users.id
   final String name;
   final String? address;
   final double? lat;
@@ -11,6 +11,11 @@ class Partner {
   final double? price2h;
   final double? pricePerDay;
   final bool isActive;
+
+  /// Nuovi campi descrittivi per la scheda locale
+  final String? description; // descrizione breve attività
+  final String? phone; // contatto telefonico
+  final String? rules; // regole (peso massimo, oggetti vietati, ecc.)
 
   /// Stato della richiesta: 'pending' | 'approved' | 'rejected'
   final String status;
@@ -34,6 +39,9 @@ class Partner {
     this.pricePerDay,
     this.isActive = true,
     this.status = 'pending',
+    this.description,
+    this.phone,
+    this.rules,
     this.rejectReason,
     this.createdAt,
     this.updatedAt,
@@ -52,6 +60,10 @@ class Partner {
       price2h: (map['price_2h'] as num?)?.toDouble(),
       pricePerDay: (map['price_per_day'] as num?)?.toDouble(),
       isActive: (map['is_active'] as bool?) ?? true,
+      description: map['description'] as String?,
+      phone: map['phone'] as String?,
+      rules: map['rules'] as String?,
+
       status: (map['status'] as String?) ?? 'pending',
       rejectReason: map['reject_reason'] as String?,
       createdAt: map['created_at'] == null
@@ -76,6 +88,9 @@ class Partner {
       'price_2h': price2h,
       'price_per_day': pricePerDay,
       'is_active': isActive,
+      'description': description,
+      'phone': phone,
+      'rules': rules,
       'status': status,
       'reject_reason': rejectReason,
       'created_at': createdAt?.toIso8601String(),
@@ -84,7 +99,7 @@ class Partner {
   }
 
   /// Helper comodi per la UI
-  bool get isPending  => status == 'pending';
+  bool get isPending => status == 'pending';
   bool get isApproved => status == 'approved' && isActive;
   bool get isRejected => status == 'rejected';
 }

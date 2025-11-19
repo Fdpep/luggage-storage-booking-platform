@@ -38,6 +38,10 @@ class PartnerRepo {
     num? price2h,
     num? pricePerDay,
     bool? isActive,
+    String? description,
+    String? phone,
+    String? rules,
+    Map<String, dynamic>? openingHours,
   }) async {
     final patch = <String, dynamic>{};
     if (name != null) patch['name'] = name;
@@ -46,6 +50,10 @@ class PartnerRepo {
     if (price2h != null) patch['price_2h'] = price2h;
     if (pricePerDay != null) patch['price_per_day'] = pricePerDay;
     if (isActive != null) patch['is_active'] = isActive;
+    if (description != null) patch['description'] = description;
+    if (phone != null) patch['phone'] = phone;
+    if (rules != null) patch['rules'] = rules;
+    if (openingHours != null) patch['opening_hours'] = openingHours;
 
     if (patch.isEmpty) return;
 
@@ -67,11 +75,10 @@ class PartnerRepo {
     double? price2h,
     double? pricePerDay,
     String? message,
-    double? lat,     
+    double? lat,
     double? lng,
   }) async {
     final uid = userId;
-
 
     // 1) Verifica se esiste già un partner associato a questo utente
     final existing = await _db
@@ -90,8 +97,8 @@ class PartnerRepo {
             'owner_id': uid,
             'name': name,
             'address': address,
-            'lat': lat,              
-            'lng': lng,              
+            'lat': lat,
+            'lng': lng,
             'capacity': capacity,
             'price_2h': price2h,
             'price_per_day': pricePerDay,
@@ -108,8 +115,8 @@ class PartnerRepo {
           .update({
             'name': name,
             'address': address,
-            'lat': lat,              
-            'lng': lng,              
+            'lat': lat,
+            'lng': lng,
             'capacity': capacity,
             'price_2h': price2h,
             'price_per_day': pricePerDay,

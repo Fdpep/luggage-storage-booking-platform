@@ -7,6 +7,9 @@ import '../../services/supabase/location/location_service.dart'; // nuovo serviz
 import '../../services/supabase/maps/map_geocoding_service.dart';
 import '../../services/supabase/maps/maps_config.dart';
 import '../../services/supabase/location/places_autocomplete_service.dart';
+import '../partner/partner_detail_screen.dart';
+import 'package:BagDrop/models/partner_photo.dart';
+import 'package:BagDrop/services/supabase/partner_photo/partner_photo_repo.dart';
 
 /// Pagina mappa utente con Google Maps:
 /// - centra inizialmente su Milano
@@ -476,7 +479,7 @@ class UserMapPageState extends State<UserMapPage> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.search),
-                  label: const Text('Cerca attività'),
+                  label: const Text('Cerca in zona'),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     backgroundColor: cs.primary,
@@ -535,8 +538,13 @@ class UserMapPageState extends State<UserMapPage> {
               });
             },
             onOpenDetail: () {
-              // TODO: navigazione alla schermata dettagli partner
-              // Navigator.of(context).push(...);
+              final selected = _selectedPartner;
+              if (selected == null) return;
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => PartnerDetailScreen(partner: selected),
+                ),
+              );
             },
           ),
       ],
@@ -547,11 +555,12 @@ class UserMapPageState extends State<UserMapPage> {
 /// Card in basso che mostra le informazioni principali
 /// del partner selezionato sulla mappa.
 ///
-/// Per ora:
+/// Ora:
 /// - mostra nome, prezzi, capacità
-/// - ha un placeholder per l'immagine di copertina
+/// - prova a caricare la foto di copertina tramite PartnerPhotoRepo
+/// - se non trova cover → placeholder
 /// - espone un bottone "Apri scheda" (callback onOpenDetail)
-class _PartnerBottomCard extends StatelessWidget {
+class _PartnerBottomCard extends StatefulWidget {
   final Partner partner;
   final VoidCallback onClose;
   final VoidCallback onOpenDetail;
@@ -562,6 +571,45 @@ class _PartnerBottomCard extends StatelessWidget {
     required this.onOpenDetail,
   });
 
+  @override
+  State<_PartnerBottomCard> createState() => _PartnerBottomCardState();
+}
+
+class _PartnerBottomCardState extends State<_PartnerBottomCard> {
+  final _photoRepo = const PartnerPhotoRepo();
+
+  PartnerPhoto? _coverPhoto;
+  bool _loadingCover = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCoverPhoto();
+  }
+
+  /// Carica la foto di copertina del partner (se presente).
+  Future<void> _loadCoverPhoto() async {
+    setState(() {
+      _loadingCover = true;
+    });
+
+    try {
+      final photo = await _photoRepo.fetchCoverPhoto(widget.partner.id);
+      if (!mounted) return;
+      setState(() {
+        _coverPhoto = photo;
+        _loadingCover = false;
+      });
+    } catch (e, st) {
+      debugPrint('Errore nel caricamento cover partner: $e\n$st');
+      if (!mounted) return;
+      setState(() {
+        _coverPhoto = null;
+        _loadingCover = false;
+      });
+    }
+  }
+
   /// Helper per formattare i prezzi se presenti
   String _formatPrice(double? value, String label) {
     if (value == null) return '';
@@ -569,11 +617,71 @@ class _PartnerBottomCard extends StatelessWidget {
     return '$label ${value.toStringAsFixed(2)} €';
   }
 
+  /// Widget che mostra:
+  /// - spinner mentre carica
+  /// - cover se presente
+  /// - placeholder se non c'è nulla
+  Widget _buildCoverImage(ColorScheme cs) {
+    final borderRadius = BorderRadius.circular(12);
+
+    if (_loadingCover) {
+      return Container(
+        width: 72,
+        height: 72,
+        decoration: BoxDecoration(
+          borderRadius: borderRadius,
+          color: cs.surfaceVariant,
+        ),
+        child: const Center(
+          child: SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+
+    if (_coverPhoto == null) {
+      return Container(
+        width: 72,
+        height: 72,
+        decoration: BoxDecoration(
+          borderRadius: borderRadius,
+          color: cs.surfaceVariant,
+        ),
+        child: const Icon(Icons.photo, size: 32),
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: borderRadius,
+      child: Image.network(
+        _coverPhoto!.url,
+        width: 72,
+        height: 72,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              borderRadius: borderRadius,
+              color: cs.surfaceVariant,
+            ),
+            child: const Icon(Icons.broken_image, size: 28),
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
+    final partner = widget.partner;
     final price2h = _formatPrice(partner.price2h, '2h da');
     final pricePerDay = _formatPrice(partner.pricePerDay, 'Giorno da');
 
@@ -597,17 +705,8 @@ class _PartnerBottomCard extends StatelessWidget {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Placeholder per immagine di copertina:
-                    // in futuro potrai collegare PartnerPhotoRepo.fetchCoverPhoto(partner.id)
-                    Container(
-                      width: 72,
-                      height: 72,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        color: cs.surfaceVariant,
-                      ),
-                      child: const Icon(Icons.photo, size: 32),
-                    ),
+                    // Immagine di copertina (o placeholder)
+                    _buildCoverImage(cs),
                     const SizedBox(width: 12),
                     // Testi (nome, indirizzo, prezzi)
                     Expanded(
@@ -652,7 +751,7 @@ class _PartnerBottomCard extends StatelessWidget {
                     ),
                     // Pulsante chiusura card
                     IconButton(
-                      onPressed: onClose,
+                      onPressed: widget.onClose,
                       icon: const Icon(Icons.close),
                     ),
                   ],
@@ -667,7 +766,7 @@ class _PartnerBottomCard extends StatelessWidget {
                       style: textTheme.bodySmall,
                     ),
                     TextButton(
-                      onPressed: onOpenDetail,
+                      onPressed: widget.onOpenDetail,
                       child: const Text('Apri scheda'),
                     ),
                   ],

@@ -202,3 +202,11 @@ create trigger set_partners_updated_at
 
 commit;
 
+--------------------------------------------------------------------------------
+--Aggiungo colonne di telefonoregole a public.partners
+--------------------------------------------------------------------------------
+
+alter table public.partners
+  add column description text,
+  add column phone text,
+  add column rules text;
