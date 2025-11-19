@@ -5,6 +5,7 @@ import '../autenticazione/verify_otp.dart';
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../../services/supabase/maps/map_geocoding_service.dart';
+import '../../services/supabase/location/places_autocomplete_service.dart';
 
 class PartnerSignUpScreen extends StatefulWidget {
   const PartnerSignUpScreen({super.key});
@@ -28,6 +29,11 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
   final _price2hCtrl = TextEditingController();
   final _pricePerDayCtrl = TextEditingController();
   final _messageCtrl = TextEditingController();
+
+  // Suggerimenti indirizzo (autocomplete)
+  List<PlaceSuggestion> _addressSuggestions = [];
+  bool _isAddressAutocompleteLoading = false;
+  String _addressQuery = '';
 
   bool _busy = false;
   bool _showPwd = false;
@@ -110,7 +116,7 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       );
 
       // 4) Se non ha creato sessione subito, fai login esplicito
-     /* if (supabase.auth.currentSession == null) {
+      /* if (supabase.auth.currentSession == null) {
         await supabase.auth.signInWithPassword(email: email, password: pwd);
       }  */
       //mando otp
@@ -223,6 +229,181 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
         });
       }
     }
+  }
+
+  /// Apre una bottom sheet con autocomplete indirizzo (Google Places).
+  /// Quando scegli un suggerimento:
+  ///  - compila il campo indirizzo
+  ///  - chiama _geocodeAddress per riempire _lat / _lng.
+  Future<void> _openAddressSearch() async {
+    setState(() {
+      _addressError = null;
+    });
+
+    final apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'];
+    if (apiKey == null || apiKey.isEmpty) {
+      setState(() {
+        _addressError =
+            'API key Google Maps mancante. Definisci GOOGLE_MAPS_API_KEY in .env.';
+      });
+      return;
+    }
+
+    final placesService = PlacesAutocompleteService(apiKey: apiKey);
+
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final textController = TextEditingController(text: _addressCtrl.text);
+        List<PlaceSuggestion> suggestions = [];
+        String queryText = textController.text;
+        bool isLoading = false;
+
+        Future<void> _updateSuggestions(
+          String value,
+          void Function(void Function()) setModalState,
+        ) async {
+          final q = value.trim();
+          if (q.length < 3) {
+            setModalState(() => suggestions = []);
+            return;
+          }
+
+          setModalState(() => isLoading = true);
+          final res = await placesService.fetchSuggestions(q);
+          setModalState(() {
+            isLoading = false;
+            suggestions = res;
+          });
+        }
+
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+                left: 16,
+                right: 16,
+                top: 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Cerca indirizzo attività',
+                    style: Theme.of(ctx).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: textController,
+                    decoration: const InputDecoration(
+                      hintText: 'Via / Piazza, numero civico, città',
+                      border: OutlineInputBorder(),
+                    ),
+                    textInputAction: TextInputAction.search,
+                    onChanged: (value) {
+                      setModalState(() => queryText = value);
+                      _updateSuggestions(value, setModalState);
+                    },
+                    onSubmitted: (value) {
+                      Navigator.of(ctx).pop(value);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  if (!isLoading &&
+                      suggestions.isEmpty &&
+                      queryText.trim().length < 3)
+                    const Text(
+                      'Digita almeno 3 caratteri per vedere i suggerimenti',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  if (isLoading) const LinearProgressIndicator(),
+                  if (suggestions.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 200,
+                      child: ListView.builder(
+                        itemCount: suggestions.length,
+                        itemBuilder: (ctx, index) {
+                          final s = suggestions[index];
+                          return ListTile(
+                            leading: const Icon(Icons.location_on_outlined),
+                            title: Text(s.description),
+                            onTap: () {
+                              Navigator.of(ctx).pop(s.description);
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.of(ctx).pop(textController.text);
+                      },
+                      child: const Text('Usa questo indirizzo'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    final chosen = selected?.trim();
+    if (chosen == null || chosen.isEmpty) return;
+
+    // 1) Aggiorniamo il campo indirizzo con il testo scelto
+    setState(() {
+      _addressCtrl.text = chosen;
+    });
+
+    // 2) E facciamo il geocoding "classico" per lat/lng
+    await _geocodeAddress();
+  }
+
+
+
+/// Chiamato mentre l'utente scrive nell'indirizzo.
+/// Usa PlacesAutocompleteService per mostrare i suggerimenti live.
+  Future<void> _onAddressChanged(String value) async {
+    setState(() {
+      _addressQuery = value;
+      _addressError = null;
+    });
+
+    final query = value.trim();
+    if (query.length < 3) {
+      setState(() => _addressSuggestions = []);
+      return;
+    }
+
+    final apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'];
+    if (apiKey == null || apiKey.isEmpty) {
+      setState(() {
+        _addressError =
+            'API key Google Maps mancante. Definisci GOOGLE_MAPS_API_KEY in .env.';
+        _addressSuggestions = [];
+      });
+      return;
+    }
+
+    setState(() => _isAddressAutocompleteLoading = true);
+    final placesService = PlacesAutocompleteService(apiKey: apiKey);
+    final suggestions = await placesService.fetchSuggestions(query);
+
+    if (!mounted) return;
+    setState(() {
+      _isAddressAutocompleteLoading = false;
+      _addressSuggestions = suggestions;
+    });
   }
 
   @override
@@ -372,6 +553,7 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
                                 ),
                               )
                             : const Icon(Icons.search),
+                        // La lente fa ancora il geocoding "manuale"
                         onPressed: _isGeocoding ? null : _geocodeAddress,
                       ),
                     ),
@@ -381,6 +563,10 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
                       return null;
                     },
                     enabled: !_busy,
+                    onChanged: (value) {
+                      if (_busy) return;
+                      _onAddressChanged(value);
+                    },
                   ),
                   if (_addressError != null) ...[
                     const SizedBox(height: 4),
@@ -391,6 +577,34 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
                       ),
                     ),
                   ],
+                  if (_isAddressAutocompleteLoading)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 4),
+                      child: LinearProgressIndicator(),
+                    ),
+                  if (_addressSuggestions.isNotEmpty)
+                    SizedBox(
+                      height: 180,
+                      child: ListView.builder(
+                        itemCount: _addressSuggestions.length,
+                        itemBuilder: (context, index) {
+                          final s = _addressSuggestions[index];
+                          return ListTile(
+                            leading: const Icon(Icons.location_on_outlined),
+                            title: Text(s.description),
+                            onTap: () async {
+                              // 1) Mettiamo il testo scelto nel campo
+                              setState(() {
+                                _addressCtrl.text = s.description;
+                                _addressSuggestions = [];
+                              });
+                              // 2) Facciamo il geocoding per riempire _lat / _lng
+                              await _geocodeAddress();
+                            },
+                          );
+                        },
+                      ),
+                    ),
                   const SizedBox(height: 12),
 
                   TextFormField(

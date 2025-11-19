@@ -4,8 +4,9 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../models/partner.dart'; // adatta il path se usi import assoluti
 import '../../services/supabase/location/location_service.dart'; // nuovo servizio
-
-
+import '../../services/supabase/maps/map_geocoding_service.dart';
+import '../../services/supabase/maps/maps_config.dart';
+import '../../services/supabase/location/places_autocomplete_service.dart';
 
 /// Pagina mappa utente con Google Maps:
 /// - centra inizialmente su Milano
@@ -42,8 +43,23 @@ class UserMapPageState extends State<UserMapPage> {
   /// Flag per capire se stiamo cercando la posizione utente
   bool _isLocatingUser = false;
 
+  /// True se abbiamo ottenuto almeno una volta la posizione (permessi ok)
+  bool _hasLocationPermission = false;
+
   /// Controller per la Google Map
   GoogleMapController? _mapController;
+
+  /// Service per il geocoding testuale (es. "Milano Centrale" -> lat/lng).
+  /// Usiamo la stessa API key che hai configurato per Google Maps.
+  final _geoService = MapGeocodingService(apiKey: MapsConfig.googleMapsApiKey);
+
+  /// Service per i suggerimenti di indirizzo (autocomplete).
+  final _placesService = PlacesAutocompleteService(
+    apiKey: MapsConfig.googleMapsApiKey,
+  );
+
+  /// True mentre stiamo cercando un indirizzo e centrando la mappa.
+  bool _isSearchingArea = false;
 
   /// Centro di default: Milano
   static const LatLng _defaultCenter = LatLng(45.4642, 9.19);
@@ -124,17 +140,14 @@ class UserMapPageState extends State<UserMapPage> {
         return;
       }
 
+      // Abbiamo una posizione valida → aggiorniamo lo state
+      if (mounted) {
+        setState(() {
+          _hasLocationPermission = true;
+        });
+      }
+
       final target = LatLng(pos.latitude, pos.longitude);
-      await _mapController!.animateCamera(
-        CameraUpdate.newCameraPosition(
-          const CameraPosition(
-            // zoom di default per vista utente, puoi regolarlo
-            target: _defaultCenter,
-            zoom: _defaultZoom,
-          ),
-        ),
-      );
-      // In realtà vogliamo zoomare sulla posizione vera:
       await _mapController!.animateCamera(
         CameraUpdate.newLatLngZoom(target, 14),
       );
@@ -162,8 +175,9 @@ class UserMapPageState extends State<UserMapPage> {
   /// Costruisce il set di marker da mostrare sulla mappa
   Set<Marker> _buildMarkers() {
     // Filtra solo partner con coordinate valide (sicurezza lato Dart)
-    final validPartners =
-        _partners.where((p) => p.lat != null && p.lng != null);
+    final validPartners = _partners.where(
+      (p) => p.lat != null && p.lng != null,
+    );
 
     return validPartners.map((partner) {
       final isSelected = _selectedPartner?.id == partner.id;
@@ -203,55 +217,113 @@ class UserMapPageState extends State<UserMapPage> {
   }
 
   /// bottone "Cerca attività":
-  /// ora apre una bottom sheet con un campo testo.
-  /// In futuro collegherai qui il tuo MapGeocodingService
-  /// per centrare la mappa su una zona (es. "Milano Centrale").
+  /// - mostra una bottom sheet con campo testo
+  /// - mentre scrivi chiama PlacesAutocompleteService
+  /// - tap su un suggerimento = centri la mappa su quell’indirizzo
   Future<void> _onSearchPressed() async {
     final result = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       builder: (ctx) {
         final textController = TextEditingController();
+        List<PlaceSuggestion> suggestions = [];
+        String queryText = '';
+        bool isLoading = false;
 
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
-            left: 16,
-            right: 16,
-            top: 16,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Cerca una zona o indirizzo',
-                style: Theme.of(ctx).textTheme.titleMedium,
+        Future<void> _updateSuggestions(
+          String value,
+          void Function(void Function()) setModalState,
+        ) async {
+          final query = value.trim();
+          if (query.length < 3) {
+            setModalState(() => suggestions = []);
+            return;
+          }
+
+          setModalState(() => isLoading = true);
+          final res = await _placesService.fetchSuggestions(query);
+          setModalState(() {
+            isLoading = false;
+            suggestions = res;
+          });
+        }
+
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+                left: 16,
+                right: 16,
+                top: 16,
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: textController,
-                decoration: const InputDecoration(
-                  hintText: 'Es. Milano Centrale, Duomo, Porta Romana...',
-                  border: OutlineInputBorder(),
-                ),
-                textInputAction: TextInputAction.search,
-                onSubmitted: (value) {
-                  Navigator.of(ctx).pop(value);
-                },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Cerca una zona o indirizzo',
+                    style: Theme.of(ctx).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: textController,
+                    decoration: const InputDecoration(
+                      hintText: 'Es. Milano Centrale, Duomo, Porta Romana...',
+                      border: OutlineInputBorder(),
+                    ),
+                    textInputAction: TextInputAction.search,
+                    onChanged: (value) {
+                      setModalState(() => queryText = value);
+                      _updateSuggestions(value, setModalState);
+                    },
+                    onSubmitted: (value) {
+                      Navigator.of(ctx).pop(value);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  if (!isLoading &&
+                      suggestions.isEmpty &&
+                      queryText.trim().length < 3)
+                    const Text(
+                      'Digita almeno 3 caratteri per vedere i suggerimenti',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  if (isLoading) const LinearProgressIndicator(),
+                  if (suggestions.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 200,
+                      child: ListView.builder(
+                        itemCount: suggestions.length,
+                        itemBuilder: (ctx, index) {
+                          final s = suggestions[index];
+                          return ListTile(
+                            leading: const Icon(Icons.location_on_outlined),
+                            title: Text(s.description),
+                            onTap: () {
+                              // Ritorniamo la descrizione come indirizzo da geocodificare
+                              Navigator.of(ctx).pop(s.description);
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.of(ctx).pop(textController.text);
+                      },
+                      child: const Text('Cerca'),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerRight,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(ctx).pop(textController.text);
-                  },
-                  child: const Text('Cerca'),
-                ),
-              ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
@@ -259,28 +331,58 @@ class UserMapPageState extends State<UserMapPage> {
     final query = result?.trim();
     if (query == null || query.isEmpty) return;
 
-    // TODO: collega qui il tuo MapGeocodingService per ottenere lat/lng da `query`
-    // Esempio concettuale (adatta a come è fatto il tuo service):
-    //
-    // final geocoding = MapGeocodingService();
-    // final coords = await geocoding.geocodeAddress(query);
-    // if (coords != null && _mapController != null) {
-    //   await _mapController!.animateCamera(
-    //     CameraUpdate.newLatLngZoom(
-    //       LatLng(coords.lat, coords.lng),
-    //       14,
-    //     ),
-    //   );
-    // }
+    await _searchAndCenterOn(query);
+  }
 
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Ricerca "$query" ricevuta.\nCollega qui il MapGeocodingService per centrare la mappa.',
-        ),
-      ),
-    );
+  /// Usa MapGeocodingService per geocodificare una query testuale
+  /// (es. "Milano Centrale") e centra la mappa sul primo risultato trovato.
+  Future<void> _searchAndCenterOn(String query) async {
+    // Se la mappa non è ancora pronta, evitiamo errori.
+    if (_mapController == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('La mappa non è ancora pronta')),
+      );
+      return;
+    }
+
+    setState(() => _isSearchingArea = true);
+
+    try {
+      //
+      // Esempio tipico:
+      // final result = await _geoService.geocodeAddress(query);
+      //
+      // Qui assumo che ritorni un oggetto con campi `lat` e `lng` (double).
+      final result = await _geoService.geocodeAddress(query);
+
+      if (!mounted) return;
+
+      if (result == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Nessun risultato trovato per questa ricerca'),
+          ),
+        );
+        return;
+      }
+
+      // Se il tuo result ha nomi diversi (es. result.latitude), adattali qui.
+      final target = LatLng(result.lat, result.lng);
+
+      await _mapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(target, 14),
+      );
+    } catch (e, st) {
+      debugPrint('Errore durante il geocoding: $e\n$st');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Errore durante la ricerca. Riprova.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSearchingArea = false);
+      }
+    }
   }
 
   @override
@@ -303,7 +405,8 @@ class UserMapPageState extends State<UserMapPage> {
             _initUserLocation();
           },
           onTap: _onMapTap,
-          myLocationEnabled: false, // per ora non mostriamo il "pallino blu"
+          myLocationEnabled:
+              _hasLocationPermission, // per ora non mostriamo il "pallino blu"
           myLocationButtonEnabled: false,
           zoomControlsEnabled: false, // usiamo i nostri pulsanti custom
           mapToolbarEnabled: false,
@@ -365,8 +468,14 @@ class UserMapPageState extends State<UserMapPage> {
             children: [
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: _onSearchPressed,
-                  icon: const Icon(Icons.search),
+                  onPressed: _isSearchingArea ? null : _onSearchPressed,
+                  icon: _isSearchingArea
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.search),
                   label: const Text('Cerca attività'),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 12),
