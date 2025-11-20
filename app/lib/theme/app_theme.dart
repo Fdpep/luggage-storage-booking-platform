@@ -8,6 +8,10 @@ class AppTheme {
   static const Color brandPurple = Color(0xFF4E40CA);
   static const Color brandYellow = Color(0xFFF9CC21);
 
+  // Neutrali / “navy” per testi e sfondi
+  static const Color brandNavy = Color(0xFF111827);
+  static const Color softBackground = Color(0xFFF5F5FA);
+
   /// ColorScheme di base (chiaro)
   static const ColorScheme _scheme = ColorScheme(
     brightness: Brightness.light,
@@ -17,8 +21,8 @@ class AppTheme {
     onSecondary: Colors.black,
     error: Color(0xFFB3261E),
     onError: Colors.white,
-    background: Color(0xFFF7F7FB),
-    onBackground: Color(0xFF111111),
+    background: softBackground,
+    onBackground: brandNavy,
     surface: Colors.white,
     onSurface: Color(0xFF222222),
     // Non usati direttamente ma richiesti da ColorScheme completo:
@@ -36,38 +40,192 @@ class AppTheme {
 
   /// ThemeData principale
   static ThemeData light() {
+    final scheme = _scheme;
+
     return ThemeData(
       useMaterial3: true,
-      colorScheme: _scheme,
-      scaffoldBackgroundColor: _scheme.background,
-      appBarTheme: const AppBarTheme(
+      colorScheme: scheme,
+      scaffoldBackgroundColor: scheme.background,
+
+      // Font generale (ricorda di aggiungere Poppins nel pubspec)
+      fontFamily: 'Poppins',
+
+      appBarTheme: AppBarTheme(
         elevation: 0,
         centerTitle: true,
+        backgroundColor: scheme.surface,
+        foregroundColor: scheme.onSurface,
+        scrolledUnderElevation: 0,
+        titleTextStyle: const TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+        ),
       ),
-      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+
+      bottomNavigationBarTheme: BottomNavigationBarThemeData(
         type: BottomNavigationBarType.fixed,
+        backgroundColor: scheme.surface,
+        selectedItemColor: scheme.primary,
+        unselectedItemColor: scheme.outline,
+        selectedLabelStyle: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+        unselectedLabelStyle: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w400,
+        ),
+        showUnselectedLabels: true,
+        elevation: 8,
       ),
+
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: _scheme.primary,
+        backgroundColor: scheme.primary,
         contentTextStyle: const TextStyle(color: Colors.white),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: Colors.white,
-        border: OutlineInputBorder(
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
         ),
       ),
-      cardTheme: CardThemeData(
-        elevation: 0,
-        color: _scheme.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(
+            color: scheme.outlineVariant,
+          ),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(
+            color: scheme.outlineVariant,
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(
+            color: scheme.primary,
+            width: 1.4,
+          ),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(
+            color: scheme.error,
+          ),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(
+            color: scheme.error,
+            width: 1.4,
+          ),
+        ),
+        hintStyle: TextStyle(
+          color: scheme.outline,
+          fontSize: 14,
         ),
       ),
+
+      cardTheme: CardThemeData(
+        elevation: 4,
+        shadowColor: scheme.shadow,
+        color: scheme.surface,
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        clipBehavior: Clip.antiAlias,
+      ),
+
       listTileTheme: const ListTileThemeData(
-        contentPadding: EdgeInsets.symmetric(horizontal: 16),
+        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      ),
+
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: scheme.primary,
+          foregroundColor: scheme.onPrimary,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          elevation: 0,
+        ),
+      ),
+
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      ),
+
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          side: BorderSide(color: scheme.outlineVariant),
+        ),
+      ),
+
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: scheme.primary,
+        foregroundColor: scheme.onPrimary,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+        ),
+      ),
+
+      dialogTheme: DialogThemeData(
+        backgroundColor: scheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        titleTextStyle: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+          color: scheme.onSurface,
+        ),
+        contentTextStyle: TextStyle(
+          fontSize: 14,
+          color: scheme.onSurface,
+        ),
+      ),
+
+      // Testi un filo più “soft” e leggibili
+      textTheme: const TextTheme(
+        titleLarge: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.1,
+        ),
+        titleMedium: TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+        ),
+        bodyLarge: TextStyle(
+          fontSize: 16,
+          height: 1.4,
+        ),
+        bodyMedium: TextStyle(
+          fontSize: 14,
+          height: 1.4,
+        ),
+        labelLarge: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

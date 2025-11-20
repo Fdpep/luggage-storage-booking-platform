@@ -185,7 +185,7 @@ class _PartnerRestrictedScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Dashboard Partner'),
+        title: const Text('BagDrop Partner'),
         backgroundColor: cs.primary,
         foregroundColor: cs.onPrimary,
       ),
@@ -289,7 +289,7 @@ class _DashPartnerPage extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Dashboard Partner'),
+        title: const Text('BagDrop Partner'),
         backgroundColor: cs.primary,
         foregroundColor: cs.onPrimary,
       ),
@@ -392,8 +392,13 @@ class _PrenotazioniPartnerPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Prenotazioni')),
+      appBar: AppBar(
+        title: const Text('BagDrop Partner'),
+        backgroundColor: cs.primary,
+        foregroundColor: cs.onPrimary,
+      ),
       body: const Center(
         child: Text(
           'Qui vedrai le prenotazioni (in arrivo / in corso / completate).\n'
@@ -410,8 +415,13 @@ class _ScannerQRPartnerPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Scanner QR')),
+      appBar: AppBar(
+        title: const Text('BagDrop Partner'),
+        backgroundColor: cs.primary,
+        foregroundColor: cs.onPrimary,
+      ),
       body: const Center(
         child: Text(
           'Qui integreremo lo scanner QR per check-in/out.\n'
@@ -428,8 +438,13 @@ class _SpaziPartnerPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Spazi')),
+      appBar: AppBar(
+        title: const Text('BagDrop Partner'),
+        backgroundColor: cs.primary,
+        foregroundColor: cs.onPrimary,
+      ),
       body: const Center(
         child: Text(
           'Gestione capacità e stato posti.\n'
@@ -449,169 +464,275 @@ class _ProfiloPartnerPage extends StatelessWidget {
     required this.partner,
     required this.onPartnerChanged,
   });
-
   @override
   Widget build(BuildContext context) {
     final user = Supabase.instance.client.auth.currentUser;
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
+    final cs = theme.colorScheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Profilo Partner')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Dati utente',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text('Email: ${user?.email ?? "-"}'),
-            const SizedBox(height: 24),
-
-            const Text(
-              'Scheda locale',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-
-            if (partner == null)
+      appBar: AppBar(
+        title: const Text('BagDrop Partner'),
+        backgroundColor: cs.primary,
+        foregroundColor: cs.onPrimary,
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // CARD DATI UTENTE
               Text(
-                'Nessuna attività registrata.\n'
-                'Vai nella Dashboard per completare la registrazione del locale.',
-                style: textTheme.bodyMedium,
-              )
-            else
+                'Dati account',
+                style: textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
               Card(
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(16),
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Row(
                     children: [
-                      // Nome + pillola stato (Attivo/Sospeso)
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              partner!.name,
-                              style: textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: partner!.isActive
-                                  ? Colors.green.withOpacity(0.12)
-                                  : Colors.orange.withOpacity(0.12),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              partner!.isActive ? 'Attivo' : 'Sospeso',
-                              style: textTheme.bodySmall?.copyWith(
-                                color: partner!.isActive
-                                    ? Colors.green[800]
-                                    : Colors.orange[800],
-                              ),
-                            ),
-                          ),
-                        ],
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor: cs.primary.withOpacity(0.12),
+                        child: Icon(Icons.person_outline, color: cs.primary),
                       ),
-                      if (partner!.address?.trim().isNotEmpty ?? false) ...[
-                        const SizedBox(height: 4),
-                        Text(partner!.address!, style: textTheme.bodySmall),
-                      ],
-                      const SizedBox(height: 8),
-                      Text(
-                        'Capacità: ${partner!.capacity} bagagli',
-                        style: textTheme.bodySmall,
-                      ),
-                      if (partner!.price2h != null ||
-                          partner!.pricePerDay != null) ...[
-                        const SizedBox(height: 4),
-                        Row(
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (partner!.price2h != null)
-                              Text(
-                                '2h da ${partner!.price2h!.toStringAsFixed(2)} €',
-                                style: textTheme.bodySmall,
+                            Text(
+                              user?.email ?? '-',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
                               ),
-                            if (partner!.price2h != null &&
-                                partner!.pricePerDay != null)
-                              const SizedBox(width: 12),
-                            if (partner!.pricePerDay != null)
-                              Text(
-                                'Giorno da ${partner!.pricePerDay!.toStringAsFixed(2)} €',
-                                style: textTheme.bodySmall,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Account partner BagDrop',
+                              style: textTheme.bodySmall?.copyWith(
+                                color: textTheme.bodySmall?.color?.withOpacity(
+                                  0.7,
+                                ),
                               ),
+                            ),
                           ],
                         ),
-                      ],
-                      if (partner!.description?.trim().isNotEmpty ?? false) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          partner!.description!,
-                          style: textTheme.bodySmall,
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+                      ),
                     ],
                   ),
                 ),
               ),
 
-            const SizedBox(height: 24),
-            const Text('Azioni', style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
+              const SizedBox(height: 24),
 
-            if (partner != null) ...[
-              ElevatedButton.icon(
-                icon: const Icon(Icons.photo_library_outlined),
-                label: const Text('Gestisci foto locale'),
-                onPressed: () {
-                  Navigator.of(context).push(
+              // SEZIONE SCHEDA LOCALE
+              Text(
+                'Scheda locale',
+                style: textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              if (partner == null)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: cs.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: cs.outlineVariant),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.info_outline, color: cs.primary),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Nessuna attività registrata.\n'
+                          'Vai nella Dashboard per completare la registrazione del locale.',
+                          style: textTheme.bodyMedium,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                Card(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Riga superiore: icona + nome + pillola stato
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.storefront_outlined, color: cs.primary),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    partner!.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: textTheme.titleMedium?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  if (partner!.address?.trim().isNotEmpty ??
+                                      false)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 4.0),
+                                      child: Text(
+                                        partner!.address!,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: textTheme.bodySmall,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: partner!.isActive
+                                    ? Colors.green.withOpacity(0.12)
+                                    : Colors.orange.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                partner!.isActive ? 'Attivo' : 'Sospeso',
+                                style: textTheme.bodySmall?.copyWith(
+                                  color: partner!.isActive
+                                      ? Colors.green[800]
+                                      : Colors.orange[800],
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 8),
+
+                        // Capacità + prezzi
+                        Text(
+                          'Capacità: ${partner!.capacity} bagagli',
+                          style: textTheme.bodySmall,
+                        ),
+                        if (partner!.price2h != null ||
+                            partner!.pricePerDay != null) ...[
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 4,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              if (partner!.price2h != null)
+                                Text(
+                                  '2h da ${partner!.price2h!.toStringAsFixed(2)} €',
+                                  style: textTheme.bodySmall?.copyWith(
+                                    color: cs.primary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              if (partner!.pricePerDay != null)
+                                Text(
+                                  'Giorno da ${partner!.pricePerDay!.toStringAsFixed(2)} €',
+                                  style: textTheme.bodySmall,
+                                ),
+                            ],
+                          ),
+                        ],
+
+                        if (partner!.description?.trim().isNotEmpty ??
+                            false) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            partner!.description!,
+                            style: textTheme.bodySmall,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+
+              const SizedBox(height: 24),
+
+              // SEZIONE AZIONI
+              Text(
+                'Azioni',
+                style: textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              if (partner != null) ...[
+                FilledButton.icon(
+                  icon: const Icon(Icons.photo_library_outlined),
+                  label: const Text('Gestisci foto locale'),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => PartnerPhotosScreen(partner: partner!),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
+
+              FilledButton.icon(
+                icon: const Icon(Icons.storefront_outlined),
+                label: const Text('Modifica scheda locale'),
+                onPressed: () async {
+                  final changed = await Navigator.of(context).push<bool>(
                     MaterialPageRoute(
-                      builder: (_) => PartnerPhotosScreen(partner: partner!),
+                      builder: (_) => const PartnerEditScreen(),
                     ),
                   );
+                  if (changed == true) {
+                    onPartnerChanged();
+                  }
                 },
               ),
               const SizedBox(height: 8),
+
+              OutlinedButton.icon(
+                icon: const Icon(Icons.logout),
+                label: const Text('Logout'),
+                onPressed: () {
+                  AuthActions.confirmAndLogout(context);
+                },
+              ),
             ],
-
-            // Modifica scheda locale → al ritorno, se changed=true, ricarica partner
-            ElevatedButton.icon(
-              icon: const Icon(Icons.storefront_outlined),
-              label: const Text('Modifica scheda locale'),
-              onPressed: () async {
-                final changed = await Navigator.of(context).push<bool>(
-                  MaterialPageRoute(builder: (_) => const PartnerEditScreen()),
-                );
-                if (changed == true) {
-                  onPartnerChanged();
-                }
-              },
-            ),
-            const SizedBox(height: 8),
-
-            ElevatedButton.icon(
-              icon: const Icon(Icons.logout),
-              label: const Text('Logout'),
-              onPressed: () {
-                AuthActions.confirmAndLogout(context);
-              },
-            ),
-          ],
+          ),
         ),
       ),
     );

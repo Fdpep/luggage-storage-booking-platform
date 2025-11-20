@@ -16,7 +16,7 @@ class PartnerWaitingScreen extends StatelessWidget {
       onWillPop: () async => false,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Dashboard Partner'),
+          title: const Text('BagDrop Partner'),
           backgroundColor: cs.primary,
           foregroundColor: cs.onPrimary,
           //  niente freccia “indietro” nell’AppBar

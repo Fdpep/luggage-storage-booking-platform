@@ -694,7 +694,7 @@ class _PartnerBottomCardState extends State<_PartnerBottomCard> {
         child: Card(
           elevation: 8,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(18),
           ),
           child: Padding(
             padding: const EdgeInsets.all(12.0),
@@ -713,35 +713,48 @@ class _PartnerBottomCardState extends State<_PartnerBottomCard> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          // Nome partner
                           Text(
                             partner.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.bold,
                             ),
                           ),
+
+                          // Indirizzo
                           if (partner.address != null &&
                               partner.address!.trim().isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.only(top: 4.0),
                               child: Text(
                                 partner.address!,
-                                style: textTheme.bodySmall,
+                                style: textTheme.bodySmall?.copyWith(
+                                  color: textTheme.bodySmall?.color
+                                      ?.withOpacity(0.8),
+                                ),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
+
                           const SizedBox(height: 8),
-                          Row(
+
+                          // Prezzi → Wrap per evitare overflow
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            crossAxisAlignment: WrapCrossAlignment.center,
                             children: [
                               if (price2h.isNotEmpty)
                                 Text(
                                   price2h,
                                   style: textTheme.bodyMedium?.copyWith(
                                     color: cs.primary,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                              if (price2h.isNotEmpty && pricePerDay.isNotEmpty)
-                                const SizedBox(width: 8),
                               if (pricePerDay.isNotEmpty)
                                 Text(pricePerDay, style: textTheme.bodyMedium),
                             ],
@@ -749,25 +762,53 @@ class _PartnerBottomCardState extends State<_PartnerBottomCard> {
                         ],
                       ),
                     ),
+
                     // Pulsante chiusura card
                     IconButton(
                       onPressed: widget.onClose,
                       icon: const Icon(Icons.close),
+                      visualDensity: VisualDensity.compact,
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                // Riga inferiore: info extra + bottone "Apri scheda"
+
+                const SizedBox(height: 10),
+
+                // Riga inferiore: capacità + bottone "Apri scheda"
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'Capacità: ${partner.capacity}',
-                      style: textTheme.bodySmall,
+                    // Icona + testo capacità → flessibile
+                    Expanded(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.luggage, size: 18, color: cs.primary),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Capacità: ${partner.capacity}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: textTheme.bodySmall,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    TextButton(
+
+                    const SizedBox(width: 12),
+
+                    TextButton.icon(
                       onPressed: widget.onOpenDetail,
-                      child: const Text('Apri scheda'),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      icon: const Icon(Icons.arrow_forward_ios, size: 14),
+                      label: const Text('Apri scheda'),
                     ),
                   ],
                 ),

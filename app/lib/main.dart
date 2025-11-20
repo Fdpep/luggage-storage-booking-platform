@@ -3,7 +3,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'services/supabase/client.dart';
 //import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+//import 'schermate/ingresso.dart';
 import 'routes/auth_gate.dart';
 import 'schermate/home_shell.dart';
 import 'schermate/autenticazione/accesso.dart';

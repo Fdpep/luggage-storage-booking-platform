@@ -274,10 +274,6 @@ class _HomeShellState extends State<HomeShell> {
                         ),
                       ),
                       const Spacer(),
-                      Text(
-                        'v0.1 • Pilot Milano – Santa Sofia',
-                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                      ),
                     ],
                   ),
                 ),
