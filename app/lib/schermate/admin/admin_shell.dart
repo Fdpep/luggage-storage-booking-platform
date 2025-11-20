@@ -53,14 +53,53 @@ class _AdminShellState extends State<AdminShell> {
 class _AdminDashboardPage extends StatelessWidget {
   const _AdminDashboardPage();
 
+  Future<_AdminStats> _loadStats() async {
+    final supabase = Supabase.instance.client;
+
+    // Richieste partner in attesa
+    final pendingReqData = await supabase
+        .from('partner_requests')
+        .select('id')
+        .eq('status', 'pending');
+    final pendingRequests = (pendingReqData as List).length;
+
+    // Partner: approvati e attivi
+    final partnersData = await supabase
+        .from('partners')
+        .select('id,status,is_active');
+
+    int partnersApproved = 0;
+    int partnersActive = 0;
+
+    for (final row in partnersData as List) {
+      final m = row as Map<String, dynamic>;
+      final status = m['status'] as String?;
+      final isActive = m['is_active'] as bool? ?? false;
+
+      if (status == 'approved') {
+        partnersApproved++;
+      }
+      if (isActive) {
+        partnersActive++;
+      }
+    }
+
+    return _AdminStats(
+      pendingRequests: pendingRequests,
+      partnersApproved: partnersApproved,
+      partnersActive: partnersActive,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = Supabase.instance.client.auth.currentUser;
     final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Dashboard Admin'),
+        title: const Text('BagDrop Admin'),
         backgroundColor: cs.primary,
         foregroundColor: cs.onPrimary,
         actions: [
@@ -73,25 +112,168 @@ class _AdminDashboardPage extends StatelessWidget {
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Benvenuto nell’area admin BagDrop 👑',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            Text('Email admin: ${user?.email ?? '-'}'),
-            const SizedBox(height: 24),
-            const Text(
-              'Da qui puoi:\n'
-              '• Approvare o rifiutare richieste partner\n'
-              '• Vedere lo stato dei partner\n'
-              '• In futuro: gestire utenti, report, ecc.',
-            ),
-          ],
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // CARD ACCOUNT ADMIN
+              Card(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor: cs.primary.withOpacity(0.12),
+                        child: Icon(
+                          Icons.admin_panel_settings_outlined,
+                          color: cs.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              user?.email ?? 'admin@bagdrop.app',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Account amministratore BagDrop',
+                              style: textTheme.bodySmall?.copyWith(
+                                color: textTheme.bodySmall?.color?.withOpacity(
+                                  0.7,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // PANORAMICA STATISTICHE
+              Text(
+                'Panoramica',
+                style: textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              FutureBuilder<_AdminStats>(
+                future: _loadStats(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    // Tre stat card in versione "loading"
+                    return Column(
+                      children: const [
+                        _AdminStatCard.loading(
+                          label: 'Richieste in attesa',
+                          icon: Icons.hourglass_top_outlined,
+                        ),
+                        SizedBox(height: 8),
+                        _AdminStatCard.loading(
+                          label: 'Partner approvati',
+                          icon: Icons.verified_outlined,
+                        ),
+                        SizedBox(height: 8),
+                        _AdminStatCard.loading(
+                          label: 'Partner attivi',
+                          icon: Icons.storefront_outlined,
+                        ),
+                      ],
+                    );
+                  }
+
+                  if (snapshot.hasError) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                        'Errore caricando le statistiche admin.\n${snapshot.error}',
+                        style: textTheme.bodySmall?.copyWith(color: cs.error),
+                      ),
+                    );
+                  }
+
+                  final stats = snapshot.data!;
+
+                  return Column(
+                    children: [
+                      _AdminStatCard(
+                        label: 'Richieste in attesa',
+                        value: stats.pendingRequests.toString(),
+                        icon: Icons.hourglass_top_outlined,
+                      ),
+                      const SizedBox(height: 8),
+                      _AdminStatCard(
+                        label: 'Partner approvati',
+                        value: stats.partnersApproved.toString(),
+                        icon: Icons.verified_outlined,
+                      ),
+                      const SizedBox(height: 8),
+                      _AdminStatCard(
+                        label: 'Partner attivi',
+                        value: stats.partnersActive.toString(),
+                        icon: Icons.storefront_outlined,
+                      ),
+                    ],
+                  );
+                },
+              ),
+
+              const SizedBox(height: 24),
+
+              // AZIONI RAPIDE
+              Text(
+                'Azioni rapide',
+                style: textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const AdminPartnerRequestsScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.assignment_outlined),
+                label: const Text('Gestisci richieste partner'),
+              ),
+              const SizedBox(height: 8),
+
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const _AdminPartnersListPage(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.business_outlined),
+                label: const Text('Vedi tutti i partner'),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -111,6 +293,9 @@ class _AdminPartnersListPageState extends State<_AdminPartnersListPage> {
   bool _loading = true;
   String? _error;
   List<Map<String, dynamic>> _partners = [];
+
+  String _searchQuery = '';
+  String _statusFilter = 'all'; // all | pending | approved | rejected
 
   @override
   void initState() {
@@ -145,9 +330,57 @@ class _AdminPartnersListPageState extends State<_AdminPartnersListPage> {
     }
   }
 
+  List<Map<String, dynamic>> get _filteredPartners {
+    return _partners.where((p) {
+      final name = (p['name'] as String? ?? '').toLowerCase();
+      final status = (p['status'] as String? ?? 'pending');
+
+      final matchesSearch =
+          _searchQuery.trim().isEmpty ||
+          name.contains(_searchQuery.toLowerCase());
+
+      final matchesFilter = _statusFilter == 'all' || status == _statusFilter;
+
+      return matchesSearch && matchesFilter;
+    }).toList();
+  }
+
+  String _formatCreatedAt(Map<String, dynamic> p) {
+    final raw = p['created_at'];
+    if (raw is String) {
+      final dt = DateTime.tryParse(raw);
+      if (dt != null) {
+        final d = dt.day.toString().padLeft(2, '0');
+        final m = dt.month.toString().padLeft(2, '0');
+        final y = dt.year.toString();
+        return '$d/$m/$y';
+      }
+    }
+    return '';
+  }
+
+  Widget _buildFilterChip(String label, String value, ColorScheme cs) {
+    final selected = _statusFilter == value;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: selected,
+        onSelected: (_) {
+          setState(() {
+            _statusFilter = value;
+          });
+        },
+        selectedColor: cs.primary.withOpacity(0.15),
+        labelStyle: TextStyle(color: selected ? cs.primary : null),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
 
     if (_loading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -164,52 +397,541 @@ class _AdminPartnersListPageState extends State<_AdminPartnersListPage> {
       );
     }
 
+    final partners = _filteredPartners;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Partner registrati'),
         backgroundColor: cs.primary,
         foregroundColor: cs.onPrimary,
       ),
-      body: RefreshIndicator(
-        onRefresh: _loadPartners,
-        child: ListView.builder(
-          itemCount: _partners.length,
-          itemBuilder: (context, index) {
-            final p = _partners[index];
-            final status = p['status'] as String? ?? 'pending';
-            final isActive = p['is_active'] as bool? ?? false;
-            final name = p['name'] as String? ?? 'Senza nome';
-            final addr = p['address'] as String? ?? 'Indirizzo non specificato';
-
-            Color chipColor;
-            switch (status) {
-              case 'approved':
-                chipColor = Colors.green;
-                break;
-              case 'rejected':
-                chipColor = Colors.red;
-                break;
-              default:
-                chipColor = cs.tertiary;
-            }
-
-            return Card(
-              margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: ListTile(
-                title: Text(name),
-                subtitle: Text('$addr\nstatus: $status • attivo: $isActive'),
-                isThreeLine: true,
-                trailing: Chip(
-                  label: Text(status),
-                  backgroundColor: chipColor.withOpacity(0.15),
-                  labelStyle: TextStyle(
-                    color: chipColor,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header + ricerca + filtri
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Partner',
+                  style: textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+                const SizedBox(height: 8),
+                TextField(
+                  decoration: const InputDecoration(
+                    hintText: 'Cerca per nome...',
+                    prefixIcon: Icon(Icons.search),
+                  ),
+                  onChanged: (value) {
+                    setState(() {
+                      _searchQuery = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 8),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _buildFilterChip('Tutti', 'all', cs),
+                      _buildFilterChip('Pending', 'pending', cs),
+                      _buildFilterChip('Approved', 'approved', cs),
+                      _buildFilterChip('Rejected', 'rejected', cs),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Lista partner
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: _loadPartners,
+              child: partners.isEmpty
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: [
+                        const SizedBox(height: 80),
+                        Icon(Icons.inbox_outlined, size: 48, color: cs.outline),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Nessun partner trovato',
+                          textAlign: TextAlign.center,
+                          style: textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 4),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          child: Text(
+                            'Prova a cambiare i filtri o la ricerca per vedere altri risultati.',
+                            textAlign: TextAlign.center,
+                            style: textTheme.bodySmall?.copyWith(
+                              color: textTheme.bodySmall?.color?.withOpacity(
+                                0.7,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 80),
+                      ],
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      itemCount: partners.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        final p = partners[index];
+                        final status = p['status'] as String? ?? 'pending';
+                        final isActive = p['is_active'] as bool? ?? false;
+                        final name = p['name'] as String? ?? 'Senza nome';
+                        final addr =
+                            p['address'] as String? ??
+                            'Indirizzo non specificato';
+                        final capacity = p['capacity']?.toString() ?? '-';
+
+                        Color chipColor;
+                        switch (status) {
+                          case 'approved':
+                            chipColor = Colors.green;
+                            break;
+                          case 'rejected':
+                            chipColor = Colors.red;
+                            break;
+                          default:
+                            chipColor = cs.tertiary;
+                        }
+
+                        final createdStr = _formatCreatedAt(p);
+
+                        return InkWell(
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    AdminPartnerDetailScreen(partner: p),
+                              ),
+                            );
+                          },
+                          child: Card(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 18,
+                                        backgroundColor: cs.primary.withOpacity(
+                                          0.08,
+                                        ),
+                                        child: Icon(
+                                          Icons.business_outlined,
+                                          color: cs.primary,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              name,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: textTheme.titleMedium
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              addr,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: textTheme.bodySmall,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.end,
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 4,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: chipColor.withOpacity(
+                                                0.15,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(20),
+                                            ),
+                                            child: Text(
+                                              status,
+                                              style: textTheme.bodySmall
+                                                  ?.copyWith(
+                                                    color: chipColor,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            isActive ? 'Attivo' : 'Non attivo',
+                                            style: textTheme.bodySmall
+                                                ?.copyWith(
+                                                  color: isActive
+                                                      ? Colors.green[700]
+                                                      : textTheme
+                                                            .bodySmall
+                                                            ?.color
+                                                            ?.withOpacity(0.8),
+                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+
+                                  const SizedBox(height: 8),
+
+                                  Wrap(
+                                    spacing: 12,
+                                    runSpacing: 4,
+                                    children: [
+                                      Text(
+                                        'Capacità: $capacity',
+                                        style: textTheme.bodySmall,
+                                      ),
+                                      if (createdStr.isNotEmpty)
+                                        Text(
+                                          'Creato il $createdStr',
+                                          style: textTheme.bodySmall?.copyWith(
+                                            color: textTheme.bodySmall?.color
+                                                ?.withOpacity(0.7),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AdminStats {
+  final int pendingRequests;
+  final int partnersApproved;
+  final int partnersActive;
+
+  _AdminStats({
+    required this.pendingRequests,
+    required this.partnersApproved,
+    required this.partnersActive,
+  });
+}
+
+class _AdminStatCard extends StatelessWidget {
+  final String label;
+  final String? value;
+  final IconData icon;
+  final bool isLoading;
+
+  const _AdminStatCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+    this.isLoading = false,
+    Key? key,
+  }) : super(key: key);
+
+  const _AdminStatCard.loading({
+    required this.label,
+    required this.icon,
+    Key? key,
+  }) : value = null,
+       isLoading = true,
+       super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: cs.primary.withOpacity(0.1),
+              child: Icon(icon, color: cs.primary),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: textTheme.bodySmall?.copyWith(
+                      color: textTheme.bodySmall?.color?.withOpacity(0.7),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  if (isLoading)
+                    SizedBox(
+                      height: 16,
+                      width: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(cs.primary),
+                      ),
+                    )
+                  else
+                    Text(
+                      value ?? '-',
+                      style: textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                ],
               ),
-            );
-          },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class AdminPartnerDetailScreen extends StatelessWidget {
+  final Map<String, dynamic> partner;
+
+  const AdminPartnerDetailScreen({super.key, required this.partner});
+
+  String _formatCreatedAt(dynamic raw) {
+    if (raw is String) {
+      final dt = DateTime.tryParse(raw);
+      if (dt != null) {
+        final d = dt.day.toString().padLeft(2, '0');
+        final m = dt.month.toString().padLeft(2, '0');
+        final y = dt.year.toString();
+        return '$d/$m/$y';
+      }
+    } else if (raw is DateTime) {
+      final d = raw.day.toString().padLeft(2, '0');
+      final m = raw.month.toString().padLeft(2, '0');
+      final y = raw.year.toString();
+      return '$d/$m/$y';
+    }
+    return '-';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    final id = partner['id'] as String? ?? '-';
+    final name = partner['name'] as String? ?? 'Senza nome';
+    final addr = partner['address'] as String? ?? 'Indirizzo non specificato';
+    final status = partner['status'] as String? ?? 'pending';
+    final isActive = partner['is_active'] as bool? ?? false;
+    final capacity = partner['capacity']?.toString() ?? '-';
+    final createdAtRaw = partner['created_at'];
+    final createdStr = _formatCreatedAt(createdAtRaw);
+
+    Color chipColor;
+    switch (status) {
+      case 'approved':
+        chipColor = Colors.green;
+        break;
+      case 'rejected':
+        chipColor = Colors.red;
+        break;
+      default:
+        chipColor = cs.tertiary;
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Dettaglio partner'),
+        backgroundColor: cs.primary,
+        foregroundColor: cs.onPrimary,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Card principale: nome + stato
+            Card(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CircleAvatar(
+                          radius: 22,
+                          backgroundColor: cs.primary.withOpacity(0.08),
+                          child: Icon(
+                            Icons.business_outlined,
+                            color: cs.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'ID: $id',
+                                style: textTheme.bodySmall?.copyWith(
+                                  color: textTheme.bodySmall?.color
+                                      ?.withOpacity(0.7),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: chipColor.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                status,
+                                style: textTheme.bodySmall?.copyWith(
+                                  color: chipColor,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              isActive ? 'Attivo' : 'Non attivo',
+                              style: textTheme.bodySmall?.copyWith(
+                                color: isActive
+                                    ? Colors.green[700]
+                                    : textTheme.bodySmall?.color?.withOpacity(
+                                        0.8,
+                                      ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.place_outlined, size: 18),
+                        const SizedBox(width: 4),
+                        Expanded(child: Text(addr, style: textTheme.bodySmall)),
+                      ],
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    Wrap(
+                      spacing: 16,
+                      runSpacing: 4,
+                      children: [
+                        Text('Capacità: $capacity', style: textTheme.bodySmall),
+                        Text(
+                          'Creato il: $createdStr',
+                          style: textTheme.bodySmall?.copyWith(
+                            color: textTheme.bodySmall?.color?.withOpacity(0.7),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 24),
+/*
+
+            // Sezione future espansioni
+            Text(
+              'Altro (in futuro)',
+              style: textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Qui potrai aggiungere:\n'
+              '• Orari di apertura\n'
+              '• Posizione su mappa\n'
+              '• Ultime prenotazioni\n'
+              '• Log delle azioni admin\n',
+              style: textTheme.bodySmall?.copyWith(
+                color: textTheme.bodySmall?.color?.withOpacity(0.8),
+              ),
+            ),
+            */
+          ],
         ),
       ),
     );

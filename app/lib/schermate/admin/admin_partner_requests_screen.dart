@@ -35,7 +35,8 @@ class _AdminPartnerRequestsScreenState
       final data = await _supabase
           .from('partner_requests')
           .select(
-              'id,user_id,partner_id,status,message,admin_note,created_at,reviewed_at,reviewed_by')
+            'id,user_id,partner_id,status,message,admin_note,created_at,reviewed_at,reviewed_by',
+          )
           .eq('status', 'pending')
           .order('created_at');
 
@@ -51,12 +52,13 @@ class _AdminPartnerRequestsScreenState
         final partnersData = await _supabase
             .from('partners')
             .select(
-                'id,name,address,capacity,price_2h,price_per_day,status,is_active,reject_reason,created_at,updated_at,owner_id,lat,lng,opening_hours')
+              'id,name,address,capacity,price_2h,price_per_day,status,is_active,reject_reason,created_at,updated_at,owner_id,lat,lng,opening_hours',
+            )
             .inFilter('id', partnerIds);
 
         partnersById = {
           for (final m in partnersData as List)
-            (m['id'] as String): Partner.fromMap(m as Map<String, dynamic>)
+            (m['id'] as String): Partner.fromMap(m as Map<String, dynamic>),
         };
       }
 
@@ -88,9 +90,9 @@ class _AdminPartnerRequestsScreenState
     try {
       final adminId = _supabase.auth.currentUser?.id;
       if (adminId == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Admin non autenticato')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Admin non autenticato')));
         return;
       }
 
@@ -134,11 +136,10 @@ class _AdminPartnerRequestsScreenState
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
 
     if (_loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     if (_error != null) {
@@ -160,60 +161,71 @@ class _AdminPartnerRequestsScreenState
       ),
       body: RefreshIndicator(
         onRefresh: _loadRequests,
-        child: ListView.builder(
-          itemCount: _items.length,
-          itemBuilder: (context, index) {
-            final item = _items[index];
-            final r = item.request;
-            final p = item.partner;
-
-            final shortId = r.id.substring(0, 8);
-            final name = p?.name ?? 'Attività senza nome';
-            final address = p?.address ?? 'Indirizzo non specificato';
-            final capacity = p?.capacity ?? 0;
-            final price2h = p?.price2h?.toStringAsFixed(2) ?? '-';
-            final pricePerDay = p?.pricePerDay?.toStringAsFixed(2) ?? '-';
-
-            return Card(
-              margin: const EdgeInsets.all(8),
-              child: ListTile(
-                title: Text('$name  •  $shortId'),
-                subtitle: Text(
-                  'Indirizzo: $address\n'
-                  'Capacità: $capacity  •  €2h: $price2h  •  €/giorno: $pricePerDay\n'
-                  'nota: ${r.message ?? '-'}',
-                ),
-                isThreeLine: true,
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      tooltip: 'Approva',
-                      icon: const Icon(Icons.check, color: Colors.green),
-                      onPressed: () => _decidi(
-                        req: r,
-                        nuovoStatus: 'approved',
+        child: _items.isEmpty
+            ? ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: [
+                  const SizedBox(height: 80),
+                  Icon(Icons.inbox_outlined, size: 48, color: cs.outline),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Nessuna richiesta in attesa',
+                    textAlign: TextAlign.center,
+                    style: textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32),
+                    child: Text(
+                      'Quando un nuovo locale invierà la domanda per diventare partner, lo vedrai qui.',
+                      textAlign: TextAlign.center,
+                      style: textTheme.bodySmall?.copyWith(
+                        color: textTheme.bodySmall?.color?.withOpacity(0.7),
                       ),
                     ),
-                    IconButton(
-                      tooltip: 'Rifiuta',
-                      icon: const Icon(Icons.close, color: Colors.red),
-                      onPressed: () async {
-                        final note = await _chiediMotivo(context);
-                        if (note == null) return;
-                        _decidi(
-                          req: r,
-                          nuovoStatus: 'rejected',
-                          adminNote: note,
-                        );
-                      },
-                    ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 80),
+                ],
+              )
+            : ListView.separated(
+                padding: const EdgeInsets.all(12),
+                physics: const AlwaysScrollableScrollPhysics(),
+                itemCount: _items.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  final item = _items[index];
+                  final r = item.request;
+                  final p = item.partner;
+
+                  final shortId = r.id.substring(0, 8);
+                  final name = p?.name ?? 'Attività senza nome';
+                  final address = p?.address ?? 'Indirizzo non specificato';
+                  final capacity = p?.capacity ?? 0;
+                  final price2h = p?.price2h?.toStringAsFixed(2) ?? '-';
+                  final pricePerDay = p?.pricePerDay?.toStringAsFixed(2) ?? '-';
+
+                  return _AdminRequestCard(
+                    shortId: shortId,
+                    name: name,
+                    address: address,
+                    capacity: capacity,
+                    price2h: price2h,
+                    pricePerDay: pricePerDay,
+                    note: r.message,
+                    createdAt: r.createdAt,
+                    onApprove: () => _decidi(req: r, nuovoStatus: 'approved'),
+                    onReject: () async {
+                      final note = await _chiediMotivo(context);
+                      if (note == null) return;
+                      await _decidi(
+                        req: r,
+                        nuovoStatus: 'rejected',
+                        adminNote: note,
+                      );
+                    },
+                  );
+                },
               ),
-            );
-          },
-        ),
       ),
     );
   }
@@ -250,8 +262,191 @@ class _AdminRequestItem {
   final PartnerRequest request;
   final Partner? partner;
 
-  _AdminRequestItem({
-    required this.request,
-    required this.partner,
-  });
+  _AdminRequestItem({required this.request, required this.partner});
+}
+
+class _AdminRequestCard extends StatelessWidget {
+  final String shortId;
+  final String name;
+  final String address;
+  final int capacity;
+  final String price2h;
+  final String pricePerDay;
+  final String? note;
+  final DateTime? createdAt;
+  final VoidCallback onApprove;
+  final Future<void> Function() onReject;
+
+  const _AdminRequestCard({
+    Key? key,
+    required this.shortId,
+    required this.name,
+    required this.address,
+    required this.capacity,
+    required this.price2h,
+    required this.pricePerDay,
+    required this.note,
+    required this.createdAt,
+    required this.onApprove,
+    required this.onReject,
+  }) : super(key: key);
+
+  String _formatCreatedAt() {
+    if (createdAt == null) return '';
+    // Per ora solo data breve; in futuro puoi usare intl
+    final d = createdAt!;
+    return '${d.day.toString().padLeft(2, '0')}/'
+        '${d.month.toString().padLeft(2, '0')}/'
+        '${d.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Riga superiore: icona + nome + id + badge "In attesa"
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: cs.primary.withOpacity(0.08),
+                  child: Icon(Icons.storefront_outlined, color: cs.primary),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Richiesta #$shortId',
+                        style: textTheme.bodySmall?.copyWith(
+                          color: textTheme.bodySmall?.color?.withOpacity(0.7),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: cs.secondary.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    'In attesa',
+                    style: textTheme.bodySmall?.copyWith(
+                      color: cs.secondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 8),
+
+            // Indirizzo
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.place_outlined, size: 18),
+                const SizedBox(width: 4),
+                Expanded(child: Text(address, style: textTheme.bodySmall)),
+              ],
+            ),
+
+            const SizedBox(height: 6),
+
+            // Capacità + prezzi
+            Wrap(
+              spacing: 12,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text('Capacità: $capacity', style: textTheme.bodySmall),
+                Text(
+                  '2h da $price2h €',
+                  style: textTheme.bodySmall?.copyWith(
+                    color: cs.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text('Giorno da $pricePerDay €', style: textTheme.bodySmall),
+              ],
+            ),
+
+            if ((note ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Nota del partner:',
+                style: textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(note!, style: textTheme.bodySmall),
+            ],
+
+            const SizedBox(height: 8),
+
+            // Data richiesta (se disponibile)
+            if (_formatCreatedAt().isNotEmpty)
+              Text(
+                'Inviata il ${_formatCreatedAt()}',
+                style: textTheme.bodySmall?.copyWith(
+                  color: textTheme.bodySmall?.color?.withOpacity(0.7),
+                ),
+              ),
+
+            const SizedBox(height: 12),
+
+            // Bottoni Approva / Rifiuta
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: onApprove,
+                    icon: const Icon(Icons.check),
+                    label: const Text('Approva'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      onReject();
+                    },
+                    icon: const Icon(Icons.close),
+                    label: const Text('Rifiuta'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

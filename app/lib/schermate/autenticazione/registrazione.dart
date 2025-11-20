@@ -133,7 +133,7 @@ class _RegistrazioneScreenState extends State<RegistrazioneScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Crea il tuo account BagDrop (verifica via OTP).',
+                    'Crea il tuo account BagDrop',
                     style: Theme.of(context).textTheme.bodyLarge,
                   ),
                   const SizedBox(height: 16),
