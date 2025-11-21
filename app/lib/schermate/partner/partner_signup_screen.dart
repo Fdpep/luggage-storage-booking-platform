@@ -7,6 +7,8 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../../services/supabase/maps/map_geocoding_service.dart';
 import '../../services/supabase/location/places_autocomplete_service.dart';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 class PartnerSignUpScreen extends StatefulWidget {
   const PartnerSignUpScreen({super.key});
 
@@ -240,11 +242,15 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       _addressError = null;
     });
 
-    final apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'];
-    if (apiKey == null || apiKey.isEmpty) {
+    // Leggi API key: dart-define su Web, .env su mobile
+    final apiKey = kIsWeb
+        ? const String.fromEnvironment('GOOGLE_MAPS_API_KEY')
+        : (dotenv.env['GOOGLE_MAPS_API_KEY'] ?? '');
+
+    if (apiKey.isEmpty) {
       setState(() {
         _addressError =
-            'API key Google Maps mancante. Definisci GOOGLE_MAPS_API_KEY in .env.';
+            'API key Google Maps mancante. Definisci GOOGLE_MAPS_API_KEY oppure passa il dart-define.';
       });
       return;
     }
@@ -554,9 +560,12 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
                               )
                             : const Icon(Icons.search),
                         // La lente fa ancora il geocoding "manuale"
-                        onPressed: _isGeocoding ? null : _geocodeAddress,
+                        onPressed: _openAddressSearch,
+                        //onPressed: _isGeocoding ? null : _geocodeAddress,
                       ),
+                      errorText: _addressError,
                     ),
+                    onTap: _openAddressSearch,
                     validator: (v) {
                       final t = (v ?? '').trim();
                       if (t.isEmpty) return 'Inserisci un indirizzo';

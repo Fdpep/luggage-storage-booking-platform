@@ -95,12 +95,14 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
       _capacityCtrl.text = partner.capacity.toString();
 
       if (partner.price2h != null) {
-        _price2hCtrl.text =
-            partner.price2h!.toStringAsFixed(2).replaceAll('.', ',');
+        _price2hCtrl.text = partner.price2h!
+            .toStringAsFixed(2)
+            .replaceAll('.', ',');
       }
       if (partner.pricePerDay != null) {
-        _pricePerDayCtrl.text =
-            partner.pricePerDay!.toStringAsFixed(2).replaceAll('.', ',');
+        _pricePerDayCtrl.text = partner.pricePerDay!
+            .toStringAsFixed(2)
+            .replaceAll('.', ',');
       }
 
       // Orari apertura: per ora usiamo opening_hours["text"] se presente.
@@ -171,11 +173,8 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
         description: _descCtrl.text.trim().isEmpty
             ? null
             : _descCtrl.text.trim(),
-        phone: _phoneCtrl.text.trim().isEmpty
-            ? null
-            : _phoneCtrl.text.trim(),
-        rules:
-            _rulesCtrl.text.trim().isEmpty ? null : _rulesCtrl.text.trim(),
+        phone: _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
+        rules: _rulesCtrl.text.trim().isEmpty ? null : _rulesCtrl.text.trim(),
         openingHours: openingHours,
       );
 
@@ -260,18 +259,41 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                 // 2) Indirizzo
                 TextFormField(
                   controller: _addressCtrl,
+                  readOnly: true,
                   decoration: const InputDecoration(
                     labelText: 'Indirizzo',
                     hintText: 'Via / Piazza, numero civico, città',
                     border: OutlineInputBorder(),
+                    helperText:
+                        'Per modificare l\'indirizzo contatta il supporto BagDrop via email.',
                   ),
+                  onTap: () {
+                    // Messaggio veloce: l’indirizzo non è modificabile da qui
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Per modificare l\'indirizzo del locale scrivi a support@bagdrop.app',
+                        ),
+                      ),
+                    );
+                  },
                   validator: (v) {
+                    // Manteniamo comunque il controllo che NON sia vuoto,
+                    // ma siccome è readOnly, non verrà cambiato dall’utente
                     if ((v ?? '').trim().isEmpty) {
-                      return 'Inserisci un indirizzo';
+                      return 'Indirizzo non disponibile: contatta il supporto.';
                     }
                     return null;
                   },
                 ),
+
+                const SizedBox(height: 8),
+                Text(
+                  'Vuoi aggiornare l\'indirizzo del locale?\n'
+                  'Scrivi a support@bagdrop.app indicando il nuovo indirizzo.',
+                  style: theme.textTheme.bodySmall,
+                ),
+
                 const SizedBox(height: 12),
 
                 // 3) Descrizione breve
@@ -345,8 +367,9 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                           labelText: 'Prezzo 2h (€)',
                           border: OutlineInputBorder(),
                         ),
-                        keyboardType:
-                            const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -357,8 +380,9 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                           labelText: 'Prezzo / giorno (€)',
                           border: OutlineInputBorder(),
                         ),
-                        keyboardType:
-                            const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                       ),
                     ),
                   ],
@@ -393,8 +417,7 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
       bottomNavigationBar: SafeArea(
         top: false,
         child: Padding(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
           child: SizedBox(
             height: 48,
             child: ElevatedButton(

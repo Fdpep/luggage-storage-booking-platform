@@ -9,18 +9,23 @@
 //    In un solo file si potrà aggiungere opzioni
 //    (es. storage locale, headers, auth flow), fare logging, o sostituire il client nei test—senza toccare il resto dell’app.
 
-
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config.dart';
 
 class SupabaseService {
   static Future<void> init() async {
-    assert(SupabaseConfig.ok, 'SUPABASE_URL/ANON mancanti nei dart-define');
+    if (!SupabaseConfig.ok) {
+      throw Exception(
+        'SUPABASE_URL o SUPABASE_ANON_KEY mancanti nel file .env',
+      );
+    }
+
     await Supabase.initialize(
       url: SupabaseConfig.url,
       anonKey: SupabaseConfig.anonKey,
     );
   }
+
   /// Accesso comodo al client globale
   static SupabaseClient get client => Supabase.instance.client;
 }
