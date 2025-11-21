@@ -114,8 +114,22 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
         data: {
           'source': 'bagdrop-partner-signup',
           'otp_verified': false, // parte sempre non verificato
+
+          // *** NUOVI CAMPI IMPORTANTI ***
+          'signup_flow': 'partner',        // ci dice che questo è un sign-up partner
+          'partner_signup': {
+            'name': _nameCtrl.text.trim(),
+            'address': _addressCtrl.text.trim(),
+            'capacity': capacity,
+            'price2h': price2h,
+            'pricePerDay': pricePerDay,
+            'message': message,
+            'lat': _lat,
+            'lng': _lng,
+          },
         },
       );
+
 
       // 4) Se non ha creato sessione subito, fai login esplicito
       /* if (supabase.auth.currentSession == null) {

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'registrazione.dart';
+import 'verify_otp.dart';
+
 //import 'auth_actions.dart';
 
 class AccessoScreen extends StatefulWidget {
@@ -40,7 +42,10 @@ class _AccessoScreenState extends State<AccessoScreen> {
         password: password,
       );
 
-      if (resp.session == null) {
+      final session = resp.session;
+      final user = resp.user;
+
+      if (session == null || user == null) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Credenziali non valide.')),
@@ -48,7 +53,27 @@ class _AccessoScreenState extends State<AccessoScreen> {
         return;
       }
 
-      // L’AuthGate vedrà la sessione e mostrerà HomeShell / PartnerShell / AdminShell.
+      // 👇 Leggiamo il flag otp_verified dai metadati
+      final meta = user.userMetadata ?? {};
+      final otpVerified = meta['otp_verified'] == true;
+
+      // Se NON ha ancora verificato l'OTP → portalo alla schermata di verifica
+      if (!otpVerified) {
+        if (!mounted) return;
+
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => SchermataVerifyOtp(
+              email: email,
+              // postSignup: false (default)
+              // isPartnerFlow: false (default)
+            ),
+          ),
+        );
+        return; // importantissimo: non continuare oltre
+      }
+
+      // Se è verificato → comportamento normale: torni alla root (AuthGate si occupa del resto)
       if (!mounted) return;
       Navigator.of(context).popUntil((route) => route.isFirst);
     } on AuthException catch (e) {

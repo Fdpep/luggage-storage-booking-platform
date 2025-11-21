@@ -76,137 +76,190 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
     });
   }
 
-  Future<void> _verificaOTP() async {
-    final codice = _ctrlCodice.text.trim();
-    final errore = _validaCodice(codice);
-    if (errore != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(errore)));
+ Future<void> _verificaOTP() async {
+  final codice = _ctrlCodice.text.trim();
+  final errore = _validaCodice(codice);
+  if (errore != null) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(errore)),
+    );
+    return;
+  }
+
+  setState(() => _caricamento = true);
+  final supabase = Supabase.instance.client;
+
+  try {
+    // 1) Verifica OTP → Supabase crea/aggiorna la sessione
+    await supabase.auth.verifyOTP(
+      email: widget.email,
+      token: codice,
+      type: OtpType.email,
+    );
+
+    final currentUser = supabase.auth.currentUser;
+    if (currentUser == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Verifica riuscita ma sessione non trovata. Riprova ad accedere.',
+          ),
+        ),
+      );
       return;
     }
 
-    setState(() => _caricamento = true);
-    final supabase = Supabase.instance.client;
+    // 2) Leggiamo i metadati attuali
+    final currentMeta = Map<String, dynamic>.from(
+      currentUser.userMetadata ?? {},
+    );
 
-    try {
-      // 1) Verifica OTP → qui Supabase crea/aggiorna la sessione
-      await supabase.auth.verifyOTP(
-        email: widget.email,
-        token: codice,
-        type: OtpType.email,
-      );
+    // Flag OTP verificato
+    currentMeta['otp_verified'] = true;
 
-      // 2) Segna l'utente come "verificato via OTP" nei metadati
-      final currentUser = supabase.auth.currentUser;
-      if (currentUser == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Verifica riuscita ma sessione non trovata. Riprova ad accedere.',
-              ),
+    // --- NUOVA LOGICA: capire se è un flusso partner o no ---
+
+    final String? signupFlow = currentMeta['signup_flow'] as String?;
+    final partnerSignupRaw = currentMeta['partner_signup'];
+
+    final bool partnerFromMeta = partnerSignupRaw is Map<String, dynamic>;
+    final bool isPartnerFlowEffective =
+        widget.isPartnerFlow || signupFlow == 'partner' || partnerFromMeta;
+
+    final partnerSignup = partnerFromMeta
+        ? (partnerSignupRaw as Map<String, dynamic>)
+        : null;
+
+    // 3) Aggiorniamo i metadati (OTP + eventuale pulizia campi temporanei)
+    if (partnerSignup != null) {
+      // Dopo aver usato questi dati, li potremo rimuovere
+      // (lo faremo dopo la submit, così se crasha prima non li perdiamo)
+    }
+
+    await supabase.auth.updateUser(UserAttributes(data: currentMeta));
+    await supabase.auth.refreshSession();
+
+    // 4) Salva e-mail e crea user_profile SOLO per utenti normali
+    await LastEmailStore.save(widget.email);
+    if (!isPartnerFlowEffective) {
+      await UserRepo().upsertMe();
+    }
+
+    if (!mounted) return;
+
+    // 5) Flusso diverso in base al tipo di signup
+    if (isPartnerFlowEffective) {
+      // ----- FLUSSO PARTNER -----
+
+      final userId = currentUser.id;
+
+      // Recuperiamo i dati partner:
+      final String? name =
+          widget.partnerName ?? partnerSignup?['name'] as String?;
+      final String? address =
+          widget.partnerAddress ?? partnerSignup?['address'] as String?;
+      final int capacity = widget.partnerCapacity ??
+          (partnerSignup?['capacity'] as int? ?? 0);
+      final double? price2h = widget.partnerPrice2h ??
+          (partnerSignup?['price2h'] as num?)?.toDouble();
+      final double? pricePerDay = widget.partnerPricePerDay ??
+          (partnerSignup?['pricePerDay'] as num?)?.toDouble();
+      final String? message =
+          widget.partnerMessage ?? partnerSignup?['message'] as String?;
+      final double? lat = widget.partnerLat ??
+          (partnerSignup?['lat'] as num?)?.toDouble();
+      final double? lng = widget.partnerLng ??
+          (partnerSignup?['lng'] as num?)?.toDouble();
+
+      if (name == null ||
+          address == null ||
+          lat == null ||
+          lng == null) {
+        // Mancano dati fondamentali → non possiamo completare la registrazione partner
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Dati registrazione partner mancanti. Ripeti la registrazione come partner.',
             ),
-          );
-        }
+          ),
+        );
         return;
       }
 
-      // 3) Segna l'utente come "verificato via OTP" nei metadati
-      final currentMeta = Map<String, dynamic>.from(
-        currentUser.userMetadata ?? {},
+      // 5a) Imposta ruolo 'partner' in user_profiles
+      await supabase
+          .from('user_profiles')
+          .update({'role': 'partner'})
+          .eq('id', userId);
+
+      // 5b) Crea la richiesta partner (partners + partner_requests)
+      final repo = PartnerRepo(supabase);
+      await repo.submitPartnerApplication(
+        userId: userId,
+        name: name,
+        address: address,
+        capacity: capacity,
+        price2h: price2h,
+        pricePerDay: pricePerDay,
+        message: message,
+        lat: lat,
+        lng: lng,
       );
-      currentMeta['otp_verified'] = true;
 
-      await supabase.auth.updateUser(UserAttributes(data: currentMeta));
-
-      // (opzionale, ma utile) forza refresh della sessione
+      // 5c) Ora che abbiamo usato i dati, puliamo partner_signup dai metadati
+      final newMeta = Map<String, dynamic>.from(
+        supabase.auth.currentUser?.userMetadata ?? {},
+      );
+      newMeta.remove('partner_signup');
+      // volendo possiamo tenere signup_flow='partner' come storico, o rimuoverlo:
+      // newMeta.remove('signup_flow');
+      await supabase.auth.updateUser(UserAttributes(data: newMeta));
       await supabase.auth.refreshSession();
-
-      // 4) Salva e-mail e upsert profilo
-      await LastEmailStore.save(widget.email);
-      if (!widget.isPartnerFlow) {
-        await UserRepo().upsertMe();
-      }
 
       if (!mounted) return;
 
-      // 5) Navigazione diversa a seconda del flusso:
-      if (widget.isPartnerFlow) {
-        // ----- FLUSSO PARTNER -----
+      // 5d) Snack + vai alla schermata di attesa partner
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Verifica completata! Richiesta partner inviata.'),
+        ),
+      );
 
-        final userId = currentUser.id;
-
-        // Controllo che i dati partner fondamentali ci siano
-        if (widget.partnerName == null ||
-            widget.partnerAddress == null ||
-            widget.partnerLat == null ||
-            widget.partnerLng == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Dati registrazione partner mancanti. Ripeti la registrazione.',
-              ),
-            ),
-          );
-          return;
-        }
-
-        // 5a) Imposta ruolo 'partner' in user_profiles
-        await supabase
-            .from('user_profiles')
-            .update({'role': 'partner'})
-            .eq('id', userId);
-
-        // 5b) Crea la richiesta partner (partners + partner_requests)
-        final repo = PartnerRepo(supabase);
-        await repo.submitPartnerApplication(
-          userId: userId,
-          name: widget.partnerName!,
-          address: widget.partnerAddress!,
-          capacity: widget.partnerCapacity ?? 0,
-          price2h: widget.partnerPrice2h,
-          pricePerDay: widget.partnerPricePerDay,
-          message: widget.partnerMessage,
-          lat: widget.partnerLat,
-          lng: widget.partnerLng,
-        );
-
-        // 5c) Snack + vai alla schermata di attesa partner
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Verifica completata! Richiesta partner inviata.'),
-          ),
-        );
-
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const PartnerWaitingScreen()),
-          (route) => route.isFirst,
-        );
-      } else {
-        // ----- FLUSSO USER NORMALE -----
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Verifica completata!')));
-        Navigator.of(context).popUntil((route) => route.isFirst);
-      }
-    } on AuthException catch (e) {
-      final msg = e.message.toLowerCase();
-      String readable = 'Codice non valido: ${e.message}';
-      if (msg.contains('expired')) {
-        readable = 'Codice scaduto. Richiedi un nuovo codice.';
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(readable)));
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Imprevisto: $e')));
-    } finally {
-      if (mounted) setState(() => _caricamento = false);
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const PartnerWaitingScreen()),
+        (route) => route.isFirst,
+      );
+    } else {
+      // ----- FLUSSO USER NORMALE -----
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Verifica completata!')),
+      );
+      Navigator.of(context).popUntil((route) => route.isFirst);
     }
+  } on AuthException catch (e) {
+    if (!mounted) return;
+    final msg = e.message.toLowerCase();
+    String readable = 'Codice non valido: ${e.message}';
+    if (msg.contains('expired')) {
+      readable = 'Codice scaduto. Richiedi un nuovo codice.';
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(readable)),
+    );
+  } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Imprevisto: $e')),
+    );
+  } finally {
+    // ignore: control_flow_in_finally
+    if (!mounted) return;
+    setState(() => _caricamento = false);
   }
+}
+
 
   Future<void> _reinviaCodice() async {
     if (_secondsLeft > 0) return; // già in cooldown
@@ -253,78 +306,99 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Verifica codice'),
-        backgroundColor: cs.primary,
-        foregroundColor: cs.onPrimary,
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'E-mail: ${widget.email}',
-                style: Theme.of(context).textTheme.bodyLarge,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Inserisci il codice (6 cifre) che ti abbiamo inviato via e-mail.',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 16),
+    return PopScope(
+      // 👇 blocchiamo il "back" di Navigator (Android indietro, freccia AppBar, ecc.)
+      canPop: false,
+      onPopInvoked: (didPop) {
+        // Se per qualche motivo è già stato fatto il pop, non facciamo nulla
+        if (didPop) return;
 
-              TextField(
-                controller: _ctrlCodice,
-                keyboardType: TextInputType.number,
-                inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(6),
-                ],
-                decoration: const InputDecoration(
-                  labelText: 'Codice OTP',
-                  hintText: '••••••',
-                  border: OutlineInputBorder(),
+        // Mostriamo solo un messaggio: può solo completare la verifica o chiudere l’app
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Completa la verifica dell’e-mail oppure chiudi l’app.',
+            ),
+          ),
+        );
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Verifica codice'),
+          backgroundColor: cs.primary,
+          foregroundColor: cs.onPrimary,
+          // 👇 niente freccia indietro automatica
+          automaticallyImplyLeading: false,
+        ),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'E-mail: ${widget.email}',
+                  style: Theme.of(context).textTheme.bodyLarge,
                 ),
-                enabled: !_caricamento,
-                onSubmitted: (_) => _verificaOTP(),
-              ),
+                const SizedBox(height: 8),
+                Text(
+                  'Inserisci il codice (6 cifre) che ti abbiamo inviato via e-mail.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 16),
 
-              const SizedBox(height: 24),
+                TextField(
+                  controller: _ctrlCodice,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(6),
+                  ],
+                  decoration: const InputDecoration(
+                    labelText: 'Codice OTP',
+                    hintText: '••••••',
+                    border: OutlineInputBorder(),
+                  ),
+                  enabled: !_caricamento,
+                  onSubmitted: (_) => _verificaOTP(),
+                ),
 
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _caricamento ? null : _verificaOTP,
-                      child: _caricamento
-                          ? const SizedBox(
-                              width: 22,
-                              height: 22,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Verifica e accedi'),
+                const SizedBox(height: 24),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: _caricamento ? null : _verificaOTP,
+                        child: _caricamento
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Text('Verifica e accedi'),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  TextButton(
-                    onPressed: (_caricamento || _secondsLeft > 0)
-                        ? null
-                        : _reinviaCodice,
-                    child: Text(
-                      _secondsLeft > 0
-                          ? 'Invia (${_secondsLeft}s)'
-                          : 'Invia codice',
+                    const SizedBox(width: 12),
+                    TextButton(
+                      onPressed: (_caricamento || _secondsLeft > 0)
+                          ? null
+                          : _reinviaCodice,
+                      child: Text(
+                        _secondsLeft > 0
+                            ? 'Invia (${_secondsLeft}s)'
+                            : 'Invia codice',
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
+
 }
