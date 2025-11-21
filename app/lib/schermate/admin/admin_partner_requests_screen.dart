@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/partner_requests.dart';
 import '../../models/partner.dart';
 
+/// Schermata principale con le richieste partner in attesa di revisione.
 class AdminPartnerRequestsScreen extends StatefulWidget {
   const AdminPartnerRequestsScreen({super.key});
 
@@ -38,11 +39,11 @@ class _AdminPartnerRequestsScreenState
             'id,user_id,partner_id,status,message,admin_note,created_at,reviewed_at,reviewed_by',
           )
           .eq('status', 'pending')
-          .order('created_at');
+          .order('created_at') as List<dynamic>;
 
-      final requests = (data as List)
+      final requests = data
           .map((m) => PartnerRequest.fromMap(m as Map<String, dynamic>))
-          .toList();
+          .toList(growable: false);
 
       final partnerIds = requests.map((r) => r.partnerId).toSet().toList();
 
@@ -54,14 +55,16 @@ class _AdminPartnerRequestsScreenState
             .select(
               'id,name,address,capacity,price_2h,price_per_day,status,is_active,reject_reason,created_at,updated_at,owner_id,lat,lng,opening_hours',
             )
-            .inFilter('id', partnerIds);
+            .inFilter('id', partnerIds) as List<dynamic>;
 
         partnersById = {
-          for (final m in partnersData as List)
-            (m['id'] as String): Partner.fromMap(m as Map<String, dynamic>),
+          for (final raw in partnersData)
+            (raw as Map<String, dynamic>)['id'] as String:
+                Partner.fromMap(raw),
         };
       }
 
+      if (!mounted) return;
       setState(() {
         _items = requests
             .map(
@@ -70,7 +73,7 @@ class _AdminPartnerRequestsScreenState
                 partner: partnersById[r.partnerId],
               ),
             )
-            .toList();
+            .toList(growable: false);
         _loading = false;
       });
     } catch (e) {
@@ -90,12 +93,15 @@ class _AdminPartnerRequestsScreenState
     try {
       final adminId = _supabase.auth.currentUser?.id;
       if (adminId == null) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Admin non autenticato')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Admin non autenticato')),
+        );
         return;
       }
 
+      final nowIso = DateTime.now().toIso8601String();
+
+      // Aggiorno stato partner
       await _supabase
           .from('partners')
           .update({
@@ -105,12 +111,13 @@ class _AdminPartnerRequestsScreenState
           })
           .eq('id', req.partnerId);
 
+      // Aggiorno richiesta
       await _supabase
           .from('partner_requests')
           .update({
             'status': nuovoStatus,
             'admin_note': adminNote,
-            'reviewed_at': DateTime.now().toIso8601String(),
+            'reviewed_at': nowIso,
             'reviewed_by': adminId,
           })
           .eq('id', req.id);
@@ -139,7 +146,9 @@ class _AdminPartnerRequestsScreenState
     final textTheme = Theme.of(context).textTheme;
 
     if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
 
     if (_error != null) {
@@ -199,10 +208,12 @@ class _AdminPartnerRequestsScreenState
 
                   final shortId = r.id.substring(0, 8);
                   final name = p?.name ?? 'Attività senza nome';
-                  final address = p?.address ?? 'Indirizzo non specificato';
+                  final address =
+                      p?.address ?? 'Indirizzo non specificato';
                   final capacity = p?.capacity ?? 0;
                   final price2h = p?.price2h?.toStringAsFixed(2) ?? '-';
-                  final pricePerDay = p?.pricePerDay?.toStringAsFixed(2) ?? '-';
+                  final pricePerDay =
+                      p?.pricePerDay?.toStringAsFixed(2) ?? '-';
 
                   return _AdminRequestCard(
                     shortId: shortId,
@@ -213,7 +224,10 @@ class _AdminPartnerRequestsScreenState
                     pricePerDay: pricePerDay,
                     note: r.message,
                     createdAt: r.createdAt,
-                    onApprove: () => _decidi(req: r, nuovoStatus: 'approved'),
+                    onApprove: () => _decidi(
+                      req: r,
+                      nuovoStatus: 'approved',
+                    ),
                     onReject: () async {
                       final note = await _chiediMotivo(context);
                       if (note == null) return;
@@ -230,6 +244,7 @@ class _AdminPartnerRequestsScreenState
     );
   }
 
+  /// Dialog che chiede all'admin il motivo del rifiuto.
   Future<String?> _chiediMotivo(BuildContext context) async {
     final ctrl = TextEditingController();
     return showDialog<String>(
@@ -258,6 +273,7 @@ class _AdminPartnerRequestsScreenState
   }
 }
 
+/// Item aggregato: richiesta + eventuale partner associato.
 class _AdminRequestItem {
   final PartnerRequest request;
   final Partner? partner;
@@ -265,6 +281,7 @@ class _AdminRequestItem {
   _AdminRequestItem({required this.request, required this.partner});
 }
 
+/// Card singola per una richiesta partner.
 class _AdminRequestCard extends StatelessWidget {
   final String shortId;
   final String name;
@@ -293,7 +310,6 @@ class _AdminRequestCard extends StatelessWidget {
 
   String _formatCreatedAt() {
     if (createdAt == null) return '';
-    // Per ora solo data breve; in futuro puoi usare intl
     final d = createdAt!;
     return '${d.day.toString().padLeft(2, '0')}/'
         '${d.month.toString().padLeft(2, '0')}/'
@@ -304,6 +320,8 @@ class _AdminRequestCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+
+    final createdStr = _formatCreatedAt();
 
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -373,7 +391,12 @@ class _AdminRequestCard extends StatelessWidget {
               children: [
                 const Icon(Icons.place_outlined, size: 18),
                 const SizedBox(width: 4),
-                Expanded(child: Text(address, style: textTheme.bodySmall)),
+                Expanded(
+                  child: Text(
+                    address,
+                    style: textTheme.bodySmall,
+                  ),
+                ),
               ],
             ),
 
@@ -393,7 +416,10 @@ class _AdminRequestCard extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                Text('Giorno da $pricePerDay €', style: textTheme.bodySmall),
+                Text(
+                  'Giorno da $pricePerDay €',
+                  style: textTheme.bodySmall,
+                ),
               ],
             ),
 
@@ -411,10 +437,9 @@ class _AdminRequestCard extends StatelessWidget {
 
             const SizedBox(height: 8),
 
-            // Data richiesta (se disponibile)
-            if (_formatCreatedAt().isNotEmpty)
+            if (createdStr.isNotEmpty)
               Text(
-                'Inviata il ${_formatCreatedAt()}',
+                'Inviata il $createdStr',
                 style: textTheme.bodySmall?.copyWith(
                   color: textTheme.bodySmall?.color?.withOpacity(0.7),
                 ),

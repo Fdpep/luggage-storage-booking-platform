@@ -21,48 +21,37 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Carichiamo il file .env solo se NON siamo su Web
+  // 1) Se NON siamo su Web, proviamo a caricare il file .env.android
+  //    (che hai dichiarato nel pubspec.yaml come asset)
   if (!kIsWeb) {
     try {
-      await dotenv.load(fileName: 'assets/.env');
+      await dotenv.load(fileName: '.env.android'); // <-- NOTA: niente "assets/"
+      debugPrint('Caricato .env.android');
     } catch (e) {
-      debugPrint(' Impossibile caricare assets/.env: $e');
+      debugPrint('Impossibile caricare .env.android: $e');
     }
   }
 
-  
+  // 2) Leggiamo prima i dart-define (prioritari)
+  const urlFromDefine = String.fromEnvironment('SUPABASE_URL');
+  const keyFromDefine = String.fromEnvironment('SUPABASE_ANON_KEY');
 
-  final supabaseUrl = kIsWeb
-      ? const String.fromEnvironment('SUPABASE_URL')
-      : (dotenv.env['SUPABASE_URL'] ?? '');
+  // 3) Se i dart-define non sono impostati, prendiamo i valori da dotenv
+  final supabaseUrl =
+      urlFromDefine.isNotEmpty ? urlFromDefine : (dotenv.maybeGet('SUPABASE_URL') ?? '');
+  final supabaseAnonKey = keyFromDefine.isNotEmpty
+      ? keyFromDefine
+      : (dotenv.maybeGet('SUPABASE_ANON_KEY') ?? '');
 
-  final supabaseAnonKey = kIsWeb
-      ? const String.fromEnvironment('SUPABASE_ANON_KEY')
-      : (dotenv.env['SUPABASE_ANON_KEY'] ?? '');
-
-  //  assert/log per capire se sono vuote
   if (supabaseUrl.isEmpty || supabaseAnonKey.isEmpty) {
-    debugPrint(' SUPABASE_URL o SUPABASE_ANON_KEY non impostate!');
+    debugPrint('SUPABASE_URL o SUPABASE_ANON_KEY non impostate (né via dart-define né via .env.android)!');
   }
 
-    await Supabase.initialize(
+  await Supabase.initialize(
     url: supabaseUrl,
     anonKey: supabaseAnonKey,
   );
 
-/*
-  // 1) Carichiamo le variabili dal file .env
-  await dotenv.load(fileName: 'assets/.env');
-  // 2) Inizializziamo Supabase
-  await SupabaseService.init();
-*/
-
-  /*
-  await Supabase.initialize(
-    url: const String.fromEnvironment('SUPABASE_URL'),
-    anonKey: const String.fromEnvironment('SUPABASE_ANON_KEY'),
-  );
-   */
   runApp(const BagDropApp());
 }
 

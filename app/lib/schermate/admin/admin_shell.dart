@@ -3,8 +3,44 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../autenticazione/auth_actions.dart';
 import 'admin_partner_requests_screen.dart';
 
-/// Shell principale per l’area Admin.
-/// Semplice bottom navigation:
+/// ---------------------------------------------------------------------------
+///  Helper comuni per l'area admin
+/// ---------------------------------------------------------------------------
+
+/// Formatta una data breve in stile gg/mm/aaaa.
+/// Accetta sia String (dal DB) che DateTime (già parsato).
+String _formatDateShort(dynamic raw) {
+  DateTime? dt;
+  if (raw is String) {
+    dt = DateTime.tryParse(raw);
+  } else if (raw is DateTime) {
+    dt = raw;
+  }
+
+  if (dt == null) return '';
+
+  final d = dt.day.toString().padLeft(2, '0');
+  final m = dt.month.toString().padLeft(2, '0');
+  final y = dt.year.toString();
+  return '$d/$m/$y';
+}
+
+/// Colore del chip in base allo stato del partner.
+Color _statusChipColor(String status, ColorScheme cs) {
+  switch (status) {
+    case 'approved':
+      return Colors.green;
+    case 'rejected':
+      return Colors.red;
+    default:
+      return cs.tertiary;
+  }
+}
+
+/// ---------------------------------------------------------------------------
+///  Shell principale per l’area Admin
+/// ---------------------------------------------------------------------------
+/// Bottom navigation:
 /// - Tab 0: Dashboard
 /// - Tab 1: Richieste partner
 /// - Tab 2: Partner (lista)
@@ -50,6 +86,9 @@ class _AdminShellState extends State<AdminShell> {
   }
 }
 
+/// ---------------------------------------------------------------------------
+///  Dashboard Admin
+/// ---------------------------------------------------------------------------
 class _AdminDashboardPage extends StatelessWidget {
   const _AdminDashboardPage();
 
@@ -60,18 +99,18 @@ class _AdminDashboardPage extends StatelessWidget {
     final pendingReqData = await supabase
         .from('partner_requests')
         .select('id')
-        .eq('status', 'pending');
-    final pendingRequests = (pendingReqData as List).length;
+        .eq('status', 'pending') as List<dynamic>;
+    final pendingRequests = pendingReqData.length;
 
     // Partner: approvati e attivi
     final partnersData = await supabase
         .from('partners')
-        .select('id,status,is_active');
+        .select('id,status,is_active') as List<dynamic>;
 
-    int partnersApproved = 0;
-    int partnersActive = 0;
+    var partnersApproved = 0;
+    var partnersActive = 0;
 
-    for (final row in partnersData as List) {
+    for (final row in partnersData) {
       final m = row as Map<String, dynamic>;
       final status = m['status'] as String?;
       final isActive = m['is_active'] as bool? ?? false;
@@ -201,7 +240,7 @@ class _AdminDashboardPage extends StatelessWidget {
                     );
                   }
 
-                  if (snapshot.hasError) {
+                  if (snapshot.hasError || snapshot.data == null) {
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       child: Text(
@@ -280,7 +319,9 @@ class _AdminDashboardPage extends StatelessWidget {
   }
 }
 
-/// Lista semplice di tutti i partner, per vedere stato e attivazione.
+/// ---------------------------------------------------------------------------
+///  Lista Partner (per admin)
+/// ---------------------------------------------------------------------------
 class _AdminPartnersListPage extends StatefulWidget {
   const _AdminPartnersListPage();
 
@@ -313,12 +354,11 @@ class _AdminPartnersListPageState extends State<_AdminPartnersListPage> {
       final data = await _supabase
           .from('partners')
           .select('id,name,address,status,is_active,capacity,created_at')
-          .order('created_at');
+          .order('created_at') as List<dynamic>;
 
       setState(() {
-        _partners = (data as List)
-            .map((m) => m as Map<String, dynamic>)
-            .toList();
+        _partners =
+            data.map((e) => e as Map<String, dynamic>).toList(growable: false);
         _loading = false;
       });
     } catch (e) {
@@ -331,32 +371,17 @@ class _AdminPartnersListPageState extends State<_AdminPartnersListPage> {
   }
 
   List<Map<String, dynamic>> get _filteredPartners {
+    final query = _searchQuery.trim().toLowerCase();
+
     return _partners.where((p) {
       final name = (p['name'] as String? ?? '').toLowerCase();
       final status = (p['status'] as String? ?? 'pending');
 
-      final matchesSearch =
-          _searchQuery.trim().isEmpty ||
-          name.contains(_searchQuery.toLowerCase());
-
+      final matchesSearch = query.isEmpty || name.contains(query);
       final matchesFilter = _statusFilter == 'all' || status == _statusFilter;
 
       return matchesSearch && matchesFilter;
     }).toList();
-  }
-
-  String _formatCreatedAt(Map<String, dynamic> p) {
-    final raw = p['created_at'];
-    if (raw is String) {
-      final dt = DateTime.tryParse(raw);
-      if (dt != null) {
-        final d = dt.day.toString().padLeft(2, '0');
-        final m = dt.month.toString().padLeft(2, '0');
-        final y = dt.year.toString();
-        return '$d/$m/$y';
-      }
-    }
-    return '';
   }
 
   Widget _buildFilterChip(String label, String value, ColorScheme cs) {
@@ -383,7 +408,9 @@ class _AdminPartnersListPageState extends State<_AdminPartnersListPage> {
     final textTheme = Theme.of(context).textTheme;
 
     if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
 
     if (_error != null) {
@@ -492,25 +519,14 @@ class _AdminPartnersListPageState extends State<_AdminPartnersListPage> {
                         final p = partners[index];
                         final status = p['status'] as String? ?? 'pending';
                         final isActive = p['is_active'] as bool? ?? false;
-                        final name = p['name'] as String? ?? 'Senza nome';
-                        final addr =
-                            p['address'] as String? ??
+                        final name =
+                            p['name'] as String? ?? 'Senza nome';
+                        final addr = p['address'] as String? ??
                             'Indirizzo non specificato';
                         final capacity = p['capacity']?.toString() ?? '-';
 
-                        Color chipColor;
-                        switch (status) {
-                          case 'approved':
-                            chipColor = Colors.green;
-                            break;
-                          case 'rejected':
-                            chipColor = Colors.red;
-                            break;
-                          default:
-                            chipColor = cs.tertiary;
-                        }
-
-                        final createdStr = _formatCreatedAt(p);
+                        final chipColor = _statusChipColor(status, cs);
+                        final createdStr = _formatDateShort(p['created_at']);
 
                         return InkWell(
                           onTap: () {
@@ -556,8 +572,8 @@ class _AdminPartnersListPageState extends State<_AdminPartnersListPage> {
                                               overflow: TextOverflow.ellipsis,
                                               style: textTheme.titleMedium
                                                   ?.copyWith(
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                             ),
                                             const SizedBox(height: 2),
                                             Text(
@@ -590,9 +606,9 @@ class _AdminPartnersListPageState extends State<_AdminPartnersListPage> {
                                               status,
                                               style: textTheme.bodySmall
                                                   ?.copyWith(
-                                                    color: chipColor,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
+                                                color: chipColor,
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                             ),
                                           ),
                                           const SizedBox(height: 4),
@@ -600,21 +616,17 @@ class _AdminPartnersListPageState extends State<_AdminPartnersListPage> {
                                             isActive ? 'Attivo' : 'Non attivo',
                                             style: textTheme.bodySmall
                                                 ?.copyWith(
-                                                  color: isActive
-                                                      ? Colors.green[700]
-                                                      : textTheme
-                                                            .bodySmall
-                                                            ?.color
-                                                            ?.withOpacity(0.8),
-                                                ),
+                                              color: isActive
+                                                  ? Colors.green[700]
+                                                  : textTheme.bodySmall?.color
+                                                      ?.withOpacity(0.8),
+                                            ),
                                           ),
                                         ],
                                       ),
                                     ],
                                   ),
-
                                   const SizedBox(height: 8),
-
                                   Wrap(
                                     spacing: 12,
                                     runSpacing: 4,
@@ -648,6 +660,9 @@ class _AdminPartnersListPageState extends State<_AdminPartnersListPage> {
   }
 }
 
+/// ---------------------------------------------------------------------------
+///  Modello per le statistiche in dashboard
+/// ---------------------------------------------------------------------------
 class _AdminStats {
   final int pendingRequests;
   final int partnersApproved;
@@ -660,6 +675,7 @@ class _AdminStats {
   });
 }
 
+/// Card per una singola statistica in dashboard.
 class _AdminStatCard extends StatelessWidget {
   final String label;
   final String? value;
@@ -678,9 +694,9 @@ class _AdminStatCard extends StatelessWidget {
     required this.label,
     required this.icon,
     Key? key,
-  }) : value = null,
-       isLoading = true,
-       super(key: key);
+  })  : value = null,
+        isLoading = true,
+        super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -736,28 +752,13 @@ class _AdminStatCard extends StatelessWidget {
   }
 }
 
+/// ---------------------------------------------------------------------------
+///  Dettaglio singolo partner (vista admin)
+/// ---------------------------------------------------------------------------
 class AdminPartnerDetailScreen extends StatelessWidget {
   final Map<String, dynamic> partner;
 
   const AdminPartnerDetailScreen({super.key, required this.partner});
-
-  String _formatCreatedAt(dynamic raw) {
-    if (raw is String) {
-      final dt = DateTime.tryParse(raw);
-      if (dt != null) {
-        final d = dt.day.toString().padLeft(2, '0');
-        final m = dt.month.toString().padLeft(2, '0');
-        final y = dt.year.toString();
-        return '$d/$m/$y';
-      }
-    } else if (raw is DateTime) {
-      final d = raw.day.toString().padLeft(2, '0');
-      final m = raw.month.toString().padLeft(2, '0');
-      final y = raw.year.toString();
-      return '$d/$m/$y';
-    }
-    return '-';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -766,24 +767,14 @@ class AdminPartnerDetailScreen extends StatelessWidget {
 
     final id = partner['id'] as String? ?? '-';
     final name = partner['name'] as String? ?? 'Senza nome';
-    final addr = partner['address'] as String? ?? 'Indirizzo non specificato';
+    final addr =
+        partner['address'] as String? ?? 'Indirizzo non specificato';
     final status = partner['status'] as String? ?? 'pending';
     final isActive = partner['is_active'] as bool? ?? false;
     final capacity = partner['capacity']?.toString() ?? '-';
-    final createdAtRaw = partner['created_at'];
-    final createdStr = _formatCreatedAt(createdAtRaw);
+    final createdStr = _formatDateShort(partner['created_at']);
 
-    Color chipColor;
-    switch (status) {
-      case 'approved':
-        chipColor = Colors.green;
-        break;
-      case 'rejected':
-        chipColor = Colors.red;
-        break;
-      default:
-        chipColor = cs.tertiary;
-    }
+    final chipColor = _statusChipColor(status, cs);
 
     return Scaffold(
       appBar: AppBar(
@@ -877,25 +868,29 @@ class AdminPartnerDetailScreen extends StatelessWidget {
                         ),
                       ],
                     ),
-
                     const SizedBox(height: 12),
-
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Icon(Icons.place_outlined, size: 18),
                         const SizedBox(width: 4),
-                        Expanded(child: Text(addr, style: textTheme.bodySmall)),
+                        Expanded(
+                          child: Text(
+                            addr,
+                            style: textTheme.bodySmall,
+                          ),
+                        ),
                       ],
                     ),
-
                     const SizedBox(height: 8),
-
                     Wrap(
                       spacing: 16,
                       runSpacing: 4,
                       children: [
-                        Text('Capacità: $capacity', style: textTheme.bodySmall),
+                        Text(
+                          'Capacità: $capacity',
+                          style: textTheme.bodySmall,
+                        ),
                         Text(
                           'Creato il: $createdStr',
                           style: textTheme.bodySmall?.copyWith(
@@ -908,29 +903,6 @@ class AdminPartnerDetailScreen extends StatelessWidget {
                 ),
               ),
             ),
-
-            const SizedBox(height: 24),
-/*
-
-            // Sezione future espansioni
-            Text(
-              'Altro (in futuro)',
-              style: textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Qui potrai aggiungere:\n'
-              '• Orari di apertura\n'
-              '• Posizione su mappa\n'
-              '• Ultime prenotazioni\n'
-              '• Log delle azioni admin\n',
-              style: textTheme.bodySmall?.copyWith(
-                color: textTheme.bodySmall?.color?.withOpacity(0.8),
-              ),
-            ),
-            */
           ],
         ),
       ),
