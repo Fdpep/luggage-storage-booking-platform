@@ -3,9 +3,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'partner_waiting_screen.dart';
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import '../../services/supabase/partner_repo.dart';
-import '../../services/supabase/maps/map_geocoding_service.dart';
-import '../../services/supabase/location/places_autocomplete_service.dart';
+import '../../../services/supabase/partner_repo.dart';
+import '../../../services/supabase/maps/map_geocoding_service.dart';
+import '../../../services/supabase/location/places_autocomplete_service.dart';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 
@@ -65,101 +65,123 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
+Future<void> _submit() async {
+  // 1) Validazione base del form
+  if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    // Verifica geocoding
+  // 2) Se il geocoding è ancora in corso, chiedi di aspettare
+  if (_isGeocoding) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Attendi che la ricerca dell\'indirizzo sia completata.',
+        ),
+      ),
+    );
+    return;
+  }
+
+  // 3) Se non abbiamo ancora lat/lng, proviamo un geocoding automatico
+  if (_lat == null || _lng == null) {
+    await _geocodeAddress();
+
+    // dopo una chiamata async: sempre check mounted
+    if (!mounted) return;
+
     if (_lat == null || _lng == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Clicca sulla lente accanto all\'indirizzo per confermare la posizione.',
+            'Impossibile confermare l\'indirizzo.\n'
+            'Controlla il testo o riprova usando la lente accanto al campo.',
           ),
         ),
       );
       return;
-    }
-
-    FocusScope.of(context).unfocus();
-    setState(() => _busy = true);
-
-    final client = Supabase.instance.client;
-
-    // 🔍 DEBUG: controlliamo subito lo stato auth
-    final session = client.auth.currentSession;
-    final user = client.auth.currentUser;
-    // ignore: avoid_print
-    print(
-      '[PartnerRegistration] currentSession=${session != null}, userId=${user?.id}',
-    );
-
-    final userId = user?.id;
-
-    if (userId == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Utente non autenticato (nessuna sessione attiva).'),
-          ),
-        );
-      }
-      setState(() => _busy = false);
-      return;
-    }
-
-    try {
-      final capacity = int.tryParse(_capacityCtrl.text.trim()) ?? 0;
-      final price2h = double.tryParse(_price2hCtrl.text.trim());
-      final priceDay = double.tryParse(_priceDayCtrl.text.trim());
-      final note = _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim();
-
-      // 🔧 Usiamo il repository, passandogli ANCHE lo userId
-      final repo = PartnerRepo(client);
-
-      await repo.submitPartnerApplication(
-        userId: userId,
-        name: _nameCtrl.text.trim(),
-        address: _addressCtrl.text.trim(),
-        capacity: capacity,
-        price2h: price2h,
-        pricePerDay: priceDay,
-        message: note,
-        lat: _lat,
-        lng: _lng,
-      );
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Domanda inviata. Il nostro team la visionerà a breve.',
-          ),
-        ),
-      );
-
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const PartnerWaitingScreen()),
-      );
-    } on PostgrestException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Errore database: ${e.message}')));
-    } on AuthException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Errore di autenticazione: ${e.message}')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Imprevisto: $e')));
-    } finally {
-      if (mounted) setState(() => _busy = false);
     }
   }
+
+  // 4) OK, indirizzo valido → procediamo con l’invio
+  FocusScope.of(context).unfocus();
+  setState(() => _busy = true);
+
+  final client = Supabase.instance.client;
+
+  // DEBUG: controlliamo lo stato auth
+  final session = client.auth.currentSession;
+  final user = client.auth.currentUser;
+  // ignore: avoid_print
+  print(
+    '[PartnerRegistration] currentSession=${session != null}, userId=${user?.id}',
+  );
+
+  final userId = user?.id;
+
+  if (userId == null) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Utente non autenticato (nessuna sessione attiva).'),
+      ),
+    );
+    setState(() => _busy = false);
+    return;
+  }
+
+  try {
+    final capacity = int.tryParse(_capacityCtrl.text.trim()) ?? 0;
+    final price2h = double.tryParse(_price2hCtrl.text.trim());
+    final priceDay = double.tryParse(_priceDayCtrl.text.trim());
+    final note = _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim();
+
+    final repo = PartnerRepo(client);
+
+    await repo.submitPartnerApplication(
+      userId: userId,
+      name: _nameCtrl.text.trim(),
+      address: _addressCtrl.text.trim(),
+      capacity: capacity,
+      price2h: price2h,
+      pricePerDay: priceDay,
+      message: note,
+      lat: _lat,
+      lng: _lng,
+    );
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Domanda inviata. Il nostro team la visionerà a breve.',
+        ),
+      ),
+    );
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const PartnerWaitingScreen()),
+    );
+  } on PostgrestException catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Errore database: ${e.message}')),
+    );
+  } on AuthException catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Errore di autenticazione: ${e.message}')),
+    );
+  } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Imprevisto: $e')),
+    );
+  } finally {
+    if (!mounted) return;
+    setState(() => _busy = false);
+  }
+}
 
   /// Usa la Google Geocoding API per tradurre l'indirizzo in lat/lng
   /// e li salva in `_lat` e `_lng`.

@@ -3,7 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../utils/validators.dart';
 import '../../utils/last_email_store.dart';
 import 'verify_otp.dart';
-import '../partner/partner_signup_screen.dart';
+import '../partner/auth_partner/partner_signup_screen.dart';
 //import 'auth_actions.dart';
 
 /// Registrazione con e-mail + password **confermata via OTP**

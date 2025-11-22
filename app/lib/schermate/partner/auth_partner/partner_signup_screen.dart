@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../autenticazione/verify_otp.dart';
+import '../../autenticazione/verify_otp.dart';
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import '../../services/supabase/maps/map_geocoding_service.dart';
-import '../../services/supabase/location/places_autocomplete_service.dart';
+import '../../../services/supabase/maps/map_geocoding_service.dart';
+import '../../../services/supabase/location/places_autocomplete_service.dart';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 
@@ -76,17 +76,37 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       return;
     }
 
-    // 2) Controllo geocoding
-    if (_lat == null || _lng == null) {
+    // 2) Controllo geocoding (con retry automatico)
+    if (_isGeocoding) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Conferma l\'indirizzo cliccando sulla lente accanto al campo.',
+            'Attendi che la ricerca dell\'indirizzo sia completata.',
           ),
         ),
       );
       return;
     }
+
+    if (_lat == null || _lng == null) {
+      await _geocodeAddress();
+
+      if (!mounted) return;
+
+      if (_lat == null || _lng == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Impossibile confermare l\'indirizzo.\n'
+              'Controlla il testo o riprova usando la lente accanto al campo.',
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
 
     setState(() => _busy = true);
     final supabase = Supabase.instance.client;

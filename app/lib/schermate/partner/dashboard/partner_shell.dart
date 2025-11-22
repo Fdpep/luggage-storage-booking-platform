@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../models/partner.dart';
-import '../../services/supabase/partner_repo.dart';
-import 'partner_registration_screen.dart';
-import '../autenticazione/auth_actions.dart';
-import 'package:BagDrop/schermate/partner/partner_edit_screen.dart';
-import 'package:BagDrop/schermate/partner/partner_photos_screen.dart';
+import '../../../models/partner.dart';
+import '../../../services/supabase/partner_repo.dart';
+import '../auth_partner/partner_registration_screen.dart';
+import '../../autenticazione/auth_actions.dart';
+import 'package:BagDrop/schermate/partner/dashboard/edit/partner_edit_screen.dart';
+import 'package:BagDrop/schermate/partner/dashboard/edit/partner_photos_screen.dart';
+import '../auth_partner/partner_waiting_screen.dart';
+
 
 class PartnerShell extends StatefulWidget {
   const PartnerShell({super.key});
@@ -108,7 +110,7 @@ class _PartnerShellState extends State<PartnerShell> {
     // - rejected → schermata rifiutata con tasto "Riprova"
     // - approved → shell completa
     if (partner.isPending || partner.isRejected) {
-      return _PartnerRestrictedScreen(
+      return PartnerWaitingScreen(
         partner: partner,
         onReapplyCompleted: _refreshAfterRegistration,
       );
@@ -156,117 +158,6 @@ class _PartnerShellState extends State<PartnerShell> {
             label: 'Profilo',
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Vista bloccata quando la richiesta è pending o rejected.
-/// NIENTE bottom navigation qui.
-class _PartnerRestrictedScreen extends StatelessWidget {
-  final Partner partner;
-  final VoidCallback onReapplyCompleted;
-
-  const _PartnerRestrictedScreen({
-    required this.partner,
-    required this.onReapplyCompleted,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    final isPending = partner.isPending;
-    final isRejected = partner.isRejected;
-
-    final name = partner.name;
-    final address = partner.address;
-    final rejectReason = partner.rejectReason;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('BagDrop Partner'),
-        backgroundColor: cs.primary,
-        foregroundColor: cs.onPrimary,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                isPending ? Icons.hourglass_empty : Icons.error_outline,
-                size: 64,
-                color: isPending ? cs.primary : Colors.red,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                isPending ? 'Richiesta in valutazione' : 'Richiesta rifiutata',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 8),
-              if (isPending)
-                const Text(
-                  'Il nostro team sta visionando la tua richiesta di partnership.\n'
-                  'A breve riceverai una e-mail di conferma.',
-                  textAlign: TextAlign.center,
-                )
-              else
-                const Text(
-                  'Spiacenti, la tua richiesta di diventare partner BagDrop è stata rifiutata.',
-                  textAlign: TextAlign.center,
-                ),
-              const SizedBox(height: 8),
-              if (isRejected && (rejectReason ?? '').isNotEmpty)
-                Text(
-                  'Motivazione:\n$rejectReason',
-                  textAlign: TextAlign.center,
-                ),
-              const SizedBox(height: 16),
-              Text(
-                'Attività: $name',
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              if ((address ?? '').isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text(address!, textAlign: TextAlign.center),
-              ],
-              const SizedBox(height: 24),
-              if (isRejected) ...[
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.of(context)
-                          .push(
-                            MaterialPageRoute(
-                              builder: (_) => const PartnerRegistrationScreen(),
-                            ),
-                          )
-                          .then((_) {
-                            onReapplyCompleted();
-                          });
-                    },
-                    child: const Text('Riprova a inviare richiesta'),
-                  ),
-                ),
-                const SizedBox(height: 12),
-              ],
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () async {
-                    await Supabase.instance.client.auth.signOut();
-                  },
-                  icon: const Icon(Icons.logout),
-                  label: const Text('Esci'),
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

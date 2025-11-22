@@ -5,7 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/supabase/user_repo.dart';
 import '../../utils/last_email_store.dart';
 import '../../services/supabase/partner_repo.dart';
-import '../partner/partner_waiting_screen.dart';
+import '../partner/auth_partner/partner_waiting_screen.dart';
 
 //import '../home_shell.dart';
 
