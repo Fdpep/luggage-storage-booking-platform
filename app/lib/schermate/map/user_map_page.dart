@@ -7,7 +7,7 @@ import '../../services/supabase/location/location_service.dart'; // nuovo serviz
 import '../../services/supabase/maps/map_geocoding_service.dart';
 import '../../services/supabase/maps/maps_config.dart';
 import '../../services/supabase/location/places_autocomplete_service.dart';
-import '../partner/partner_detail_screen.dart';
+import '../partner/user_view/partner_detail_screen.dart';
 import 'package:BagDrop/models/partner_photo.dart';
 import 'package:BagDrop/services/supabase/partner_photo/partner_photo_repo.dart';
 

@@ -2,10 +2,10 @@ import 'dart:async';
 import 'package:BagDrop/schermate/autenticazione/registrazione.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../theme/app_theme.dart';
-import 'autenticazione/auth_actions.dart';
-import 'map/user_map_page.dart';
-import 'autenticazione/accesso.dart';
+import '../../theme/app_theme.dart';
+import '../autenticazione/auth_actions.dart';
+import '../map/user_map_page.dart';
+import '../autenticazione/accesso.dart';
 
 /// HomeShell = contenitore della home:
 /// - AppBar: hamburger (Drawer), titolo "BagDrop", icona filtro

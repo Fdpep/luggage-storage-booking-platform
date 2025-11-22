@@ -4,12 +4,12 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 //import 'schermate/ingresso.dart';
 import 'routes/auth_gate.dart';
-import 'schermate/home_shell.dart';
+import 'schermate/user/home_shell.dart';
 import 'schermate/autenticazione/accesso.dart';
 import 'schermate/autenticazione/registrazione.dart';
 import 'schermate/autenticazione/reset_password.dart';
 //import 'schermate/onboarding/start_onboarding.dart'; // <- onboarding
-import 'schermate/partner/partner_shell.dart';
+import 'schermate/partner/dashboard/partner_shell.dart';
 import 'schermate/admin/admin_shell.dart'; // <- NUOVO
 import 'theme/app_theme.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -121,7 +121,7 @@ class _RootGateState extends State<RootGate> {
       ingressoBuilder: (_) => const _IngressoSplash(),
       signedOutBuilder: (_) => const AccessoScreen(),
       signedInBuilder: (_) => const HomeShell(), // utente normale
-      partnerBuilder: (_) => const PartnerShell(), // partner
+      partnerBuilder: (_) => PartnerShell(), // partner
       adminBuilder: (_) => const AdminShell(), // admin
     );
   }
