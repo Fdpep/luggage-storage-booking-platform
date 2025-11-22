@@ -64,7 +64,7 @@ class PartnerWaitingScreen extends StatelessWidget {
                   isRejected
                       ? 'Spiacenti, la tua richiesta di diventare partner BagDrop è stata rifiutata.'
                       : 'Il nostro team sta visionando la tua richiesta di partnership.\n'
-                          'A breve riceverai una e-mail di conferma.',
+                          'A breve riceverai una e-mail di conferma e una successiva mail con esito.',
                   textAlign: TextAlign.center,
                 ),
 
@@ -81,7 +81,7 @@ class PartnerWaitingScreen extends StatelessWidget {
                 if (name != null) ...[
                   const SizedBox(height: 16),
                   Text(
-                    'Attività: $name',
+                    'Nome Attività: $name',
                     textAlign: TextAlign.center,
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),

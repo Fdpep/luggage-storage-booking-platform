@@ -79,8 +79,11 @@ class _PartnerShellState extends State<PartnerShell> {
 
     // Pending / Rejected
     if (p.isPending || p.isRejected) {
-      return PartnerRestrictedScreen(partner: p, onReapplyCompleted: _reload);
-    }
+          return PartnerWaitingScreen(
+            partner: p,
+            onReapplyCompleted: _reload,
+          );
+        }
 
     // Partner approvato → tutte le pagine abilitate
     return _buildShell(
@@ -122,94 +125,6 @@ class _PartnerShellState extends State<PartnerShell> {
             label: 'Profilo',
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Schermata che blocca l’utente se pending / rejected
-class PartnerRestrictedScreen extends StatelessWidget {
-  final Partner partner;
-  final VoidCallback onReapplyCompleted;
-
-  const PartnerRestrictedScreen({
-    super.key,
-    required this.partner,
-    required this.onReapplyCompleted,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    final pending = partner.isPending;
-    final rejected = partner.isRejected;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('BagDrop Partner'),
-        backgroundColor: cs.primary,
-        foregroundColor: cs.onPrimary,
-        automaticallyImplyLeading: false,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                pending ? Icons.hourglass_empty : Icons.error_outline,
-                size: 64,
-                color: pending ? cs.primary : Colors.red,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                pending ? 'Richiesta in valutazione' : 'Richiesta rifiutata',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 8),
-              if (pending)
-                const Text(
-                  'Il nostro team sta valutando la tua richiesta.',
-                  textAlign: TextAlign.center,
-                )
-              else
-                const Text(
-                  'La tua richiesta è stata rifiutata.',
-                  textAlign: TextAlign.center,
-                ),
-              const SizedBox(height: 24),
-
-              if (rejected)
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.of(context)
-                          .push(MaterialPageRoute(
-                              builder: (_) =>
-                                  const PartnerRegistrationScreen()))
-                          .then((_) => onReapplyCompleted());
-                    },
-                    child: const Text('Riprova'),
-                  ),
-                ),
-
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () async {
-                    await Supabase.instance.client.auth.signOut();
-                  },
-                  icon: const Icon(Icons.logout),
-                  label: const Text('Esci'),
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
