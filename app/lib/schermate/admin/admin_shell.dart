@@ -686,6 +686,7 @@ class _AdminStatCard extends StatelessWidget {
     required this.label,
     required this.value,
     required this.icon,
+    // ignore: unused_element_parameter
     this.isLoading = false,
     Key? key,
   }) : super(key: key);

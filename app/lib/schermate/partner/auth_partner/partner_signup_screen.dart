@@ -35,6 +35,7 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
   // Suggerimenti indirizzo (autocomplete)
   List<PlaceSuggestion> _addressSuggestions = [];
   bool _isAddressAutocompleteLoading = false;
+  // ignore: unused_field
   String _addressQuery = '';
 
   bool _busy = false;

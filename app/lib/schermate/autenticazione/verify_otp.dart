@@ -129,7 +129,7 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
         widget.isPartnerFlow || signupFlow == 'partner' || partnerFromMeta;
 
     final partnerSignup = partnerFromMeta
-        ? (partnerSignupRaw as Map<String, dynamic>)
+        ? (partnerSignupRaw)
         : null;
 
     // 3) Aggiorniamo i metadati (OTP + eventuale pulizia campi temporanei)
