@@ -108,7 +108,6 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       }
     }
 
-
     setState(() => _busy = true);
     final supabase = Supabase.instance.client;
 
@@ -135,9 +134,8 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
         data: {
           'source': 'bagdrop-partner-signup',
           'otp_verified': false, // parte sempre non verificato
-
           // *** NUOVI CAMPI IMPORTANTI ***
-          'signup_flow': 'partner',        // ci dice che questo è un sign-up partner
+          'signup_flow': 'partner', // ci dice che questo è un sign-up partner
           'partner_signup': {
             'name': _nameCtrl.text.trim(),
             'address': _addressCtrl.text.trim(),
@@ -150,7 +148,6 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
           },
         },
       );
-
 
       // 4) Se non ha creato sessione subito, fai login esplicito
       /* if (supabase.auth.currentSession == null) {
@@ -219,29 +216,35 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
   Future<void> _geocodeAddress() async {
     final rawAddress = _addressCtrl.text.trim();
     if (rawAddress.isEmpty) {
+      if (!mounted) return;
       setState(() {
         _addressError = 'Inserisci un indirizzo prima di cercare.';
       });
       return;
     }
 
+    if (!mounted) return;
     setState(() {
       _isGeocoding = true;
       _addressError = null;
     });
 
     try {
-      final apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'];
-      if (apiKey == null || apiKey.isEmpty) {
+      final apiKey = _readGoogleApiKey();
+      if (apiKey.isEmpty) {
+        if (!mounted) return;
         setState(() {
           _addressError =
-              'API key Google Maps mancante. Definisci GOOGLE_MAPS_API_KEY in .env.';
+              'API key Google Maps mancante. Definisci GOOGLE_MAPS_API_KEY '
+              'in .env (mobile) o come --dart-define su Web.';
         });
         return;
       }
 
       final service = MapGeocodingService(apiKey: apiKey);
       final result = await service.geocodeAddress(rawAddress);
+
+      if (!mounted) return;
 
       if (result == null) {
         setState(() {
@@ -256,15 +259,28 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       setState(() {
         _lat = result.lat;
         _lng = result.lng;
-        _addressCtrl.text = result.formattedAddress; // indirizzo pulito
+        _addressCtrl.text = result.formattedAddress;
         _addressError = null;
       });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _addressError = 'Errore durante il geocoding: $e';
+      });
     } finally {
-      if (mounted) {
-        setState(() {
-          _isGeocoding = false;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _isGeocoding = false;
+      });
+    }
+  }
+
+  String _readGoogleApiKey() {
+    if (kIsWeb) {
+      const key = String.fromEnvironment('GOOGLE_MAPS_API_KEY');
+      return key;
+    } else {
+      return dotenv.env['GOOGLE_MAPS_API_KEY'] ?? '';
     }
   }
 
@@ -410,10 +426,8 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
     await _geocodeAddress();
   }
 
-
-
-/// Chiamato mentre l'utente scrive nell'indirizzo.
-/// Usa PlacesAutocompleteService per mostrare i suggerimenti live.
+  /// Chiamato mentre l'utente scrive nell'indirizzo.
+  /// Usa PlacesAutocompleteService per mostrare i suggerimenti live.
   Future<void> _onAddressChanged(String value) async {
     setState(() {
       _addressQuery = value;
@@ -580,23 +594,14 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
 
                   TextFormField(
                     controller: _addressCtrl,
+                    readOnly: true,
                     decoration: InputDecoration(
                       labelText: 'Indirizzo',
                       hintText: 'Via / Piazza, numero civico, città',
                       suffixIcon: IconButton(
                         tooltip: 'Cerca sulla mappa',
-                        icon: _isGeocoding
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.search),
-                        // La lente fa ancora il geocoding "manuale"
+                        icon: const Icon(Icons.search),
                         onPressed: _openAddressSearch,
-                        //onPressed: _isGeocoding ? null : _geocodeAddress,
                       ),
                       errorText: _addressError,
                     ),
@@ -606,12 +611,8 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
                       if (t.isEmpty) return 'Inserisci un indirizzo';
                       return null;
                     },
-                    enabled: !_busy,
-                    onChanged: (value) {
-                      if (_busy) return;
-                      _onAddressChanged(value);
-                    },
                   ),
+
                   if (_addressError != null) ...[
                     const SizedBox(height: 4),
                     Text(

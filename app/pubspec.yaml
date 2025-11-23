@@ -37,8 +37,8 @@ flutter:
 
   assets:
     # env
-    - .env
-    - .env.android
+    - assets/.env
+    - assets/.env.android
 
     # immagini dal primo progetto
     - assets/images/brand/logo.png

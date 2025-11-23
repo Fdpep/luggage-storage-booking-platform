@@ -66,146 +66,150 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
     super.dispose();
   }
 
-Future<void> _submit() async {
-  // 1) Validazione base del form
-  if (!(_formKey.currentState?.validate() ?? false)) return;
+  Future<void> _submit() async {
+    // 1) Validazione base del form
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
-  // 2) Se il geocoding è ancora in corso, chiedi di aspettare
-  if (_isGeocoding) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Attendi che la ricerca dell\'indirizzo sia completata.',
-        ),
-      ),
-    );
-    return;
-  }
-
-  // 3) Se non abbiamo ancora lat/lng, proviamo un geocoding automatico
-  if (_lat == null || _lng == null) {
-    await _geocodeAddress();
-
-    // dopo una chiamata async: sempre check mounted
-    if (!mounted) return;
-
-    if (_lat == null || _lng == null) {
+    // 2) Se il geocoding è ancora in corso, chiedi di aspettare
+    if (_isGeocoding) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Impossibile confermare l\'indirizzo.\n'
-            'Controlla il testo o riprova usando la lente accanto al campo.',
+            'Attendi che la ricerca dell\'indirizzo sia completata.',
           ),
         ),
       );
       return;
     }
-  }
 
-  // 4) OK, indirizzo valido → procediamo con l’invio
-  FocusScope.of(context).unfocus();
-  setState(() => _busy = true);
+    // 3) Se non abbiamo ancora lat/lng, proviamo un geocoding automatico
+    if (_lat == null || _lng == null) {
+      await _geocodeAddress();
 
-  final client = Supabase.instance.client;
+      // dopo una chiamata async: sempre check mounted
+      if (!mounted) return;
 
-  // DEBUG: controlliamo lo stato auth
-  final session = client.auth.currentSession;
-  final user = client.auth.currentUser;
-  // ignore: avoid_print
-  print(
-    '[PartnerRegistration] currentSession=${session != null}, userId=${user?.id}',
-  );
+      if (_lat == null || _lng == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Impossibile confermare l\'indirizzo.\n'
+              'Controlla il testo o riprova usando la lente accanto al campo.',
+            ),
+          ),
+        );
+        return;
+      }
+    }
 
-  final userId = user?.id;
+    // 4) OK, indirizzo valido → procediamo con l’invio
+    FocusScope.of(context).unfocus();
+    setState(() => _busy = true);
 
-  if (userId == null) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Utente non autenticato (nessuna sessione attiva).'),
-      ),
-    );
-    setState(() => _busy = false);
-    return;
-  }
+    final client = Supabase.instance.client;
 
-  try {
-    final capacity = int.tryParse(_capacityCtrl.text.trim()) ?? 0;
-    final price2h = double.tryParse(_price2hCtrl.text.trim());
-    final priceDay = double.tryParse(_priceDayCtrl.text.trim());
-    final note = _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim();
-
-    final repo = PartnerRepo(client);
-
-    await repo.submitPartnerApplication(
-      userId: userId,
-      name: _nameCtrl.text.trim(),
-      address: _addressCtrl.text.trim(),
-      capacity: capacity,
-      price2h: price2h,
-      pricePerDay: priceDay,
-      message: note,
-      lat: _lat,
-      lng: _lng,
+    // DEBUG: controlliamo lo stato auth
+    final session = client.auth.currentSession;
+    final user = client.auth.currentUser;
+    // ignore: avoid_print
+    print(
+      '[PartnerRegistration] currentSession=${session != null}, userId=${user?.id}',
     );
 
-    if (!mounted) return;
+    final userId = user?.id;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Domanda inviata. Il nostro team la visionerà a breve.',
+    if (userId == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Utente non autenticato (nessuna sessione attiva).'),
         ),
-      ),
-    );
+      );
+      setState(() => _busy = false);
+      return;
+    }
 
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const PartnerWaitingScreen()),
-    );
-  } on PostgrestException catch (e) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Errore database: ${e.message}')),
-    );
-  } on AuthException catch (e) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Errore di autenticazione: ${e.message}')),
-    );
-  } catch (e) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Imprevisto: $e')),
-    );
-  } finally {
-    if (!mounted) return;
-    setState(() => _busy = false);
+    try {
+      final capacity = int.tryParse(_capacityCtrl.text.trim()) ?? 0;
+      final price2h = double.tryParse(_price2hCtrl.text.trim());
+      final priceDay = double.tryParse(_priceDayCtrl.text.trim());
+      final note = _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim();
+
+      final repo = PartnerRepo(client);
+
+      await repo.submitPartnerApplication(
+        userId: userId,
+        name: _nameCtrl.text.trim(),
+        address: _addressCtrl.text.trim(),
+        capacity: capacity,
+        price2h: price2h,
+        pricePerDay: priceDay,
+        message: note,
+        lat: _lat,
+        lng: _lng,
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Domanda inviata. Il nostro team la visionerà a breve.',
+          ),
+        ),
+      );
+
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const PartnerWaitingScreen()),
+      );
+    } on PostgrestException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Errore database: ${e.message}')));
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Errore di autenticazione: ${e.message}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Imprevisto: $e')));
+    } finally {
+      if (!mounted) return;
+      setState(() => _busy = false);
+    }
   }
-}
 
   /// Usa la Google Geocoding API per tradurre l'indirizzo in lat/lng
   /// e li salva in `_lat` e `_lng`.
   Future<void> _geocodeAddress() async {
     final rawAddress = _addressCtrl.text.trim();
     if (rawAddress.isEmpty) {
+      if (!mounted) return;
       setState(() {
         _addressError = 'Inserisci un indirizzo prima di cercare.';
       });
       return;
     }
 
+    if (!mounted) return;
     setState(() {
       _isGeocoding = true;
       _addressError = null;
     });
 
     try {
-      final apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'];
-      if (apiKey == null || apiKey.isEmpty) {
+      final apiKey = _readGoogleApiKey();
+      if (apiKey.isEmpty) {
+        if (!mounted) return;
         setState(() {
           _addressError =
-              'API key Google Maps mancante. Definisci GOOGLE_MAPS_API_KEY in .env.';
+              'API key Google Maps mancante. Definisci GOOGLE_MAPS_API_KEY '
+              'in .env (mobile) o come --dart-define su Web.';
         });
         return;
       }
@@ -213,10 +217,12 @@ Future<void> _submit() async {
       final service = MapGeocodingService(apiKey: apiKey);
       final result = await service.geocodeAddress(rawAddress);
 
+      if (!mounted) return;
+
       if (result == null) {
         setState(() {
           _addressError =
-              'Indirizzo non trovato. Prova a essere più preciso (via, numero, città).';
+              'Indirizzo non trovato. Prova con via, numero civico e città.';
           _lat = null;
           _lng = null;
         });
@@ -226,15 +232,28 @@ Future<void> _submit() async {
       setState(() {
         _lat = result.lat;
         _lng = result.lng;
-        _addressCtrl.text = result.formattedAddress; // indirizzo "pulito"
+        _addressCtrl.text = result.formattedAddress;
         _addressError = null;
       });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _addressError = 'Errore durante il geocoding: $e';
+      });
     } finally {
-      if (mounted) {
-        setState(() {
-          _isGeocoding = false;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _isGeocoding = false;
+      });
+    }
+  }
+
+  String _readGoogleApiKey() {
+    if (kIsWeb) {
+      const key = String.fromEnvironment('GOOGLE_MAPS_API_KEY');
+      return key;
+    } else {
+      return dotenv.env['GOOGLE_MAPS_API_KEY'] ?? '';
     }
   }
 
@@ -246,12 +265,13 @@ Future<void> _submit() async {
   /// Quando scegli un suggerimento:
   ///  - compila il campo indirizzo
   ///  - chiama _geocodeAddress per riempire _lat / _lng.
+
   Future<void> _openAddressSearch() async {
     setState(() {
       _addressError = null;
     });
 
-    // Web: legge da dart-define; Mobile: da .env
+    // Leggi API key: dart-define su Web, .env su mobile
     final apiKey = kIsWeb
         ? const String.fromEnvironment('GOOGLE_MAPS_API_KEY')
         : (dotenv.env['GOOGLE_MAPS_API_KEY'] ?? '');
@@ -269,10 +289,6 @@ Future<void> _submit() async {
     final selected = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
       builder: (ctx) {
         final textController = TextEditingController(text: _addressCtrl.text);
         List<PlaceSuggestion> suggestions = [];
@@ -285,146 +301,107 @@ Future<void> _submit() async {
         ) async {
           final q = value.trim();
           if (q.length < 3) {
-            setModalState(() {
-              suggestions = [];
-            });
+            setModalState(() => suggestions = []);
             return;
           }
 
-          setModalState(() {
-            isLoading = true;
-          });
-
+          setModalState(() => isLoading = true);
           final res = await placesService.fetchSuggestions(q);
-
           setModalState(() {
             isLoading = false;
             suggestions = res;
           });
         }
 
-        return DraggableScrollableSheet(
-          // Altezza iniziale / minima / massima come frazione dello schermo
-          initialChildSize: 0.7,
-          minChildSize: 0.4,
-          maxChildSize: 0.9,
-          expand: false,
-          builder: (ctx, scrollController) {
-            return StatefulBuilder(
-              builder: (ctx, setModalState) {
-                final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
-
-                return Padding(
-                  padding: EdgeInsets.only(
-                    left: 16,
-                    right: 16,
-                    top: 12,
-                    bottom: bottomInset + 16,
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+                left: 16,
+                right: 16,
+                top: 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Cerca indirizzo attività',
+                    style: Theme.of(ctx).textTheme.titleMedium,
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Piccola "maniglia" in alto
-                      Center(
-                        child: Container(
-                          width: 40,
-                          height: 4,
-                          margin: const EdgeInsets.only(bottom: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[400],
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                        ),
-                      ),
-                      Text(
-                        'Cerca indirizzo attività',
-                        style: Theme.of(ctx).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: textController,
-                        decoration: const InputDecoration(
-                          hintText: 'Via / Piazza, numero civico, città',
-                          border: OutlineInputBorder(),
-                        ),
-                        textInputAction: TextInputAction.search,
-                        onChanged: (value) {
-                          setModalState(() => queryText = value);
-                          _updateSuggestions(value, setModalState);
-                        },
-                        onSubmitted: (value) {
-                          Navigator.of(ctx).pop(value);
-                        },
-                      ),
-                      const SizedBox(height: 8),
-
-                      if (!isLoading &&
-                          suggestions.isEmpty &&
-                          queryText.trim().length < 3)
-                        const Text(
-                          'Digita almeno 3 caratteri per vedere i suggerimenti',
-                          style: TextStyle(fontSize: 12),
-                        ),
-
-                      if (isLoading) const LinearProgressIndicator(),
-
-                      const SizedBox(height: 8),
-
-                      // LISTA SUGGERIMENTI → EXPANDED dentro DraggableScrollableSheet
-                      Expanded(
-                        child: suggestions.isEmpty
-                            ? const SizedBox.shrink()
-                            : ListView.builder(
-                                controller: scrollController,
-                                itemCount: suggestions.length,
-                                itemBuilder: (ctx, index) {
-                                  final s = suggestions[index];
-                                  return ListTile(
-                                    leading: const Icon(
-                                      Icons.location_on_outlined,
-                                    ),
-                                    title: Text(s.description),
-                                    onTap: () {
-                                      Navigator.of(ctx).pop(s.description);
-                                    },
-                                  );
-                                },
-                              ),
-                      ),
-
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: ElevatedButton(
-                          onPressed: () {
-                            Navigator.of(ctx).pop(textController.text);
-                          },
-                          child: const Text('Usa questo indirizzo'),
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: textController,
+                    decoration: const InputDecoration(
+                      hintText: 'Via / Piazza, numero civico, città',
+                      border: OutlineInputBorder(),
+                    ),
+                    textInputAction: TextInputAction.search,
+                    onChanged: (value) {
+                      setModalState(() => queryText = value);
+                      _updateSuggestions(value, setModalState);
+                    },
+                    onSubmitted: (value) {
+                      Navigator.of(ctx).pop(value);
+                    },
                   ),
-                );
-              },
+                  const SizedBox(height: 8),
+                  if (!isLoading &&
+                      suggestions.isEmpty &&
+                      queryText.trim().length < 3)
+                    const Text(
+                      'Digita almeno 3 caratteri per vedere i suggerimenti',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  if (isLoading) const LinearProgressIndicator(),
+                  if (suggestions.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 200,
+                      child: ListView.builder(
+                        itemCount: suggestions.length,
+                        itemBuilder: (ctx, index) {
+                          final s = suggestions[index];
+                          return ListTile(
+                            leading: const Icon(Icons.location_on_outlined),
+                            title: Text(s.description),
+                            onTap: () {
+                              Navigator.of(ctx).pop(s.description);
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.of(ctx).pop(textController.text);
+                      },
+                      child: const Text('Usa questo indirizzo'),
+                    ),
+                  ),
+                ],
+              ),
             );
           },
         );
       },
     );
 
-    // Dopo la chiusura della bottom sheet:
-    if (!mounted) return;
+    final chosen = selected?.trim();
+    if (chosen == null || chosen.isEmpty) return;
 
-    if (selected != null && selected.trim().isNotEmpty) {
-      final addr = selected.trim();
-      setState(() {
-        _addressCtrl.text = addr;
-        _addressError = null;
-      });
+    // 1) Aggiorniamo il campo indirizzo con il testo scelto
+    setState(() {
+      _addressCtrl.text = chosen;
+    });
 
-      // Se hai una funzione che fa geocoding dell'indirizzo:
-      await _geocodeAddress();
-    }
+    // 2) E facciamo il geocoding "classico" per lat/lng
+    await _geocodeAddress();
   }
 
   /// Chiamato mentre l'utente scrive nell'indirizzo.
@@ -508,21 +485,14 @@ Future<void> _submit() async {
                 // Indirizzo
                 TextFormField(
                   controller: _addressCtrl,
+                  readOnly: true,
                   decoration: InputDecoration(
                     labelText: 'Indirizzo',
                     hintText: 'Via / Piazza, numero civico, città',
                     suffixIcon: IconButton(
                       tooltip: 'Cerca sulla mappa',
-                      icon: _isGeocoding
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.search),
-                      // La lente fa ancora il geocoding "manuale"
+                      icon: const Icon(Icons.search),
                       onPressed: _openAddressSearch,
-                      //onPressed: _isGeocoding ? null : _geocodeAddress,
                     ),
                     errorText: _addressError,
                   ),
@@ -532,12 +502,8 @@ Future<void> _submit() async {
                     if (t.isEmpty) return 'Inserisci un indirizzo';
                     return null;
                   },
-                  enabled: !_busy,
-                  onChanged: (value) {
-                    if (_busy) return;
-                    _onAddressChanged(value);
-                  },
                 ),
+
                 if (_addressError != null) ...[
                   const SizedBox(height: 4),
                   Text(

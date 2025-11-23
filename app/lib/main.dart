@@ -25,10 +25,10 @@ Future<void> main() async {
   //    (che hai dichiarato nel pubspec.yaml come asset)
   if (!kIsWeb) {
     try {
-      await dotenv.load(fileName: '.env.android'); // <-- NOTA: niente "assets/"
+      await dotenv.load(fileName: 'assets/.env.android'); // <-- NOTA: niente "assets/"
       debugPrint('Caricato .env.android');
     } catch (e) {
-      debugPrint('Impossibile caricare .env.android: $e');
+      debugPrint('Impossibile caricare assets/.env.android: $e');
     }
   }
 
