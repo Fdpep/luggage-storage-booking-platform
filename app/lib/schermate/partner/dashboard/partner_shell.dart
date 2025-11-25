@@ -1,3 +1,5 @@
+// ignore_for_file: unused_import
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -13,9 +15,7 @@ import 'pages/profilo_page.dart';
 
 // Schermate esterne
 import '../auth_partner/partner_registration_screen.dart';
-// ignore: unused_import
 import '../auth_partner/partner_waiting_screen.dart';
-// ignore: unused_import
 import '../../autenticazione/auth_actions.dart';
 
 class PartnerShell extends StatefulWidget {
