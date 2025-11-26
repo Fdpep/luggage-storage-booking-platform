@@ -357,9 +357,17 @@ Flusso di onboarding del partner:
     1. Dati di contatto (nome, cognome, telefono, email, note).
     2. Selezione numero bagagli per taglia **S/M/L**.
     3. Riepilogo prenotazione.
+
+  * Validazioni lato client:
+
+    * telefono obbligatorio, con esattamente **10 cifre** (vengono ignorati spazi, +39, ecc.),
+    * almeno 1 bagaglio selezionato.
+
   * Alla conferma:
 
-    * chiama `PartnerBookingRepo.createBooking(...)`
+    * chiama prima `PartnerBookingRepo.getPartnerAvailability(partnerId)` per calcolare la disponibilità residua S/M/L e totale,
+    * se non c’è abbastanza spazio per una o più taglie (o sul totale) mostra un dialog di errore e **non** crea la prenotazione,
+    * se tutto ok chiama `PartnerBookingRepo.createBooking(...)`,
     * crea una riga in `partner_bookings` con:
 
       * `partner_id`, `user_id`
@@ -368,7 +376,7 @@ Flusso di onboarding del partner:
       * `notes`
     * mostra snackbar di conferma e torna alla scheda partner.
 
-> N.B.: per ora non c’è controllo capacità né pagamento/QR; lo aggiungeremo in uno step successivo.
+> N.B.: pagamento online e QR code sono ancora da integrare in uno step successivo.
 
 ---
 
@@ -543,6 +551,17 @@ Dashboard amministratore:
 
   * tutte le prenotazioni associate a un partner (lato dashboard partner).
 
+* `getPartnerAvailability(String partnerId)`
+
+  * ritorna un oggetto `PartnerAvailability` che contiene:
+
+    * capacità `capacity_s/m/l` e `capacity` totale lette da `partners`,
+    * somma dei bagagli S/M/L delle prenotazioni attive (`status != 'cancelled'`),
+    * disponibilità residua per taglia e totale (`availableS/M/L/Total`).
+
+  * usato da `BookingFlowScreen` per bloccare prenotazioni che superano la capacità disponibile.
+
+
 ---
 
 # 🔄 Flussi Principali
@@ -611,8 +630,9 @@ Flusso già implementato:
 
 Cose **non ancora** implementate nel flusso prenotazioni:
 
-* Controllo capacità residua per taglia (S/M/L) prima di creare la prenotazione.
-* Calcolo e visualizzazione **disponibilità in tempo reale** (posti occupati/restanti).
+* Visualizzazione esplicita della **disponibilità in tempo reale** (posti occupati/restanti) nelle UI partner / utente.
+* Prenotazione del giorno , con limiti temporali , date chiusure negozio ecc. Quindi inserire un calendario.
+* Ulteriori controlli sulle prenotazioni lato backend (duplicati, orari, ecc. – vedi sezione “Controlli prenotazioni” in fondo).
 * QR code di check-in / check-out (solo placeholder lato UI).
 * Pagamento online.
 
@@ -795,6 +815,57 @@ Schema rapido dei file toccati per il **flusso prenotazioni + capacità S/M/L**:
       * dati di contatto dell’utente,
       * bagagli totali e per taglia,
       * eventuali note.
+
+---
+
+
+
+# ✅ Controlli prenotazioni (stato attuale & TODO)
+
+## Controlli già implementati
+
+* **Validazione dati contatto** in `BookingFlowScreen`:
+  * nome e cognome obbligatori,
+  * email obbligatoria con formato base (`contiene @`),
+  * telefono obbligatorio con **esattamente 10 cifre** (spazi, +39, caratteri non numerici vengono ignorati).
+* **Almeno un bagaglio**:
+  * non è possibile procedere al riepilogo se il totale bagagli S+M+L è 0.
+* **Controllo capacità prima della creazione**:
+  * uso di `PartnerBookingRepo.getPartnerAvailability(partnerId)` per calcolare:
+    * capacità per taglia (`capacity_s/m/l`) e totale,
+    * bagagli già occupati dalle prenotazioni attive (`status != 'cancelled'`),
+    * disponibilità residua S/M/L + totale.
+  * se i bagagli richiesti superano la disponibilità:
+    * per una o più taglie, oppure
+    * sul totale,
+    * viene mostrato un dialog di errore e la prenotazione **non** viene inserita.
+
+## Controlli pianificati (TODO)
+
+Questi controlli sono pensati per essere aggiunti in step successivi, in parte lato app e in parte lato Supabase (RLS / constraint / funzioni):
+
+* ❌ **Niente 2 prenotazioni uguali nello stesso giorno sulla stessa attività**  
+  Evitare che un utente possa creare due booking identici (stesso `partner_id` e stessa data/slot).
+
+* ❌ **Niente 2 prenotazioni alla stessa ora in due attività diverse**  
+  Logica di conflitto orario lato utente per impedire booking contemporanei in posti diversi.
+
+* ✅ **Partner solo se approved/attivo**  
+  Già gestito a livello di mappa (vengono mostrati solo partner `status = 'approved'` e `is_active = true`), ma in futuro da rinforzare anche lato backend sulle insert in `partner_bookings`.
+
+* ⏱️ **Rispetto degli orari di apertura**  
+  Non permettere prenotazioni fuori dalla finestra di apertura del locale (in base a `opening_hours`), né in date nel passato o “troppo avanti”.
+
+* 🔡 **Ulteriori vincoli sui campi**  
+  Raffinare:
+  * lunghezza massima delle note,
+  * eventuali pattern più rigidi per email/telefono,
+  * messaggi di errore localizzati.
+
+* 🧵 **Race condition sulla disponibilità**  
+  Hardening lato backend per evitare condizioni di gara (due utenti che prenotano l’ultimo posto quasi in contemporanea), ad esempio con:
+  * transazioni o funzioni RPC su Supabase,
+  * vincoli sul conto massimo dei bagagli rispetto alla capacità configurata.
 
 ---
 

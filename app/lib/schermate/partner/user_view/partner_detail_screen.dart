@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:BagDrop/models/partner.dart';
 import 'package:BagDrop/models/partner_photo.dart';
 import 'package:BagDrop/services/supabase/partner_photo/partner_photo_repo.dart';
+import 'package:BagDrop/services/supabase/partner_booking_repo.dart';
 import 'package:BagDrop/schermate/partner/user_view/booking_flow_screen.dart';
-
 
 /// Schermata di dettaglio di un partner (vista dall'utente).
 ///
@@ -16,8 +17,8 @@ import 'package:BagDrop/schermate/partner/user_view/booking_flow_screen.dart';
 /// - orari di apertura (se presenti)
 /// - regole (peso massimo, oggetti vietati, ecc.)
 /// - posizione su mappa
-/// - capacità massima
-/// - pulsante "Prenota ora" (per ora TODO).
+/// - capacità massima + disponibilità attuale
+/// - pulsante "Prenota ora".
 class PartnerDetailScreen extends StatefulWidget {
   final Partner partner;
 
@@ -34,10 +35,15 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
   bool _loadingPhotos = true;
   int _currentPhotoIndex = 0;
 
+  PartnerAvailability? _availability;
+  bool _loadingAvailability = true;
+  String? _availabilityError;
+
   @override
   void initState() {
     super.initState();
     _loadPhotos();
+    _loadAvailability();
   }
 
   Future<void> _loadPhotos() async {
@@ -53,6 +59,32 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
       if (!mounted) return;
       setState(() {
         _loadingPhotos = false;
+      });
+    }
+  }
+
+  Future<void> _loadAvailability() async {
+    setState(() {
+      _loadingAvailability = true;
+      _availabilityError = null;
+    });
+
+    try {
+      final client = Supabase.instance.client;
+      final repo = PartnerBookingRepo(client);
+      final availability = await repo.getPartnerAvailability(widget.partner.id);
+      if (!mounted) return;
+      setState(() {
+        _availability = availability;
+        _loadingAvailability = false;
+      });
+    } catch (e, st) {
+      debugPrint('Errore nel calcolo disponibilità: $e\n$st');
+      if (!mounted) return;
+      setState(() {
+        _availabilityError =
+            'Impossibile calcolare la disponibilità in questo momento.';
+        _loadingAvailability = false;
       });
     }
   }
@@ -107,7 +139,7 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
                       child: CircularProgressIndicator(
                         value: progress.expectedTotalBytes != null
                             ? progress.cumulativeBytesLoaded /
-                                  (progress.expectedTotalBytes ?? 1)
+                                (progress.expectedTotalBytes ?? 1)
                             : null,
                       ),
                     );
@@ -283,8 +315,8 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
               const SizedBox(height: 16),
               const Divider(),
 
-              // Capacità e stato
-              Text('Capacità', style: textTheme.titleMedium),
+              // Capacità e disponibilità
+              Text('Capacità e disponibilità', style: textTheme.titleMedium),
               const SizedBox(height: 4),
               Builder(
                 builder: (context) {
@@ -296,6 +328,8 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
                   final effectiveTotal =
                       totalFromSizes > 0 ? totalFromSizes : partner.capacity;
 
+                  final availability = _availability;
+
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -305,21 +339,73 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
                       ),
                       const SizedBox(height: 4),
                       if (totalFromSizes > 0) ...[
-                        if (capS > 0) Text('• Small (S): $capS', style: textTheme.bodySmall),
-                        if (capM > 0) Text('• Medium (M): $capM', style: textTheme.bodySmall),
-                        if (capL > 0) Text('• Large (L): $capL', style: textTheme.bodySmall),
+                        if (capS > 0)
+                          Text('• Small (S): $capS', style: textTheme.bodySmall),
+                        if (capM > 0)
+                          Text('• Medium (M): $capM',
+                              style: textTheme.bodySmall),
+                        if (capL > 0)
+                          Text('• Large (L): $capL', style: textTheme.bodySmall),
                       ],
-                      const SizedBox(height: 4),
-                      // In futuro: stato in tempo reale (posti disponibili / occupati)
-                      Text(
-                        'Disponibilità in tempo reale verrà mostrata qui (TODO integrazione con prenotazioni).',
-                        style: textTheme.bodySmall?.copyWith(color: cs.outline),
-                      ),
+                      const SizedBox(height: 8),
+
+                      if (_loadingAvailability) ...[
+                        Row(
+                          children: [
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: cs.primary,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Calcolo disponibilità in tempo reale...',
+                              style: textTheme.bodySmall
+                                  ?.copyWith(color: cs.outline),
+                            ),
+                          ],
+                        ),
+                      ] else if (_availabilityError != null) ...[
+                        Text(
+                          _availabilityError!,
+                          style: textTheme.bodySmall
+                              ?.copyWith(color: cs.error),
+                        ),
+                      ] else if (availability != null) ...[
+                        Text(
+                          'Disponibilità attuale: ${availability.availableTotal} su ${availability.capacityTotal} posti.',
+                          style: textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        if (availability.capacityS > 0 ||
+                            availability.capacityM > 0 ||
+                            availability.capacityL > 0) ...[
+                          if (availability.capacityS > 0)
+                            Text(
+                              '• Small (S): ${availability.availableS}/${availability.capacityS} disponibili',
+                              style: textTheme.bodySmall,
+                            ),
+                          if (availability.capacityM > 0)
+                            Text(
+                              '• Medium (M): ${availability.availableM}/${availability.capacityM} disponibili',
+                              style: textTheme.bodySmall,
+                            ),
+                          if (availability.capacityL > 0)
+                            Text(
+                              '• Large (L): ${availability.availableL}/${availability.capacityL} disponibili',
+                              style: textTheme.bodySmall,
+                            ),
+                        ],
+                      ],
                     ],
                   );
                 },
               ),
-
 
               const SizedBox(height: 16),
               const Divider(),

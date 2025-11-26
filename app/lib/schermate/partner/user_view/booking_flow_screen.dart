@@ -1,4 +1,3 @@
-
 // è la pagina che vede l'utente cliccando il tasto prenota ora dalla scheda dell'attività
 
 import 'package:flutter/material.dart';
@@ -75,6 +74,126 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     final repo = PartnerBookingRepo(client);
 
     try {
+      // 0) Controllo che il partner sia prenotabile
+      if (!(widget.partner.isApproved)) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Questo locale non è al momento prenotabile. Riprova più tardi.',
+            ),
+          ),
+        );
+        setState(() => _busy = false);
+        return;
+      }
+
+      // 1) Niente doppia prenotazione oggi per lo stesso partner
+      final alreadyToday =
+          await repo.hasBookingForPartnerToday(widget.partner.id);
+
+      if (alreadyToday) {
+        if (!mounted) return;
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) {
+            return AlertDialog(
+              title: const Text('Prenotazione già presente'),
+              content: const Text(
+                'Hai già una prenotazione attiva per oggi in questo locale.\n\n'
+                'Per modificare i dettagli, contatta direttamente il locale o crea una nuova prenotazione in un altro giorno.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Ok'),
+                ),
+              ],
+            );
+          },
+        );
+        if (mounted) {
+          setState(() => _busy = false);
+        }
+        return;
+      }
+
+      // 2) Controllo disponibilità in tempo reale
+      final availability =
+          await repo.getPartnerAvailability(widget.partner.id);
+
+      final totalRequested = _bagsS + _bagsM + _bagsL;
+      final errors = <String>[];
+
+      final bool hasPerSizeCapacity =
+          (availability.capacityS +
+                  availability.capacityM +
+                  availability.capacityL) >
+              0;
+
+      // Controllo per taglia solo se il partner ha configurato capacità S/M/L
+      if (hasPerSizeCapacity) {
+        if (_bagsS > 0 && _bagsS > availability.availableS) {
+          errors.add(
+            'Small (S): disponibili ${availability.availableS}, richiesti $_bagsS.',
+          );
+        }
+        if (_bagsM > 0 && _bagsM > availability.availableM) {
+          errors.add(
+            'Medium (M): disponibili ${availability.availableM}, richiesti $_bagsM.',
+          );
+        }
+        if (_bagsL > 0 && _bagsL > availability.availableL) {
+          errors.add(
+            'Large (L): disponibili ${availability.availableL}, richiesti $_bagsL.',
+          );
+        }
+      }
+
+      // In ogni caso controlliamo anche il totale, se definito
+      if (availability.capacityTotal > 0 &&
+          totalRequested > availability.availableTotal) {
+        errors.add(
+          'Totale bagagli: disponibili ${availability.availableTotal}, richiesti $totalRequested.',
+        );
+      }
+
+      if (errors.isNotEmpty) {
+        if (!mounted) return;
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) {
+            return AlertDialog(
+              title: const Text('Disponibilità insufficiente'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Per questa attività non ci sono abbastanza posti disponibili per i bagagli selezionati.',
+                  ),
+                  const SizedBox(height: 8),
+                  ...errors.map(
+                    (e) => Text('• $e'),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Ok'),
+                ),
+              ],
+            );
+          },
+        );
+        if (mounted) {
+          setState(() => _busy = false);
+        }
+        return;
+      }
+
+      // 3) Se tutto ok → creiamo la prenotazione
       await repo.createBooking(
         partnerId: widget.partner.id,
         firstName: _firstNameCtrl.text.trim(),
@@ -254,8 +373,14 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
             ),
             keyboardType: TextInputType.phone,
             validator: (v) {
-              if ((v ?? '').trim().isEmpty) {
+              final t = (v ?? '').trim();
+              if (t.isEmpty) {
                 return 'Inserisci un numero di telefono';
+              }
+              // Teniamo solo le cifre
+              final digitsOnly = t.replaceAll(RegExp(r'[^0-9]'), '');
+              if (digitsOnly.length != 10) {
+                return 'Il numero deve avere esattamente 10 cifre';
               }
               return null;
             },
@@ -288,6 +413,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
               hintText: 'Es. Arrivo in treno alle 10:30…',
             ),
             maxLines: 3,
+            maxLength: 500,
           ),
         ],
       ),
@@ -373,7 +499,8 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                   style: TextStyle(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 4),
-                Text('${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}'),
+                Text(
+                    '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}'),
                 Text(_phoneCtrl.text.trim()),
                 Text(_emailCtrl.text.trim()),
               ],
@@ -510,9 +637,7 @@ class _BagRow extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 IconButton(
-                  onPressed: count > 0
-                      ? () => onChanged(count - 1)
-                      : null,
+                  onPressed: count > 0 ? () => onChanged(count - 1) : null,
                   icon: const Icon(Icons.remove_circle_outline),
                 ),
                 Text('$count'),
