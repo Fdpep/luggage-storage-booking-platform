@@ -29,6 +29,10 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   final _emailCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
 
+  // campi per disponibilità
+  PartnerAvailability? _availability;
+  bool _loadingAvailability = true;
+
   // BAGAGLI
   int _bagsS = 0;
   int _bagsM = 0;
@@ -61,6 +65,35 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     }
   }
 
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAvailability();
+  }
+
+  Future<void> _loadAvailability() async {
+    final client = Supabase.instance.client;
+    final repo = PartnerBookingRepo(client);
+
+    try {
+      final av = await repo.getPartnerAvailability(widget.partner.id);
+      if (!mounted) return;
+      setState(() {
+        _availability = av;
+        _loadingAvailability = false;
+      });
+    } catch (e, st) {
+      debugPrint('Errore caricando disponibilità: $e\n$st');
+      if (!mounted) return;
+      setState(() {
+        _availability = null;
+        _loadingAvailability = false;
+      });
+    }
+  }
+
+
   void _prevStep() {
     if (_step == 0) return;
     setState(() => _step -= 1);
@@ -85,36 +118,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           ),
         );
         setState(() => _busy = false);
-        return;
-      }
-
-      // 1) Niente doppia prenotazione oggi per lo stesso partner
-      final alreadyToday =
-          await repo.hasBookingForPartnerToday(widget.partner.id);
-
-      if (alreadyToday) {
-        if (!mounted) return;
-        await showDialog<void>(
-          context: context,
-          builder: (ctx) {
-            return AlertDialog(
-              title: const Text('Prenotazione già presente'),
-              content: const Text(
-                'Hai già una prenotazione attiva per oggi in questo locale.\n\n'
-                'Per modificare i dettagli, contatta direttamente il locale o crea una nuova prenotazione in un altro giorno.',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(),
-                  child: const Text('Ok'),
-                ),
-              ],
-            );
-          },
-        );
-        if (mounted) {
-          setState(() => _busy = false);
-        }
         return;
       }
 
@@ -421,6 +424,29 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   }
 
   Widget _buildBagsForm() {
+    if (_loadingAvailability) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final av = _availability;
+
+    int? maxS;
+    int? maxM;
+    int? maxL;
+
+    if (av != null) {
+      final hasPerSizeCapacity =
+          (av.capacityS + av.capacityM + av.capacityL) > 0;
+
+      if (hasPerSizeCapacity) {
+        maxS = av.availableS;
+        maxM = av.availableM;
+        maxL = av.availableL;
+      }
+      // se non c'è capacità per taglia, lasciamo i max null
+      // e lasciamo il controllo "di sicurezza" solo a _confirmBooking
+    }
+
     return ListView(
       children: [
         Text(
@@ -429,11 +455,19 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                 fontWeight: FontWeight.w600,
               ),
         ),
+        if (av != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            'Disponibili - S: ${av.availableS} • M: ${av.availableM} • L: ${av.availableL}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
         const SizedBox(height: 12),
         _BagRow(
           label: 'Small (S)',
           description: 'Zainetti o trolley piccoli',
           count: _bagsS,
+          max: maxS,
           onChanged: (v) => setState(() => _bagsS = v),
         ),
         const SizedBox(height: 8),
@@ -441,6 +475,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           label: 'Medium (M)',
           description: 'Trolley medi',
           count: _bagsM,
+          max: maxM,
           onChanged: (v) => setState(() => _bagsM = v),
         ),
         const SizedBox(height: 8),
@@ -448,6 +483,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           label: 'Large (L)',
           description: 'Valigie grandi',
           count: _bagsL,
+          max: maxL,
           onChanged: (v) => setState(() => _bagsL = v),
         ),
       ],
@@ -596,6 +632,7 @@ class _BagRow extends StatelessWidget {
   final String label;
   final String description;
   final int count;
+  final int? max;
   final ValueChanged<int> onChanged;
 
   const _BagRow({
@@ -603,6 +640,7 @@ class _BagRow extends StatelessWidget {
     required this.description,
     required this.count,
     required this.onChanged,
+    this.max,
   });
 
   @override
@@ -630,6 +668,14 @@ class _BagRow extends StatelessWidget {
                       color: cs.onSurface.withOpacity(0.7),
                     ),
                   ),
+                  if (max != null)
+                    Text(
+                      'Disponibili: $max',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: cs.onSurface.withOpacity(0.6),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -642,7 +688,9 @@ class _BagRow extends StatelessWidget {
                 ),
                 Text('$count'),
                 IconButton(
-                  onPressed: () => onChanged(count + 1),
+                  onPressed: (max != null && count >= max!)
+                      ? null
+                      : () => onChanged(count + 1),
                   icon: const Icon(Icons.add_circle_outline),
                 ),
               ],
