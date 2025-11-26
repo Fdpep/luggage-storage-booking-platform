@@ -2,32 +2,29 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'package:BagDrop/models/partner.dart';
+import 'package:BagDrop/models/partner_booking.dart';
 import 'package:BagDrop/models/partner_photo.dart';
 import 'package:BagDrop/services/supabase/partner_photo/partner_photo_repo.dart';
-import 'package:BagDrop/schermate/partner/user_view/booking_flow_screen.dart';
 
+import 'booking_recap_screen.dart';
 
-/// Schermata di dettaglio di un partner (vista dall'utente).
-///
-/// Mostra:
-/// - foto del locale
-/// - descrizione breve
-/// - prezzi
-/// - orari di apertura (se presenti)
-/// - regole (peso massimo, oggetti vietati, ecc.)
-/// - posizione su mappa
-/// - capacità massima
-/// - pulsante "Prenota ora" (per ora TODO).
-class PartnerDetailScreen extends StatefulWidget {
+class BookingPartnerDetailScreen extends StatefulWidget {
   final Partner partner;
+  final PartnerBooking booking;
 
-  const PartnerDetailScreen({super.key, required this.partner});
+  const BookingPartnerDetailScreen({
+    super.key,
+    required this.partner,
+    required this.booking,
+  });
 
   @override
-  State<PartnerDetailScreen> createState() => _PartnerDetailScreenState();
+  State<BookingPartnerDetailScreen> createState() =>
+      _BookingPartnerDetailScreenState();
 }
 
-class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
+class _BookingPartnerDetailScreenState
+    extends State<BookingPartnerDetailScreen> {
   final _photoRepo = const PartnerPhotoRepo();
 
   List<PartnerPhoto> _photos = [];
@@ -71,7 +68,6 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
     }
 
     if (_photos.isEmpty) {
-      // Placeholder se non ci sono foto
       return Container(
         height: 220,
         decoration: BoxDecoration(
@@ -107,7 +103,7 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
                       child: CircularProgressIndicator(
                         value: progress.expectedTotalBytes != null
                             ? progress.cumulativeBytesLoaded /
-                                  (progress.expectedTotalBytes ?? 1)
+                                (progress.expectedTotalBytes ?? 1)
                             : null,
                       ),
                     );
@@ -126,7 +122,6 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        // Indicatori pagina
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: List.generate(_photos.length, (index) {
@@ -144,27 +139,6 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
           }),
         ),
       ],
-    );
-  }
-
-  Widget _buildOpeningHours(ThemeData theme) {
-    final opening = widget.partner.openingHours;
-    if (opening == null || opening.isEmpty) {
-      return const Text('Orari non disponibili');
-    }
-
-    // Se hai codificato gli orari come { "text": "Lun-Ven 9-18..." }
-    final text = opening['text'];
-    if (text is String && text.trim().isNotEmpty) {
-      return Text(text, style: theme.textTheme.bodyMedium);
-    }
-
-    // Fallback: mostriamo chiave: valore.toString()
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: opening.entries.map((e) {
-        return Text('${e.key}: ${e.value}', style: theme.textTheme.bodyMedium);
-      }).toList(),
     );
   }
 
@@ -188,7 +162,7 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
           },
           myLocationButtonEnabled: false,
           zoomControlsEnabled: false,
-          liteModeEnabled: true, // se hai abilitato Lite Mode
+          liteModeEnabled: true,
           onMapCreated: (_) {},
         ),
       ),
@@ -198,6 +172,8 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final partner = widget.partner;
+    final booking = widget.booking;
+
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final textTheme = theme.textTheme;
@@ -206,7 +182,28 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
     final pricePerDay = _formatPrice(partner.pricePerDay, 'Giorno da');
 
     return Scaffold(
-      appBar: AppBar(title: Text(partner.name)),
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              partner.name,
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              'Prenotazione del ${booking.createdAt.day.toString().padLeft(2, '0')}/${booking.createdAt.month.toString().padLeft(2, '0')}/${booking.createdAt.year}',
+              style: textTheme.bodySmall?.copyWith(
+                color: cs.onPrimary.withOpacity(0.85),
+              ),
+            ),
+          ],
+        ),
+      ),
+
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(16.0),
@@ -223,7 +220,8 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              if (partner.address != null && partner.address!.trim().isNotEmpty)
+              if (partner.address != null &&
+                  partner.address!.trim().isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 4.0),
                   child: Text(partner.address!, style: textTheme.bodyMedium),
@@ -262,10 +260,30 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
               const SizedBox(height: 16),
               const Divider(),
 
-              // Orari di apertura
+              // Orari di apertura (versione compatta)
               Text('Orari di apertura', style: textTheme.titleMedium),
               const SizedBox(height: 4),
-              _buildOpeningHours(theme),
+              Builder(
+                builder: (context) {
+                  final opening = partner.openingHours;
+                  if (opening == null || opening.isEmpty) {
+                    return const Text('Orari non disponibili');
+                  }
+                  final text = opening['text'];
+                  if (text is String && text.trim().isNotEmpty) {
+                    return Text(text, style: textTheme.bodyMedium);
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: opening.entries.map((e) {
+                      return Text(
+                        '${e.key}: ${e.value}',
+                        style: textTheme.bodyMedium,
+                      );
+                    }).toList(),
+                  );
+                },
+              ),
 
               const SizedBox(height: 16),
               const Divider(),
@@ -283,55 +301,17 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
               const SizedBox(height: 16),
               const Divider(),
 
-              // Capacità e stato
-              Text('Capacità', style: textTheme.titleMedium),
-              const SizedBox(height: 4),
-              Builder(
-                builder: (context) {
-                  final capS = partner.capacityS;
-                  final capM = partner.capacityM;
-                  final capL = partner.capacityL;
-
-                  final totalFromSizes = capS + capM + capL;
-                  final effectiveTotal =
-                      totalFromSizes > 0 ? totalFromSizes : partner.capacity;
-
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Numero massimo di bagagli: $effectiveTotal',
-                        style: textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: 4),
-                      if (totalFromSizes > 0) ...[
-                        if (capS > 0) Text('• Small (S): $capS', style: textTheme.bodySmall),
-                        if (capM > 0) Text('• Medium (M): $capM', style: textTheme.bodySmall),
-                        if (capL > 0) Text('• Large (L): $capL', style: textTheme.bodySmall),
-                      ],
-                      const SizedBox(height: 4),
-                      // In futuro: stato in tempo reale (posti disponibili / occupati)
-                      Text(
-                        'Disponibilità in tempo reale verrà mostrata qui (TODO integrazione con prenotazioni).',
-                        style: textTheme.bodySmall?.copyWith(color: cs.outline),
-                      ),
-                    ],
-                  );
-                },
-              ),
-
-
-              const SizedBox(height: 16),
-              const Divider(),
-
               // Contatti
               Text('Contatti', style: textTheme.titleMedium),
               const SizedBox(height: 4),
-              if (partner.phone != null && partner.phone!.trim().isNotEmpty)
-                Text('Telefono: ${partner.phone}', style: textTheme.bodyMedium)
+              if (partner.phone != null &&
+                  partner.phone!.trim().isNotEmpty)
+                Text('Telefono: ${partner.phone}',
+                    style: textTheme.bodyMedium)
               else
                 Text('Telefono non disponibile.', style: textTheme.bodyMedium),
-              if (partner.address != null && partner.address!.trim().isNotEmpty)
+              if (partner.address != null &&
+                  partner.address!.trim().isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 4.0),
                   child: Text(
@@ -348,29 +328,53 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
               const SizedBox(height: 8),
               _buildMapPreview(),
 
-              const SizedBox(height: 80), // spazio per il bottone in basso
+              const SizedBox(height: 80), // spazio per i bottoni in basso
             ],
           ),
         ),
       ),
 
-      // Bottone "Prenota ora" fisso in basso
+      // Bottoni in basso: Recap e QR
       bottomNavigationBar: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-          child: SizedBox(
-            height: 48,
-            child: ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => BookingFlowScreen(partner: partner),
-                  ),
-                );
-              },
-              child: const Text('Prenota ora'),
-            ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => BookingRecapScreen(
+                          booking: booking,
+                          partner: partner,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.receipt_long_outlined),
+                  label: const Text('Riepilogo'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    // Placeholder: da implementare con QR code reale
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'QR code in arrivo in uno step successivo.',
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.qr_code_2),
+                  label: const Text('QR code'),
+                ),
+              ),
+            ],
           ),
         ),
       ),

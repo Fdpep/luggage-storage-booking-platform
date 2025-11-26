@@ -69,7 +69,7 @@ class _PartnerShellState extends State<PartnerShell> {
       return _buildShell(
         pages: [
           DashboardPage(partner: null, onPartnerChanged: _reload),
-          const PrenotazioniPage(),
+          PrenotazioniPage(partner: null),
           const ScannerPage(),
           const SpaziPage(),
           ProfiloPage(partner: null, onPartnerChanged: _reload),
@@ -79,17 +79,14 @@ class _PartnerShellState extends State<PartnerShell> {
 
     // Pending / Rejected
     if (p.isPending || p.isRejected) {
-          return PartnerWaitingScreen(
-            partner: p,
-            onReapplyCompleted: _reload,
-          );
-        }
+      return PartnerWaitingScreen(partner: p, onReapplyCompleted: _reload);
+    }
 
     // Partner approvato → tutte le pagine abilitate
     return _buildShell(
       pages: [
         DashboardPage(partner: p, onPartnerChanged: _reload),
-        const PrenotazioniPage(),
+        PrenotazioniPage(partner: p),
         const ScannerPage(),
         const SpaziPage(),
         ProfiloPage(partner: p, onPartnerChanged: _reload),

@@ -29,12 +29,29 @@ class PartnerRepo {
     return Partner.fromMap(data);
   }
 
+    /// Carica un partner a partire dal suo id.
+  /// Usato nella sezione "Le mie prenotazioni" lato utente.
+  Future<Partner?> getPartnerById(String partnerId) async {
+    final data = await _db
+        .from('partners')
+        .select()
+        .eq('id', partnerId)
+        .maybeSingle();
+
+    if (data == null) return null;
+    return Partner.fromMap(data);
+  }
+
+
   /// Aggiorna alcuni campi base (esempio).
   Future<void> updateBasics({
     required String partnerId,
     String? name,
     String? address,
     int? capacity,
+    int? capacityS,
+    int? capacityM,
+    int? capacityL,
     num? price2h,
     num? pricePerDay,
     bool? isActive,
@@ -47,6 +64,9 @@ class PartnerRepo {
     if (name != null) patch['name'] = name;
     if (address != null) patch['address'] = address;
     if (capacity != null) patch['capacity'] = capacity;
+    if (capacityS != null) patch['capacity_s'] = capacityS;
+    if (capacityM != null) patch['capacity_m'] = capacityM;
+    if (capacityL != null) patch['capacity_l'] = capacityL;
     if (price2h != null) patch['price_2h'] = price2h;
     if (pricePerDay != null) patch['price_per_day'] = pricePerDay;
     if (isActive != null) patch['is_active'] = isActive;
@@ -67,81 +87,102 @@ class PartnerRepo {
   /// - se non esiste partner → INSERT in public.partners
   /// - se esiste partner → UPDATE dei campi base + reset stato a 'pending'
   /// In entrambi i casi viene creata una riga in public.partner_requests.
-  Future<Partner> submitPartnerApplication({
+  /// Crea o aggiorna una richiesta partner:
+  /// - se esiste già un partner per questo user → update
+  /// - altrimenti → insert
+  ///
+  /// Ora supporta capacità per taglia (S/M/L) + capacità totale (fallback).
+  Future<void> submitPartnerApplication({
     required String userId,
     required String name,
     required String address,
-    required int capacity,
+    int? capacity, // totale (fallback / compatibilità)
+    int? capacityS,
+    int? capacityM,
+    int? capacityL,
     double? price2h,
     double? pricePerDay,
     String? message,
     double? lat,
     double? lng,
   }) async {
-    final uid = userId;
+    // Normalizziamo le capacità per taglia
+    final capS = capacityS ?? 0;
+    final capM = capacityM ?? 0;
+    final capL = capacityL ?? 0;
 
-    // 1) Verifica se esiste già un partner associato a questo utente
-    final existing = await _db
+    // Se non viene passato "capacity", usiamo la somma
+    final totalCapacity = capacity ?? (capS + capM + capL);
+
+    // 1) Verifico se esiste già un partner per questo user
+    final existing = await _client
         .from('partners')
         .select()
-        .eq('owner_id', uid)
+        .eq('owner_id', userId)
         .maybeSingle();
 
-    Map<String, dynamic> row;
+    Map<String, dynamic> partnerData = {
+      'owner_id': userId,
+      'name': name,
+      'address': address,
+      'capacity': totalCapacity,
+      'capacity_s': capS,
+      'capacity_m': capM,
+      'capacity_l': capL,
+      'price_2h': price2h,
+      'price_per_day': pricePerDay,
+      'lat': lat,
+      'lng': lng,
+      'status': 'pending',
+      'reject_reason': null,
+      'is_active': false,
+      'updated_at': DateTime.now().toIso8601String(),
+    };
 
-    if (existing == null) {
-      // INSERT: nuova attività
-      row = await _db
+    dynamic partnerRow;
+
+    if (existing != null) {
+      // UPDATE
+      final updated = await _client
           .from('partners')
-          .insert({
-            'owner_id': uid,
-            'name': name,
-            'address': address,
-            'lat': lat,
-            'lng': lng,
-            'capacity': capacity,
-            'price_2h': price2h,
-            'price_per_day': pricePerDay,
-            'status': 'pending', // in attesa di approvazione admin
-            'is_active': false, // verrà messa attiva solo se approvata
-            'reject_reason': null, // nessun rifiuto al primo invio
-          })
+          .update(partnerData)
+          .eq('id', existing['id'] as String)
           .select()
           .single();
+
+      partnerRow = updated;
     } else {
-      // UPDATE: l'utente sta aggiornando i dati e "re-inviando" la richiesta
-      row = await _db
-          .from('partners')
-          .update({
-            'name': name,
-            'address': address,
-            'lat': lat,
-            'lng': lng,
-            'capacity': capacity,
-            'price_2h': price2h,
-            'price_per_day': pricePerDay,
-            'status': 'pending', // reset a pending
-            'is_active': false,
-            'reject_reason': null, // reset motivazione rifiuto
-          })
-          .eq('owner_id', uid)
-          .select()
-          .single();
+      // INSERT
+      partnerData['created_at'] = DateTime.now().toIso8601String();
+      final inserted =
+          await _client.from('partners').insert(partnerData).select().single();
+
+      partnerRow = inserted;
     }
 
-    final partner = Partner.fromMap(row);
+    final partnerId = partnerRow['id'] as String;
 
-    // 2) Inserisci una nuova partner_request (storico richieste)
-    await _db.from('partner_requests').insert({
-      'user_id': uid,
-      'partner_id': partner.id,
-      'status': 'pending',
+    // 2) partner_requests → upsert log richiesta
+    //
+    // ⚠️ IMPORTANTE: user_id DEVE essere = auth.uid()
+    // per rispettare la policy:
+    //   create policy "own_requests_insert"
+    //   on public.partner_requests
+    //   for insert
+    //   with check (auth.uid() = user_id);
+    final requestData = {
+      'user_id': userId,
+      'partner_id': partnerId,
       'message': message,
-    });
+      'status': 'pending',
+      'admin_note': null,
+      'reviewed_at': null,
+      'reviewed_by': null,
+      'created_at': DateTime.now().toIso8601String(),
+    };
 
-    return partner;
+    await _client.from('partner_requests').insert(requestData);
   }
-
   /// Carica la lista di partner APPROVATI e ATTIVI nelle vicinanze di un punto.
   ///
   /// [centerLat], [centerLng] → centro della ricerca (es. posizione utente).

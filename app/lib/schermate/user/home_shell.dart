@@ -6,6 +6,11 @@ import '../../theme/app_theme.dart';
 import '../autenticazione/auth_actions.dart';
 import '../map/user_map_page.dart';
 import '../autenticazione/accesso.dart';
+import 'package:BagDrop/models/partner_booking.dart';
+import '../../services/supabase/partner_booking_repo.dart';
+import 'bookings/user_bookings_page.dart';
+
+
 
 /// HomeShell = contenitore della home:
 /// - AppBar: hamburger (Drawer), titolo "BagDrop", icona filtro
@@ -113,12 +118,13 @@ class _HomeShellState extends State<HomeShell> {
     final pages = <Widget>[
       const UserMapPage(),
       _isLoggedIn
-          ? const _PrenotazioniPage()
+          ? const UserBookingsPage()
           : const _RequireAuthCard(tabTitle: 'Prenotazioni'),
       _isLoggedIn
           ? _ProfiloPage(user: _user)
           : const _RequireAuthCard(tabTitle: 'Profilo'),
     ];
+
 
     return Scaffold(
       // AppBar superiore con hamburger + titolo + filtro
@@ -577,22 +583,164 @@ class _ItemTile extends StatelessWidget {
   }
 }
 
-/// PAGINE (scheletri)
 
-class _PrenotazioniPage extends StatelessWidget {
-  const _PrenotazioniPage();
+/// Card per una singola prenotazione lato utente.
+class _BookingCard extends StatelessWidget {
+  final PartnerBooking booking;
+
+  const _BookingCard({required this.booking});
+
+  int get _totalBags => booking.bagsS + booking.bagsM + booking.bagsL;
+
+  String _formatDate(DateTime dt) {
+    // formato semplice: gg/mm/aaaa hh:mm
+    final two = (int v) => v.toString().padLeft(2, '0');
+    return '${two(dt.day)}/${two(dt.month)}/${dt.year} ${two(dt.hour)}:${two(dt.minute)}';
+  }
+
+  Color _statusColor(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    switch (booking.status) {
+      case 'confirmed':
+        return Colors.green.shade600;
+      case 'pending':
+        return cs.primary;
+      case 'cancelled':
+        return Colors.red.shade600;
+      default:
+        return cs.onSurface.withOpacity(0.7);
+    }
+  }
+
+  String _statusLabel() {
+    switch (booking.status) {
+      case 'confirmed':
+        return 'Confermata';
+      case 'pending':
+        return 'In attesa';
+      case 'cancelled':
+        return 'Annullata';
+      default:
+        return booking.status;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: const [
-        _SectionTitle('Le mie prenotazioni'),
-        SizedBox(height: 8),
-        _HintCard(
-          'Non hai ancora prenotazioni. Quando prenoti, appariranno qui.',
+    final cs = Theme.of(context).colorScheme;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Riga superiore: stato + data
+            Row(
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _statusColor(context).withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    _statusLabel(),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: _statusColor(context),
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  _formatDate(booking.createdAt),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: cs.onSurface.withOpacity(0.6),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+
+            // Per ora non abbiamo il nome del partner qui, quindi mettiamo il contatto
+            Text(
+              '${booking.firstName} ${booking.lastName}',
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 16,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              booking.email,
+              style: TextStyle(
+                fontSize: 13,
+                color: cs.onSurface.withOpacity(0.7),
+              ),
+            ),
+            if (booking.phone.isNotEmpty) ...[
+              const SizedBox(height: 2),
+              Text(
+                booking.phone,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: cs.onSurface.withOpacity(0.7),
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 8),
+            const Divider(height: 16),
+
+            // Dettaglio bagagli
+            Row(
+              children: [
+                Icon(Icons.luggage_outlined,
+                    size: 18, color: cs.onSurface.withOpacity(0.7)),
+                const SizedBox(width: 6),
+                Text(
+                  'Totale bagagli: $_totalBags',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'S: ${booking.bagsS}   •   M: ${booking.bagsM}   •   L: ${booking.bagsL}',
+              style: TextStyle(
+                fontSize: 13,
+                color: cs.onSurface.withOpacity(0.7),
+              ),
+            ),
+
+            if (booking.notes != null && booking.notes!.trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Note:',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: cs.onSurface.withOpacity(0.9),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                booking.notes!,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: cs.onSurface.withOpacity(0.8),
+                ),
+              ),
+            ],
+          ],
         ),
-      ],
+      ),
     );
   }
 }

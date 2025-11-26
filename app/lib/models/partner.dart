@@ -7,7 +7,15 @@ class Partner {
   final double? lat;
   final double? lng;
   final Map<String, dynamic>? openingHours;
+
+  /// Capacità totale (ridondante: somma di S+M+L, ma utile per compat e query veloci)
   final int capacity;
+
+  /// Nuove capacità per taglia
+  final int capacityS; // capacità bagagli SMALL
+  final int capacityM; // capacità bagagli MEDIUM
+  final int capacityL; // capacità bagagli LARGE
+
   final double? price2h;
   final double? pricePerDay;
   final bool isActive;
@@ -35,6 +43,9 @@ class Partner {
     this.lng,
     this.openingHours,
     this.capacity = 0,
+    this.capacityS = 0,
+    this.capacityM = 0,
+    this.capacityL = 0,
     this.price2h,
     this.pricePerDay,
     this.isActive = true,
@@ -56,14 +67,18 @@ class Partner {
       lat: (map['lat'] as num?)?.toDouble(),
       lng: (map['lng'] as num?)?.toDouble(),
       openingHours: map['opening_hours'] as Map<String, dynamic>?,
+
       capacity: (map['capacity'] as int?) ?? 0,
+      capacityS: (map['capacity_s'] as int?) ?? 0,
+      capacityM: (map['capacity_m'] as int?) ?? 0,
+      capacityL: (map['capacity_l'] as int?) ?? 0,
+
       price2h: (map['price_2h'] as num?)?.toDouble(),
       pricePerDay: (map['price_per_day'] as num?)?.toDouble(),
       isActive: (map['is_active'] as bool?) ?? true,
       description: map['description'] as String?,
       phone: map['phone'] as String?,
       rules: map['rules'] as String?,
-
       status: (map['status'] as String?) ?? 'pending',
       rejectReason: map['reject_reason'] as String?,
       createdAt: map['created_at'] == null
@@ -85,6 +100,9 @@ class Partner {
       'lng': lng,
       'opening_hours': openingHours,
       'capacity': capacity,
+      'capacity_s': capacityS,
+      'capacity_m': capacityM,
+      'capacity_l': capacityL,
       'price_2h': price2h,
       'price_per_day': pricePerDay,
       'is_active': isActive,

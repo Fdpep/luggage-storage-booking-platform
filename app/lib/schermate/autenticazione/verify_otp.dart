@@ -7,8 +7,6 @@ import '../../utils/last_email_store.dart';
 import '../../services/supabase/partner_repo.dart';
 import '../partner/auth_partner/partner_waiting_screen.dart';
 
-//import '../home_shell.dart';
-
 /// Verifica OTP con:
 /// - Validazione 6 cifre
 /// - Re-invio con cooldown
@@ -21,7 +19,15 @@ class SchermataVerifyOtp extends StatefulWidget {
   //  Dati extra usati SOLO nel flusso partner
   final String? partnerName;
   final String? partnerAddress;
+
+  /// Vecchio campo totale (compat)
   final int? partnerCapacity;
+
+  /// Nuovi campi per taglia (opzionali)
+  final int? partnerCapacityS;
+  final int? partnerCapacityM;
+  final int? partnerCapacityL;
+
   final double? partnerPrice2h;
   final double? partnerPricePerDay;
   final String? partnerMessage;
@@ -36,6 +42,9 @@ class SchermataVerifyOtp extends StatefulWidget {
     this.partnerName,
     this.partnerAddress,
     this.partnerCapacity,
+    this.partnerCapacityS,
+    this.partnerCapacityM,
+    this.partnerCapacityL,
     this.partnerPrice2h,
     this.partnerPricePerDay,
     this.partnerMessage,
@@ -76,190 +85,196 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
     });
   }
 
- Future<void> _verificaOTP() async {
-  final codice = _ctrlCodice.text.trim();
-  final errore = _validaCodice(codice);
-  if (errore != null) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(errore)),
-    );
-    return;
-  }
-
-  setState(() => _caricamento = true);
-  final supabase = Supabase.instance.client;
-
-  try {
-    // 1) Verifica OTP → Supabase crea/aggiorna la sessione
-    await supabase.auth.verifyOTP(
-      email: widget.email,
-      token: codice,
-      type: OtpType.email,
-    );
-
-    final currentUser = supabase.auth.currentUser;
-    if (currentUser == null) {
+  Future<void> _verificaOTP() async {
+    final codice = _ctrlCodice.text.trim();
+    final errore = _validaCodice(codice);
+    if (errore != null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Verifica riuscita ma sessione non trovata. Riprova ad accedere.',
-          ),
-        ),
+        SnackBar(content: Text(errore)),
       );
       return;
     }
 
-    // 2) Leggiamo i metadati attuali
-    final currentMeta = Map<String, dynamic>.from(
-      currentUser.userMetadata ?? {},
-    );
+    setState(() => _caricamento = true);
+    final supabase = Supabase.instance.client;
 
-    // Flag OTP verificato
-    currentMeta['otp_verified'] = true;
+    try {
+      // 1) Verifica OTP → Supabase crea/aggiorna la sessione
+      await supabase.auth.verifyOTP(
+        email: widget.email,
+        token: codice,
+        type: OtpType.email,
+      );
 
-    // --- NUOVA LOGICA: capire se è un flusso partner o no ---
-
-    final String? signupFlow = currentMeta['signup_flow'] as String?;
-    final partnerSignupRaw = currentMeta['partner_signup'];
-
-    final bool partnerFromMeta = partnerSignupRaw is Map<String, dynamic>;
-    final bool isPartnerFlowEffective =
-        widget.isPartnerFlow || signupFlow == 'partner' || partnerFromMeta;
-
-    final partnerSignup = partnerFromMeta
-        ? (partnerSignupRaw)
-        : null;
-
-    // 3) Aggiorniamo i metadati (OTP + eventuale pulizia campi temporanei)
-    if (partnerSignup != null) {
-      // Dopo aver usato questi dati, li potremo rimuovere
-      // (lo faremo dopo la submit, così se crasha prima non li perdiamo)
-    }
-
-    await supabase.auth.updateUser(UserAttributes(data: currentMeta));
-    await supabase.auth.refreshSession();
-
-    // 4) Salva e-mail e crea user_profile SOLO per utenti normali
-    await LastEmailStore.save(widget.email);
-    if (!isPartnerFlowEffective) {
-      await UserRepo().upsertMe();
-    }
-
-    if (!mounted) return;
-
-    // 5) Flusso diverso in base al tipo di signup
-    if (isPartnerFlowEffective) {
-      // ----- FLUSSO PARTNER -----
-
-      final userId = currentUser.id;
-
-      // Recuperiamo i dati partner:
-      final String? name =
-          widget.partnerName ?? partnerSignup?['name'] as String?;
-      final String? address =
-          widget.partnerAddress ?? partnerSignup?['address'] as String?;
-      final int capacity = widget.partnerCapacity ??
-          (partnerSignup?['capacity'] as int? ?? 0);
-      final double? price2h = widget.partnerPrice2h ??
-          (partnerSignup?['price2h'] as num?)?.toDouble();
-      final double? pricePerDay = widget.partnerPricePerDay ??
-          (partnerSignup?['pricePerDay'] as num?)?.toDouble();
-      final String? message =
-          widget.partnerMessage ?? partnerSignup?['message'] as String?;
-      final double? lat = widget.partnerLat ??
-          (partnerSignup?['lat'] as num?)?.toDouble();
-      final double? lng = widget.partnerLng ??
-          (partnerSignup?['lng'] as num?)?.toDouble();
-
-      if (name == null ||
-          address == null ||
-          lat == null ||
-          lng == null) {
-        // Mancano dati fondamentali → non possiamo completare la registrazione partner
+      final currentUser = supabase.auth.currentUser;
+      if (currentUser == null) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Dati registrazione partner mancanti. Ripeti la registrazione come partner.',
+              'Verifica riuscita ma sessione non trovata. Riprova ad accedere.',
             ),
           ),
         );
         return;
       }
 
-      // 5a) Imposta ruolo 'partner' in user_profiles
-      await supabase
-          .from('user_profiles')
-          .update({'role': 'partner'})
-          .eq('id', userId);
-
-      // 5b) Crea la richiesta partner (partners + partner_requests)
-      final repo = PartnerRepo(supabase);
-      await repo.submitPartnerApplication(
-        userId: userId,
-        name: name,
-        address: address,
-        capacity: capacity,
-        price2h: price2h,
-        pricePerDay: pricePerDay,
-        message: message,
-        lat: lat,
-        lng: lng,
+      // 2) Leggiamo i metadati attuali
+      final currentMeta = Map<String, dynamic>.from(
+        currentUser.userMetadata ?? {},
       );
 
-      // 5c) Ora che abbiamo usato i dati, puliamo partner_signup dai metadati
-      final newMeta = Map<String, dynamic>.from(
-        supabase.auth.currentUser?.userMetadata ?? {},
-      );
-      newMeta.remove('partner_signup');
-      // volendo possiamo tenere signup_flow='partner' come storico, o rimuoverlo:
-      // newMeta.remove('signup_flow');
-      await supabase.auth.updateUser(UserAttributes(data: newMeta));
+      // Flag OTP verificato
+      currentMeta['otp_verified'] = true;
+
+      // --- LOGICA: capire se è un flusso partner o no ---
+      final String? signupFlow = currentMeta['signup_flow'] as String?;
+      final partnerSignupRaw = currentMeta['partner_signup'];
+
+      final bool partnerFromMeta = partnerSignupRaw is Map<String, dynamic>;
+      final bool isPartnerFlowEffective =
+          widget.isPartnerFlow || signupFlow == 'partner' || partnerFromMeta;
+
+      final Map<String, dynamic>? partnerSignup = partnerFromMeta
+          ? Map<String, dynamic>.from(partnerSignupRaw as Map)
+          : null;
+
+      // 3) Aggiorniamo i metadati (OTP + eventuale pulizia campi temporanei)
+      await supabase.auth.updateUser(UserAttributes(data: currentMeta));
       await supabase.auth.refreshSession();
+
+      // 4) Salva e-mail e crea user_profile SOLO per utenti normali
+      await LastEmailStore.save(widget.email);
+      if (!isPartnerFlowEffective) {
+        await UserRepo().upsertMe();
+      }
 
       if (!mounted) return;
 
-      // 5d) Snack + vai alla schermata di attesa partner
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Verifica completata! Richiesta partner inviata.'),
-        ),
-      );
+      // 5) Flusso diverso in base al tipo di signup
+      if (isPartnerFlowEffective) {
+        // ----- FLUSSO PARTNER -----
+        final userId = currentUser.id;
 
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const PartnerWaitingScreen()),
-        (route) => route.isFirst,
-      );
-    } else {
-      // ----- FLUSSO USER NORMALE -----
+        // Recuperiamo i dati partner: prima da widget, poi da metadati come fallback
+        final String? name =
+            widget.partnerName ?? partnerSignup?['name'] as String?;
+        final String? address =
+            widget.partnerAddress ?? partnerSignup?['address'] as String?;
+
+        // Capacità per taglia (S / M / L)
+        final int capacityS = widget.partnerCapacityS ??
+            (partnerSignup?['capacity_s'] as int? ?? 0);
+        final int capacityM = widget.partnerCapacityM ??
+            (partnerSignup?['capacity_m'] as int? ?? 0);
+        final int capacityL = widget.partnerCapacityL ??
+            (partnerSignup?['capacity_l'] as int? ?? 0);
+
+        // Capacità totale di fallback (vecchio campo)
+        final int legacyCapacity = widget.partnerCapacity ??
+            (partnerSignup?['capacity'] as int? ?? 0);
+
+        final int sumFromSizes = capacityS + capacityM + capacityL;
+        final int totalCapacity =
+            sumFromSizes > 0 ? sumFromSizes : legacyCapacity;
+
+        final double? price2h = widget.partnerPrice2h ??
+            (partnerSignup?['price2h'] as num?)?.toDouble();
+        final double? pricePerDay = widget.partnerPricePerDay ??
+            (partnerSignup?['pricePerDay'] as num?)?.toDouble();
+        final String? message =
+            widget.partnerMessage ?? partnerSignup?['message'] as String?;
+        final double? lat = widget.partnerLat ??
+            (partnerSignup?['lat'] as num?)?.toDouble();
+        final double? lng = widget.partnerLng ??
+            (partnerSignup?['lng'] as num?)?.toDouble();
+
+        if (name == null || address == null || lat == null || lng == null) {
+          // Mancano dati fondamentali → non possiamo completare la registrazione partner
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Dati registrazione partner mancanti. Ripeti la registrazione come partner.',
+              ),
+            ),
+          );
+          return;
+        }
+
+        // 5a) Imposta ruolo 'partner' in user_profiles
+        await supabase
+            .from('user_profiles')
+            .update({'role': 'partner'})
+            .eq('id', userId);
+
+        // 5b) Crea la richiesta partner (partners + partner_requests)
+        final repo = PartnerRepo(supabase);
+        await repo.submitPartnerApplication(
+          userId: userId,
+          name: name,
+          address: address,
+          capacity: totalCapacity,
+          capacityS: capacityS,
+          capacityM: capacityM,
+          capacityL: capacityL,
+          price2h: price2h,
+          pricePerDay: pricePerDay,
+          message: message,
+          lat: lat,
+          lng: lng,
+        );
+
+        // 5c) Ora che abbiamo usato i dati, puliamo partner_signup dai metadati
+        final newMeta = Map<String, dynamic>.from(
+          supabase.auth.currentUser?.userMetadata ?? {},
+        );
+        newMeta.remove('partner_signup');
+        // se vuoi, puoi anche rimuovere signup_flow:
+        // newMeta.remove('signup_flow');
+        await supabase.auth.updateUser(UserAttributes(data: newMeta));
+        await supabase.auth.refreshSession();
+
+        if (!mounted) return;
+
+        // 5d) Snack + vai alla schermata di attesa partner
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Verifica completata! Richiesta partner inviata.'),
+          ),
+        );
+
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const PartnerWaitingScreen()),
+          (route) => route.isFirst,
+        );
+      } else {
+        // ----- FLUSSO USER NORMALE -----
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Verifica completata!')),
+        );
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      final msg = e.message.toLowerCase();
+      String readable = 'Codice non valido: ${e.message}';
+      if (msg.contains('expired')) {
+        readable = 'Codice scaduto. Richiedi un nuovo codice.';
+      }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Verifica completata!')),
+        SnackBar(content: Text(readable)),
       );
-      Navigator.of(context).popUntil((route) => route.isFirst);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Imprevisto: $e')),
+      );
+    } finally {
+      if (!mounted) return;
+      setState(() => _caricamento = false);
     }
-  } on AuthException catch (e) {
-    if (!mounted) return;
-    final msg = e.message.toLowerCase();
-    String readable = 'Codice non valido: ${e.message}';
-    if (msg.contains('expired')) {
-      readable = 'Codice scaduto. Richiedi un nuovo codice.';
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(readable)),
-    );
-  } catch (e) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Imprevisto: $e')),
-    );
-  } finally {
-    // ignore: control_flow_in_finally
-    if (!mounted) return;
-    setState(() => _caricamento = false);
   }
-}
-
 
   Future<void> _reinviaCodice() async {
     if (_secondsLeft > 0) return; // già in cooldown
@@ -296,24 +311,19 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
   void dispose() {
     _timer?.cancel();
     _ctrlCodice.dispose();
-
     super.dispose();
   }
-
-
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
     return PopScope(
-      // 👇 blocchiamo il "back" di Navigator (Android indietro, freccia AppBar, ecc.)
+      // blocchiamo il "back" di Navigator (Android indietro, freccia AppBar, ecc.)
       canPop: false,
       onPopInvoked: (didPop) {
-        // Se per qualche motivo è già stato fatto il pop, non facciamo nulla
         if (didPop) return;
 
-        // Mostriamo solo un messaggio: può solo completare la verifica o chiudere l’app
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -327,7 +337,6 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
           title: const Text('Verifica codice'),
           backgroundColor: cs.primary,
           foregroundColor: cs.onPrimary,
-          // 👇 niente freccia indietro automatica
           automaticallyImplyLeading: false,
         ),
         body: SafeArea(
@@ -400,5 +409,4 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
       ),
     );
   }
-
 }

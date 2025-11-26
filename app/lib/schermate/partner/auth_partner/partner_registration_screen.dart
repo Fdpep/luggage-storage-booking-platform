@@ -1,3 +1,5 @@
+// ignore_for_file: unused_element
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'partner_waiting_screen.dart';
@@ -18,7 +20,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 ///
 /// - RIPROVA DOPO RIFIUTO / NUOVA DOMANDA:
 ///   - esiste già un partner per owner_id:
-///       -> UPDATE di quel partner (nome, indirizzo, capacity, prezzi, status='pending', reject_reason=NULL, is_active=false)
+///       -> UPDATE di quel partner (nome, indirizzo, capacità S/M/L, prezzi, status='pending', reject_reason=NULL, is_active=false)
 ///   - su partner_requests:
 ///       -> se esiste una richiesta per quel partner → UPDATE (status='pending', admin_note=NULL, reviewed_* = NULL, message=nota nuova)
 ///       -> altrimenti INSERT nuova riga
@@ -38,7 +40,12 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
 
   final _nameCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
-  final _capacityCtrl = TextEditingController();
+
+  // 🔹 NUOVO: capacità per taglia
+  final _capacitySCtrl = TextEditingController();
+  final _capacityMCtrl = TextEditingController();
+  final _capacityLCtrl = TextEditingController();
+
   final _price2hCtrl = TextEditingController();
   final _priceDayCtrl = TextEditingController();
   final _noteCtrl = TextEditingController();
@@ -46,7 +53,6 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
   // Suggerimenti indirizzo (autocomplete)
   List<PlaceSuggestion> _addressSuggestions = [];
   bool _isAddressAutocompleteLoading = false;
-  // ignore: unused_field
   String _addressQuery = '';
 
   bool _busy = false;
@@ -59,7 +65,9 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
   void dispose() {
     _nameCtrl.dispose();
     _addressCtrl.dispose();
-    _capacityCtrl.dispose();
+    _capacitySCtrl.dispose();
+    _capacityMCtrl.dispose();
+    _capacityLCtrl.dispose();
     _price2hCtrl.dispose();
     _priceDayCtrl.dispose();
     _noteCtrl.dispose();
@@ -87,7 +95,6 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
     if (_lat == null || _lng == null) {
       await _geocodeAddress();
 
-      // dopo una chiamata async: sempre check mounted
       if (!mounted) return;
 
       if (_lat == null || _lng == null) {
@@ -131,7 +138,14 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
     }
 
     try {
-      final capacity = int.tryParse(_capacityCtrl.text.trim()) ?? 0;
+      // 🔹 Leggiamo capacità per taglia
+      final capS = int.tryParse(_capacitySCtrl.text.trim()) ?? 0;
+      final capM = int.tryParse(_capacityMCtrl.text.trim()) ?? 0;
+      final capL = int.tryParse(_capacityLCtrl.text.trim()) ?? 0;
+
+      // capacità totale (ridondante, ma utile per compat/riassunto)
+      final totalCapacity = capS + capM + capL;
+
       final price2h = double.tryParse(_price2hCtrl.text.trim());
       final priceDay = double.tryParse(_priceDayCtrl.text.trim());
       final note = _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim();
@@ -142,7 +156,12 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
         userId: userId,
         name: _nameCtrl.text.trim(),
         address: _addressCtrl.text.trim(),
-        capacity: capacity,
+        // compat: teniamo anche la capacità totale
+        capacity: totalCapacity,
+        // 🔹 NUOVO: salviamo capacità per taglia
+        capacityS: capS,
+        capacityM: capM,
+        capacityL: capL,
         price2h: price2h,
         pricePerDay: priceDay,
         message: note,
@@ -258,14 +277,6 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
   }
 
   /// Apre una bottom sheet con autocomplete indirizzo (Google Places).
-  /// Quando scegli un suggerimento:
-  ///  - compila il campo indirizzo
-  ///  - chiama _geocodeAddress per riempire _lat / _lng.
-  /// Apre una bottom sheet con autocomplete indirizzo (Google Places).
-  /// Quando scegli un suggerimento:
-  ///  - compila il campo indirizzo
-  ///  - chiama _geocodeAddress per riempire _lat / _lng.
-
   Future<void> _openAddressSearch() async {
     setState(() {
       _addressError = null;
@@ -405,7 +416,7 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
   }
 
   /// Chiamato mentre l'utente scrive nell'indirizzo.
-  /// Usa PlacesAutocompleteService per mostrare i suggerimenti live.
+  /// (Al momento non è più collegato al TextField, ma lo lasciamo per evoluzioni future)
   Future<void> _onAddressChanged(String value) async {
     setState(() {
       _addressQuery = value;
@@ -529,39 +540,84 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
                           leading: const Icon(Icons.location_on_outlined),
                           title: Text(s.description),
                           onTap: () async {
-                            // 1) Mettiamo il testo scelto nel campo
                             setState(() {
                               _addressCtrl.text = s.description;
                               _addressSuggestions = [];
                             });
-                            // 2) Facciamo il geocoding per riempire _lat / _lng
                             await _geocodeAddress();
                           },
                         );
                       },
                     ),
                   ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
 
-                // Capacità
+                // 🔹 NUOVO BLOCCO: capacità per taglia
+                Text(
+                  'Capacità massima per taglia bagagli',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+
                 TextFormField(
-                  controller: _capacityCtrl,
+                  controller: _capacitySCtrl,
                   decoration: const InputDecoration(
-                    labelText: 'Capacità totale bagagli',
-                    hintText: 'Es. 30',
+                    labelText: 'Bagagli SMALL (S)',
+                    hintText: 'Es. 10',
                   ),
                   keyboardType: TextInputType.number,
                   textInputAction: TextInputAction.next,
                   validator: (v) {
-                    final n = int.tryParse((v ?? '').trim());
-                    if (n == null || n <= 0) {
-                      return 'Inserisci un numero valido (>0)';
+                    final t = (v ?? '').trim();
+                    final n = int.tryParse(t);
+                    if (n == null || n < 0) {
+                      return 'Inserisci un numero valido (≥ 0)';
                     }
                     return null;
                   },
                   enabled: !_busy,
                 ),
                 const SizedBox(height: 12),
+
+                TextFormField(
+                  controller: _capacityMCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Bagagli MEDIUM (M)',
+                    hintText: 'Es. 10',
+                  ),
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.next,
+                  validator: (v) {
+                    final t = (v ?? '').trim();
+                    final n = int.tryParse(t);
+                    if (n == null || n < 0) {
+                      return 'Inserisci un numero valido (≥ 0)';
+                    }
+                    return null;
+                  },
+                  enabled: !_busy,
+                ),
+                const SizedBox(height: 12),
+
+                TextFormField(
+                  controller: _capacityLCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Bagagli LARGE (L)',
+                    hintText: 'Es. 10',
+                  ),
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.next,
+                  validator: (v) {
+                    final t = (v ?? '').trim();
+                    final n = int.tryParse(t);
+                    if (n == null || n < 0) {
+                      return 'Inserisci un numero valido (≥ 0)';
+                    }
+                    return null;
+                  },
+                  enabled: !_busy,
+                ),
+                const SizedBox(height: 16),
 
                 // Prezzo 2h
                 TextFormField(

@@ -10,7 +10,7 @@ import 'package:BagDrop/services/supabase/partner_repo.dart';
 /// - telefono
 /// - regole deposito
 /// - orari di apertura (testo libero, salvato in opening_hours["text"])
-/// - capacità massima
+/// - capacità massima per taglia (S/M/L) + totale (derivato)
 /// - prezzi
 /// - stato disponibilità (attivo / sospeso)
 class PartnerEditScreen extends StatefulWidget {
@@ -37,7 +37,12 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
   final _phoneCtrl = TextEditingController();
   final _rulesCtrl = TextEditingController();
   final _openingCtrl = TextEditingController(); // orari apertura (testo)
-  final _capacityCtrl = TextEditingController();
+
+  // Capacità per taglia
+  final _capacitySCtrl = TextEditingController();
+  final _capacityMCtrl = TextEditingController();
+  final _capacityLCtrl = TextEditingController();
+
   final _price2hCtrl = TextEditingController();
   final _pricePerDayCtrl = TextEditingController();
 
@@ -57,7 +62,9 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
     _phoneCtrl.dispose();
     _rulesCtrl.dispose();
     _openingCtrl.dispose();
-    _capacityCtrl.dispose();
+    _capacitySCtrl.dispose();
+    _capacityMCtrl.dispose();
+    _capacityLCtrl.dispose();
     _price2hCtrl.dispose();
     _pricePerDayCtrl.dispose();
     super.dispose();
@@ -92,17 +99,28 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
       _descCtrl.text = partner.description ?? '';
       _phoneCtrl.text = partner.phone ?? '';
       _rulesCtrl.text = partner.rules ?? '';
-      _capacityCtrl.text = partner.capacity.toString();
+
+      // Se le capacità S/M/L sono tutte zero ma esiste capacity totale,
+      // facciamo un fallback: mettiamo tutto in "M".
+      int capS = partner.capacityS;
+      int capM = partner.capacityM;
+      int capL = partner.capacityL;
+
+      if (capS == 0 && capM == 0 && capL == 0 && partner.capacity > 0) {
+        capM = partner.capacity;
+      }
+
+      _capacitySCtrl.text = capS.toString();
+      _capacityMCtrl.text = capM.toString();
+      _capacityLCtrl.text = capL.toString();
 
       if (partner.price2h != null) {
-        _price2hCtrl.text = partner.price2h!
-            .toStringAsFixed(2)
-            .replaceAll('.', ',');
+        _price2hCtrl.text =
+            partner.price2h!.toStringAsFixed(2).replaceAll('.', ',');
       }
       if (partner.pricePerDay != null) {
-        _pricePerDayCtrl.text = partner.pricePerDay!
-            .toStringAsFixed(2)
-            .replaceAll('.', ',');
+        _pricePerDayCtrl.text =
+            partner.pricePerDay!.toStringAsFixed(2).replaceAll('.', ',');
       }
 
       // Orari apertura: per ora usiamo opening_hours["text"] se presente.
@@ -138,11 +156,31 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
     if (_partner == null) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    final capacityText = _capacityCtrl.text.trim();
-    final capacity = int.tryParse(capacityText);
-    if (capacity == null || capacity < 0) {
+    final sText = _capacitySCtrl.text.trim();
+    final mText = _capacityMCtrl.text.trim();
+    final lText = _capacityLCtrl.text.trim();
+
+    final capS = int.tryParse(sText) ?? 0;
+    final capM = int.tryParse(mText) ?? 0;
+    final capL = int.tryParse(lText) ?? 0;
+
+    if (capS < 0 || capM < 0 || capL < 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Inserisci una capacità valida (>= 0).')),
+        const SnackBar(
+          content: Text('Le capacità devono essere numeri ≥ 0.'),
+        ),
+      );
+      return;
+    }
+
+    final totalCapacity = capS + capM + capL;
+    if (totalCapacity <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Imposta almeno 1 posto totale tra S / M / L.',
+          ),
+        ),
       );
       return;
     }
@@ -166,7 +204,10 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
         partnerId: _partner!.id,
         name: _nameCtrl.text.trim(),
         address: _addressCtrl.text.trim(),
-        capacity: capacity,
+        capacity: totalCapacity,
+        capacityS: capS,
+        capacityM: capM,
+        capacityL: capL,
         price2h: price2h,
         pricePerDay: pricePerDay,
         isActive: _isActive,
@@ -278,8 +319,6 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                     );
                   },
                   validator: (v) {
-                    // Manteniamo comunque il controllo che NON sia vuoto,
-                    // ma siccome è readOnly, non verrà cambiato dall’utente
                     if ((v ?? '').trim().isEmpty) {
                       return 'Indirizzo non disponibile: contatta il supporto.';
                     }
@@ -346,11 +385,37 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // 7) Capacità
+                // 7) Capacità per taglia
+                Text(
+                  'Capacità massima per taglia bagagli',
+                  style: theme.textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+
                 TextFormField(
-                  controller: _capacityCtrl,
+                  controller: _capacitySCtrl,
                   decoration: const InputDecoration(
-                    labelText: 'Capacità massima bagagli',
+                    labelText: 'Bagagli SMALL (S)',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 8),
+
+                TextFormField(
+                  controller: _capacityMCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Bagagli MEDIUM (M)',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 8),
+
+                TextFormField(
+                  controller: _capacityLCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Bagagli LARGE (L)',
                     border: OutlineInputBorder(),
                   ),
                   keyboardType: TextInputType.number,

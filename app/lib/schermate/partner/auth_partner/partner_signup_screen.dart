@@ -27,10 +27,31 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
   // Dati attività
   final _nameCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
+
+  // Capacità per taglia
+  final _capacitySCtrl = TextEditingController();
+  final _capacityMCtrl = TextEditingController();
+  final _capacityLCtrl = TextEditingController();
+
+  // (puoi anche eliminare questo se non ti serve più)
   final _capacityCtrl = TextEditingController();
+
   final _price2hCtrl = TextEditingController();
   final _pricePerDayCtrl = TextEditingController();
   final _messageCtrl = TextEditingController();
+
+
+  int _parseCap(TextEditingController c) {
+    final t = c.text.trim();
+    final n = int.tryParse(t);
+    return n == null || n < 0 ? 0 : n;
+  }
+
+  int get _totalCapacity =>
+      _parseCap(_capacitySCtrl) +
+      _parseCap(_capacityMCtrl) +
+      _parseCap(_capacityLCtrl);
+
 
   // Suggerimenti indirizzo (autocomplete)
   List<PlaceSuggestion> _addressSuggestions = [];
@@ -55,6 +76,9 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
     _pwd2Ctrl.dispose();
     _nameCtrl.dispose();
     _addressCtrl.dispose();
+    _capacitySCtrl.dispose();
+    _capacityMCtrl.dispose();
+    _capacityLCtrl.dispose();
     _capacityCtrl.dispose();
     _price2hCtrl.dispose();
     _pricePerDayCtrl.dispose();
@@ -116,7 +140,17 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       final pwd = _pwdCtrl.text;
 
       // per creare la richiesta partner
-      final capacity = int.tryParse(_capacityCtrl.text.trim()) ?? 0;
+      final capS = _parseCap(_capacitySCtrl);
+      final capM = _parseCap(_capacityMCtrl);
+      final capL = _parseCap(_capacityLCtrl);
+      final capacity = capS + capM + capL;
+
+      if (capacity <= 0) {
+        throw AuthException(
+          'Inserisci almeno 1 bagaglio tra S, M e L.',
+        );
+      }
+
       final price2h = _price2hCtrl.text.trim().isEmpty
           ? null
           : double.parse(_price2hCtrl.text.trim().replaceAll(',', '.'));
@@ -139,7 +173,10 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
           'partner_signup': {
             'name': _nameCtrl.text.trim(),
             'address': _addressCtrl.text.trim(),
-            'capacity': capacity,
+            'capacity': capacity,      // totale
+            'capacity_s': capS,
+            'capacity_m': capM,
+            'capacity_l': capL,
             'price2h': price2h,
             'pricePerDay': pricePerDay,
             'message': message,
@@ -428,6 +465,7 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
 
   /// Chiamato mentre l'utente scrive nell'indirizzo.
   /// Usa PlacesAutocompleteService per mostrare i suggerimenti live.
+  // ignore: unused_element
   Future<void> _onAddressChanged(String value) async {
     setState(() {
       _addressQuery = value;
@@ -652,24 +690,80 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
                     ),
                   const SizedBox(height: 12),
 
+                  Text(
+                    'Capacità massima per taglia bagagli',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+
                   TextFormField(
-                    controller: _capacityCtrl,
+                    controller: _capacitySCtrl,
                     decoration: const InputDecoration(
-                      labelText: 'Capacità totale (numero di bagagli)',
-                      hintText: 'Es: 30',
+                      labelText: 'Bagagli SMALL (S)',
+                      hintText: 'Es: 10',
                     ),
                     keyboardType: TextInputType.number,
                     validator: (v) {
                       final t = (v ?? '').trim();
-                      if (t.isEmpty) return 'Inserisci un numero';
+                      if (t.isEmpty) return null; // può essere 0
                       final n = int.tryParse(t);
-                      if (n == null || n <= 0) {
-                        return 'Numero non valido';
+                      if (n == null || n < 0) {
+                        return 'Inserisci un numero valido (≥ 0)';
                       }
                       return null;
                     },
                     enabled: !_busy,
+                    onChanged: (_) => setState(() {}),
                   ),
+                  const SizedBox(height: 12),
+
+                  TextFormField(
+                    controller: _capacityMCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Bagagli MEDIUM (M)',
+                      hintText: 'Es: 10',
+                    ),
+                    keyboardType: TextInputType.number,
+                    validator: (v) {
+                      final t = (v ?? '').trim();
+                      if (t.isEmpty) return null;
+                      final n = int.tryParse(t);
+                      if (n == null || n < 0) {
+                        return 'Inserisci un numero valido (≥ 0)';
+                      }
+                      return null;
+                    },
+                    enabled: !_busy,
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+
+                  TextFormField(
+                    controller: _capacityLCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Bagagli LARGE (L)',
+                      hintText: 'Es: 10',
+                    ),
+                    keyboardType: TextInputType.number,
+                    validator: (v) {
+                      final t = (v ?? '').trim();
+                      if (t.isEmpty) return null;
+                      final n = int.tryParse(t);
+                      if (n == null || n < 0) {
+                        return 'Inserisci un numero valido (≥ 0)';
+                      }
+                      return null;
+                    },
+                    enabled: !_busy,
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 8),
+
+                  Text(
+                    'Capacità totale: $_totalCapacity bagagli',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+
                   const SizedBox(height: 12),
 
                   TextFormField(
