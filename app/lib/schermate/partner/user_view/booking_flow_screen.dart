@@ -18,7 +18,11 @@ class BookingFlowScreen extends StatefulWidget {
 class _BookingFlowScreenState extends State<BookingFlowScreen> {
   final _formContactKey = GlobalKey<FormState>();
 
-  // Step corrente: 0 = contatto, 1 = bagagli, 2 = riepilogo
+  // Step corrente:
+  // 0 = contatto
+  // 1 = data + orario
+  // 2 = bagagli
+  // 3 = riepilogo
   int _step = 0;
   bool _busy = false;
 
@@ -29,14 +33,21 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   final _emailCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
 
-  // campi per disponibilità
+  // DATA / ORARIO
+  DateTime? _selectedDate;
+  bool _fullDay = true;
+  TimeOfDay? _slotStart;
+  TimeOfDay? _slotEnd;
+  _TimeSlot? _selectedSlot; 
+
   PartnerAvailability? _availability;
-  bool _loadingAvailability = true;
+  bool _loadingAvailability = false;
 
   // BAGAGLI
   int _bagsS = 0;
   int _bagsM = 0;
   int _bagsL = 0;
+
 
   @override
   void dispose() {
@@ -48,12 +59,36 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     super.dispose();
   }
 
-  void _nextStep() {
+  Future<void> _nextStep() async {
     if (_step == 0) {
       // Valida form contatto
       if (!(_formContactKey.currentState?.validate() ?? false)) return;
       setState(() => _step = 1);
     } else if (_step == 1) {
+      // Data + orario
+      if (_selectedDate == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Seleziona un giorno.')),
+        );
+        return;
+      }
+
+      if (!_fullDay && _slotStart == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Seleziona una fascia oraria di 3 ore.')),
+        );
+        return;
+      }
+
+      await _loadAvailabilityForSelection();
+      if (!mounted) return;
+      if (_availability == null) {
+        // errore già mostrato nello snackbar
+        return;
+      }
+
+      setState(() => _step = 2);
+    } else if (_step == 2) {
       // Deve esserci almeno 1 bagaglio
       if (_bagsS + _bagsM + _bagsL <= 0) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -61,7 +96,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         );
         return;
       }
-      setState(() => _step = 2);
+      setState(() => _step = 3);
     }
   }
 
@@ -69,29 +104,168 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   @override
   void initState() {
     super.initState();
-    _loadAvailability();
+    // La disponibilità verrà caricata solo dopo che l’utente ha scelto
+    // data + orario.
   }
 
-  Future<void> _loadAvailability() async {
+
+  Future<void> _loadAvailabilityForSelection() async {
+    if (_selectedDate == null) return;
+
+    final startStr = _selectedStartTimeString;
+    final endStr = _selectedEndTimeString;
+
+    setState(() {
+      _loadingAvailability = true;
+      _availability = null;
+    });
+
     final client = Supabase.instance.client;
     final repo = PartnerBookingRepo(client);
 
     try {
-      final av = await repo.getPartnerAvailability(widget.partner.id);
+      final av = await repo.getPartnerAvailabilityForInterval(
+        partnerId: widget.partner.id,
+        bookingDate: _selectedDate!,
+        startTime: startStr,
+        endTime: endStr,
+      );
+
       if (!mounted) return;
       setState(() {
         _availability = av;
         _loadingAvailability = false;
       });
     } catch (e, st) {
-      debugPrint('Errore caricando disponibilità: $e\n$st');
+      debugPrint('Errore caricando disponibilità per intervallo: $e\n$st');
       if (!mounted) return;
       setState(() {
         _availability = null;
         _loadingAvailability = false;
       });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Impossibile calcolare la disponibilità per l\'orario scelto. Riprova.',
+          ),
+        ),
+      );
     }
   }
+
+  String get _selectedStartTimeString {
+    if (_fullDay || _slotStart == null) return '00:00';
+    return _formatTimeForApi(_slotStart!);
+  }
+
+  String get _selectedEndTimeString {
+    if (_fullDay || _slotEnd == null) return '23:59';
+    return _formatTimeForApi(_slotEnd!);
+  }
+
+  String _formatTimeForApi(TimeOfDay t) {
+    final h = t.hour.toString().padLeft(2, '0');
+    final m = t.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  String _formatTimeDisplay(TimeOfDay t) {
+    final h = t.hour.toString().padLeft(2, '0');
+    final m = t.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  TimeOfDay? _parseTimeOfDay(String? value) {
+    if (value == null || value.isEmpty) return null;
+    final parts = value.split(':');
+    if (parts.length != 2) return null;
+    final h = int.tryParse(parts[0]);
+    final m = int.tryParse(parts[1]);
+    if (h == null || m == null) return null;
+    return TimeOfDay(hour: h, minute: m);
+  }
+
+  List<_TimeSlot> _buildTimeSlots() {
+    final opening = widget.partner.openingHours;
+
+    // Default 08:00–20:00 senza pausa
+    TimeOfDay open1 = const TimeOfDay(hour: 8, minute: 0);
+    TimeOfDay close1 = const TimeOfDay(hour: 20, minute: 0);
+    TimeOfDay? open2;
+    TimeOfDay? close2;
+
+    if (opening != null && opening['type'] == 'daily_with_break') {
+      final o1 = _parseTimeOfDay(opening['open_1'] as String?);
+      final c1 = _parseTimeOfDay(opening['close_1'] as String?);
+      final o2 = _parseTimeOfDay(opening['open_2'] as String?);
+      final c2 = _parseTimeOfDay(opening['close_2'] as String?);
+
+      if (o1 != null && c1 != null) {
+        open1 = o1;
+        close1 = c1;
+      }
+      if (o2 != null && c2 != null) {
+        open2 = o2;
+        close2 = c2;
+      }
+    }
+
+    final slots = <_TimeSlot>[];
+
+    void addSlots(TimeOfDay from, TimeOfDay to) {
+      const slotMinutes = 180;
+      var startMinutes = from.hour * 60 + from.minute;
+      final limit = to.hour * 60 + to.minute;
+
+      while (true) {
+        final end = startMinutes + slotMinutes;
+        if (end > limit) break;
+        final s = TimeOfDay(
+          hour: startMinutes ~/ 60,
+          minute: startMinutes % 60,
+        );
+        final e = TimeOfDay(
+          hour: end ~/ 60,
+          minute: end % 60,
+        );
+        slots.add(_TimeSlot(start: s, end: e));
+        startMinutes = end;
+      }
+    }
+
+    addSlots(open1, close1);
+    if (open2 != null && close2 != null) {
+      addSlots(open2!, close2!);
+    }
+
+    // Se per qualche motivo non generiamo slot, fallback 08–20
+    if (slots.isEmpty) {
+      const fallbackFrom = TimeOfDay(hour: 8, minute: 0);
+      const fallbackTo = TimeOfDay(hour: 20, minute: 0);
+      const slotMinutes = 180;
+      var startMinutes =
+          fallbackFrom.hour * 60 + fallbackFrom.minute;
+      final limit = fallbackTo.hour * 60 + fallbackTo.minute;
+
+      while (true) {
+        final end = startMinutes + slotMinutes;
+        if (end > limit) break;
+        final s = TimeOfDay(
+          hour: startMinutes ~/ 60,
+          minute: startMinutes % 60,
+        );
+        final e = TimeOfDay(
+          hour: end ~/ 60,
+          minute: end % 60,
+        );
+        slots.add(_TimeSlot(start: s, end: e));
+        startMinutes = end;
+      }
+    }
+
+    return slots;
+  }
+
 
 
   void _prevStep() {
@@ -121,9 +295,36 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         return;
       }
 
-      // 2) Controllo disponibilità in tempo reale
-      final availability =
-          await repo.getPartnerAvailability(widget.partner.id);
+      // 1) Safety: data + orario ancora validi?
+      if (_selectedDate == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Seleziona una data.')),
+        );
+        setState(() => _busy = false);
+        return;
+      }
+      if (!_fullDay && _slotStart == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Seleziona una fascia oraria di 3 ore.'),
+          ),
+        );
+        setState(() => _busy = false);
+        return;
+      }
+
+      final startStr = _selectedStartTimeString;
+      final endStr = _selectedEndTimeString;
+
+      // 2) Controllo disponibilità per intervallo specifico
+      final availability = await repo.getPartnerAvailabilityForInterval(
+        partnerId: widget.partner.id,
+        bookingDate: _selectedDate!,
+        startTime: startStr,
+        endTime: endStr,
+      );
 
       final totalRequested = _bagsS + _bagsM + _bagsL;
       final errors = <String>[];
@@ -134,7 +335,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                   availability.capacityL) >
               0;
 
-      // Controllo per taglia solo se il partner ha configurato capacità S/M/L
       if (hasPerSizeCapacity) {
         if (_bagsS > 0 && _bagsS > availability.availableS) {
           errors.add(
@@ -153,7 +353,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         }
       }
 
-      // In ogni caso controlliamo anche il totale, se definito
       if (availability.capacityTotal > 0 &&
           totalRequested > availability.availableTotal) {
         errors.add(
@@ -173,12 +372,10 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Per questa attività non ci sono abbastanza posti disponibili per i bagagli selezionati.',
+                    'Per questa attività non ci sono abbastanza posti disponibili per i bagagli selezionati in questo orario.',
                   ),
                   const SizedBox(height: 8),
-                  ...errors.map(
-                    (e) => Text('• $e'),
-                  ),
+                  ...errors.map((e) => Text('• $e')),
                 ],
               ),
               actions: [
@@ -207,6 +404,9 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         bagsM: _bagsM,
         bagsL: _bagsL,
         notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+        bookingDate: _selectedDate!,
+        startTime: startStr,
+        endTime: endStr,
       );
 
       if (!mounted) return;
@@ -262,7 +462,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
   Widget _buildStepHeader() {
     final cs = Theme.of(context).colorScheme;
-    final steps = ['Contatto', 'Bagagli', 'Riepilogo'];
+    final steps = ['Contatto', 'Data e orario', 'Bagagli', 'Riepilogo'];
 
     return Row(
       children: List.generate(steps.length, (index) {
@@ -314,8 +514,10 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       case 0:
         return _buildContactForm();
       case 1:
-        return _buildBagsForm();
+        return _buildDateTimeForm();
       case 2:
+        return _buildBagsForm();
+      case 3:
         return _buildSummary();
       default:
         return const SizedBox.shrink();
@@ -423,6 +625,145 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     );
   }
 
+  Widget _buildDateTimeForm() {
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+
+    final slots = _buildTimeSlots();
+
+    String dateLabel;
+    if (_selectedDate == null) {
+      dateLabel = 'Seleziona una data';
+    } else {
+      dateLabel =
+          '${_selectedDate!.day.toString().padLeft(2, '0')}/'
+          '${_selectedDate!.month.toString().padLeft(2, '0')}/'
+          '${_selectedDate!.year}';
+    }
+
+    String slotLabel;
+    if (_fullDay) {
+      slotLabel = 'Tutto il giorno';
+    } else if (_slotStart != null && _slotEnd != null) {
+      slotLabel =
+          '${_formatTimeDisplay(_slotStart!)} - ${_formatTimeDisplay(_slotEnd!)}';
+    } else {
+      slotLabel = 'Seleziona fascia 3h';
+    }
+
+    return ListView(
+      children: [
+        Text(
+          'Quando vuoi lasciare i bagagli?',
+          style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 16),
+
+        // Data
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Giorno'),
+          subtitle: Text(dateLabel),
+          trailing: const Icon(Icons.calendar_today),
+          onTap: () async {
+            final now = DateTime.now();
+            final initialDate = _selectedDate ?? now;
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: initialDate,
+              firstDate: DateTime(now.year, now.month, now.day),
+              lastDate: DateTime(now.year + 1),
+            );
+            if (picked != null) {
+              setState(() {
+                _selectedDate = DateTime(picked.year, picked.month, picked.day);
+                _selectedSlot = null;
+                _slotStart = null;
+                _slotEnd = null;
+              });
+            }
+          },
+        ),
+        const SizedBox(height: 12),
+
+        // Toggle full day vs 3h
+        Text(
+          'Durata',
+          style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            ChoiceChip(
+              label: const Text('Tutto il giorno'),
+              selected: _fullDay,
+              onSelected: (v) {
+                if (!v) return;
+                setState(() {
+                  _fullDay = true;
+                  _slotStart = null;
+                  _slotEnd = null;
+                  _selectedSlot = null;   // <--- AGGIUNGI
+                });
+              },
+            ),
+            const SizedBox(width: 8),
+            ChoiceChip(
+              label: const Text('Fascia di 3 ore'),
+              selected: !_fullDay,
+              onSelected: (v) {
+                if (!v) return;
+                setState(() {
+                  _fullDay = false;
+                });
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        if (!_fullDay) ...[
+          Text(
+            'Seleziona una fascia oraria di 3 ore',
+            style: textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<_TimeSlot>(
+            value: _selectedSlot,
+            items: slots
+                .map(
+                  (slot) => DropdownMenuItem<_TimeSlot>(
+                    value: slot,
+                    child: Text(slot.toLabel(_formatTimeDisplay)),
+                  ),
+                )
+                .toList(),
+            onChanged: (slot) {
+              if (slot == null) return;
+              setState(() {
+                _selectedSlot = slot;
+                _slotStart = slot.start;
+                _slotEnd = slot.end;
+              });
+            },
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              labelText: 'Fascia oraria',
+            ),
+          ),
+
+        ],
+
+        const SizedBox(height: 16),
+        Text(
+          'Gli orari disponibili sono calcolati in base agli orari di apertura impostati dal locale.',
+          style: textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+        ),
+      ],
+    );
+  }
+
+
   Widget _buildBagsForm() {
     if (_loadingAvailability) {
       return const Center(child: CircularProgressIndicator());
@@ -524,6 +865,42 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           ),
         ),
         const SizedBox(height: 12),
+                // Data e orario
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Data e orario',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _selectedDate == null
+                      ? 'Non selezionata'
+                      : '${_selectedDate!.day.toString().padLeft(2, '0')}/'
+                        '${_selectedDate!.month.toString().padLeft(2, '0')}/'
+                        '${_selectedDate!.year}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _fullDay
+                      ? 'Tutto il giorno (entro orario di apertura)'
+                      : (_slotStart != null && _slotEnd != null)
+                          ? '${_formatTimeDisplay(_slotStart!)} - ${_formatTimeDisplay(_slotEnd!)}'
+                          : 'Orario non selezionato',
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+
         Card(
           child: Padding(
             padding: const EdgeInsets.all(12),
@@ -607,7 +984,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
             onPressed: _busy
                 ? null
                 : () {
-                    if (_step < 2) {
+                    if (_step < 3) {
                       _nextStep();
                     } else {
                       _confirmBooking();
@@ -619,7 +996,8 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                     height: 22,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : Text(_step < 2 ? 'Avanti' : 'Conferma prenotazione'),
+                : Text(_step < 3 ? 'Avanti' : 'Conferma prenotazione'),
+
           ),
         ),
       ],
@@ -700,4 +1078,36 @@ class _BagRow extends StatelessWidget {
       ),
     );
   }
+}
+
+class _TimeSlot {
+  final TimeOfDay start;
+  final TimeOfDay end;
+
+  const _TimeSlot({
+    required this.start,
+    required this.end,
+  });
+
+  String toLabel(String Function(TimeOfDay) fmt) {
+    return '${fmt(start)} - ${fmt(end)}';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! _TimeSlot) return false;
+
+    return start.hour == other.start.hour &&
+        start.minute == other.start.minute &&
+        end.hour == other.end.hour &&
+        end.minute == other.end.minute;
+  }
+
+  @override
+  int get hashCode =>
+      start.hour.hashCode ^
+      start.minute.hashCode ^ 
+      end.hour.hashCode ^
+      end.minute.hashCode;
 }

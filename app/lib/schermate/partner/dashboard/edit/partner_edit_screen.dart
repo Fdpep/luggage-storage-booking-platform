@@ -4,6 +4,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:BagDrop/models/partner.dart';
 import 'package:BagDrop/services/supabase/partner_repo.dart';
 
+import 'package:flutter/services.dart';
+import 'package:BagDrop/services/supabase/partner_booking_repo.dart';
+
+
+
 /// Schermata per permettere al Partner di modificare la scheda del locale:
 /// - nome / indirizzo
 /// - descrizione breve
@@ -19,6 +24,237 @@ class PartnerEditScreen extends StatefulWidget {
   @override
   State<PartnerEditScreen> createState() => _PartnerEditScreenState();
 }
+
+//modello locale di orari 
+
+class OpeningInterval {
+  final TimeOfDay open;
+  final TimeOfDay close;
+
+  OpeningInterval({required this.open, required this.close});
+
+  Map<String, dynamic> toJson() => {
+    "open": "${open.hour.toString().padLeft(2, '0')}:${open.minute.toString().padLeft(2, '0')}",
+    "close": "${close.hour.toString().padLeft(2, '0')}:${close.minute.toString().padLeft(2, '0')}",
+  };
+
+  static OpeningInterval? fromJson(Map<String, dynamic>? json) {
+    if (json == null) return null;
+    TimeOfDay parse(String s) {
+      final parts = s.split(':');
+      return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+    }
+    return OpeningInterval(
+      open: parse(json['open']),
+      close: parse(json['close']),
+    );
+  }
+}
+
+//editor orari 
+
+class OpeningHoursEditor extends StatefulWidget {
+  final Map<String, dynamic>? initialValue;
+  final ValueChanged<Map<String, dynamic>?> onChanged;
+
+  const OpeningHoursEditor({
+    super.key,
+    required this.initialValue,
+    required this.onChanged,
+  });
+
+  @override
+  State<OpeningHoursEditor> createState() => _OpeningHoursEditorState();
+}
+
+class _OpeningHoursEditorState extends State<OpeningHoursEditor> {
+  late Map<String, List<OpeningInterval>> _week;
+
+  static const days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+  static const labels = {
+    "mon": "Lunedì",
+    "tue": "Martedì",
+    "wed": "Mercoledì",
+    "thu": "Giovedì",
+    "fri": "Venerdì",
+    "sat": "Sabato",
+    "sun": "Domenica",
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _week = {};
+    for (final d in days) {
+      final list = widget.initialValue?[d] as List<dynamic>? ?? [];
+      _week[d] = list
+          .map((j) => OpeningInterval.fromJson(j as Map<String, dynamic>)!)
+          .toList();
+    }
+  }
+
+  void _addInterval(String day) async {
+    final interval = await showDialog<OpeningInterval>(
+      context: context,
+      builder: (_) => _EditIntervalDialog(),
+    );
+    if (interval != null) {
+      setState(() => _week[day]!.add(interval));
+      widget.onChanged(_serialize());
+    }
+  }
+
+  Map<String, dynamic> _serialize() {
+    final map = <String, dynamic>{};
+    for (final d in days) {
+      map[d] = _week[d]!.map((i) => i.toJson()).toList();
+    }
+    return map;
+  }
+
+  void _removeInterval(String day, int index) {
+    setState(() => _week[day]!.removeAt(index));
+    widget.onChanged(_serialize());
+  }
+
+  void _copyToAll(String day) {
+    final base = _week[day]!;
+    setState(() {
+      for (final d in days) {
+        if (d != day) {
+          _week[d] = List.from(base);
+        }
+      }
+    });
+    widget.onChanged(_serialize());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text("Orari di apertura", style: theme.textTheme.titleMedium),
+        const SizedBox(height: 8),
+        ...days.map((day) {
+          final intervals = _week[day]!;
+          return Card(
+            margin: const EdgeInsets.symmetric(vertical: 6),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          labels[day]!,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.content_copy),
+                        onPressed: intervals.isEmpty
+                            ? null
+                            : () => _copyToAll(day),
+                        tooltip: "Copia su tutti i giorni",
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.add),
+                        onPressed: () => _addInterval(day),
+                      ),
+                    ],
+                  ),
+                  if (intervals.isEmpty)
+                    const Text("Chiuso"),
+                  ...List.generate(intervals.length, (i) {
+                    final intv = intervals[i];
+                    return ListTile(
+                      title: Text(
+                          "${intv.open.format(context)} – ${intv.close.format(context)}"),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        onPressed: () => _removeInterval(day, i),
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          );
+        }),
+      ],
+    );
+  }
+}
+
+//modifica intervallo
+
+class _EditIntervalDialog extends StatefulWidget {
+  @override
+  State<_EditIntervalDialog> createState() => _EditIntervalDialogState();
+}
+
+class _EditIntervalDialogState extends State<_EditIntervalDialog> {
+  TimeOfDay? open;
+  TimeOfDay? close;
+
+  Future<void> _pickOpen() async {
+    final t = await showTimePicker(context: context, initialTime: TimeOfDay.now());
+    if (t != null) setState(() => open = t);
+  }
+
+  Future<void> _pickClose() async {
+    final t = await showTimePicker(context: context, initialTime: TimeOfDay.now());
+    if (t != null) setState(() => close = t);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text("Aggiungi intervallo"),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ElevatedButton(
+            onPressed: _pickOpen,
+            child: Text(open == null ? "Ora apertura" : "Apertura: ${open!.format(context)}"),
+          ),
+          ElevatedButton(
+            onPressed: _pickClose,
+            child: Text(close == null ? "Ora chiusura" : "Chiusura: ${close!.format(context)}"),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text("Annulla"),
+        ),
+        ElevatedButton(
+          onPressed: (open != null && close != null)
+              ? () {
+                  if (open!.hour > close!.hour ||
+                      (open!.hour == close!.hour && open!.minute >= close!.minute)) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("L'ora di chiusura deve essere dopo l'apertura")),
+                    );
+                    return;
+                  }
+                  Navigator.pop(context, OpeningInterval(open: open!, close: close!));
+                }
+              : null,
+          child: const Text("Salva"),
+        ),
+      ],
+    );
+  }
+}
+
 
 class _PartnerEditScreenState extends State<PartnerEditScreen> {
   final _formKey = GlobalKey<FormState>();
@@ -36,7 +272,12 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
   final _descCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _rulesCtrl = TextEditingController();
-  final _openingCtrl = TextEditingController(); // orari apertura (testo)
+
+  // Orario giornaliero con possibile pausa
+  TimeOfDay? _open1;
+  TimeOfDay? _close1;
+  TimeOfDay? _open2;
+  TimeOfDay? _close2;
 
   // Capacità per taglia
   final _capacitySCtrl = TextEditingController();
@@ -46,7 +287,9 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
   final _price2hCtrl = TextEditingController();
   final _pricePerDayCtrl = TextEditingController();
 
+  Map<String, dynamic>? _openingHoursStructured;
   bool _isActive = true;
+  bool _hasFutureBookings = false;
 
   @override
   void initState() {
@@ -61,7 +304,6 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
     _descCtrl.dispose();
     _phoneCtrl.dispose();
     _rulesCtrl.dispose();
-    _openingCtrl.dispose();
     _capacitySCtrl.dispose();
     _capacityMCtrl.dispose();
     _capacityLCtrl.dispose();
@@ -100,8 +342,7 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
       _phoneCtrl.text = partner.phone ?? '';
       _rulesCtrl.text = partner.rules ?? '';
 
-      // Se le capacità S/M/L sono tutte zero ma esiste capacity totale,
-      // facciamo un fallback: mettiamo tutto in "M".
+      // Capacità S/M/L con fallback su capacity totale
       int capS = partner.capacityS;
       int capM = partner.capacityM;
       int capL = partner.capacityL;
@@ -123,15 +364,34 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
             partner.pricePerDay!.toStringAsFixed(2).replaceAll('.', ',');
       }
 
-      // Orari apertura: per ora usiamo opening_hours["text"] se presente.
-      final openingText = (partner.openingHours?['text'] as String?) ?? '';
-      _openingCtrl.text = openingText;
+      // Orari apertura strutturati
+      final opening = partner.openingHours;
+      if (opening != null && opening['type'] == 'daily_with_break') {
+        _open1 = _parseTimeOfDay(opening['open_1'] as String?);
+        _close1 = _parseTimeOfDay(opening['close_1'] as String?);
+        _open2 = _parseTimeOfDay(opening['open_2'] as String?);
+        _close2 = _parseTimeOfDay(opening['close_2'] as String?);
+      } else {
+        // Fallback: 08:00 - 20:00 senza pausa
+        _open1 = const TimeOfDay(hour: 8, minute: 0);
+        _close1 = const TimeOfDay(hour: 20, minute: 0);
+        _open2 = null;
+        _close2 = null;
+      }
 
       _isActive = partner.isActive;
+
+      // Controllo se ci sono prenotazioni future
+      final bookingRepo = PartnerBookingRepo(Supabase.instance.client);
+      final hasFuture =
+          await bookingRepo.hasActiveFutureBookingsForPartner(partner.id);
+
+      if (!mounted) return;
 
       setState(() {
         _loading = false;
         _error = null;
+        _hasFutureBookings = hasFuture;
       });
     } catch (e, st) {
       debugPrint('Errore _loadPartner: $e\n$st');
@@ -150,6 +410,23 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
     final normalized = t.replaceAll(',', '.');
     return double.tryParse(normalized);
   }
+
+  TimeOfDay? _parseTimeOfDay(String? value) {
+    if (value == null || value.isEmpty) return null;
+    final parts = value.split(':');
+    if (parts.length != 2) return null;
+    final h = int.tryParse(parts[0]);
+    final m = int.tryParse(parts[1]);
+    if (h == null || m == null) return null;
+    return TimeOfDay(hour: h, minute: m);
+  }
+
+  String _timeToString(TimeOfDay t) {
+    final h = t.hour.toString().padLeft(2, '0');
+    final m = t.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
 
   /// Salva le modifiche su Supabase usando PartnerRepo.updateBasics.
   Future<void> _save() async {
@@ -188,12 +465,21 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
     final price2h = _parsePrice(_price2hCtrl.text);
     final pricePerDay = _parsePrice(_pricePerDayCtrl.text);
 
-    // Orari di apertura: salviamo come JSON { "text": "..." } se non vuoto.
-    final openingText = _openingCtrl.text.trim();
+    // Orari di apertura strutturati
     Map<String, dynamic>? openingHours;
-    if (openingText.isNotEmpty) {
-      openingHours = {'text': openingText};
+    if (_open1 != null && _close1 != null) {
+      openingHours = {
+        'type': 'daily_with_break',
+        'open_1': _timeToString(_open1!),
+        'close_1': _timeToString(_close1!),
+      };
+      if (_open2 != null && _close2 != null) {
+        openingHours['open_2'] = _timeToString(_open2!);
+        openingHours['close_2'] = _timeToString(_close2!);
+      }
     }
+
+    final canEditCapacityAndHours = !_hasFutureBookings;
 
     setState(() {
       _saving = true;
@@ -204,10 +490,10 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
         partnerId: _partner!.id,
         name: _nameCtrl.text.trim(),
         address: _addressCtrl.text.trim(),
-        capacity: totalCapacity,
-        capacityS: capS,
-        capacityM: capM,
-        capacityL: capL,
+        capacity: canEditCapacityAndHours ? totalCapacity : null,
+        capacityS: canEditCapacityAndHours ? capS : null,
+        capacityM: canEditCapacityAndHours ? capM : null,
+        capacityL: canEditCapacityAndHours ? capL : null,
         price2h: price2h,
         pricePerDay: pricePerDay,
         isActive: _isActive,
@@ -216,16 +502,25 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
             : _descCtrl.text.trim(),
         phone: _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
         rules: _rulesCtrl.text.trim().isEmpty ? null : _rulesCtrl.text.trim(),
-        openingHours: openingHours,
+        openingHours: canEditCapacityAndHours ? openingHours : null,
       );
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Scheda locale aggiornata.')),
-      );
+      if (_hasFutureBookings) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Dati salvati. Orari e capacità non sono stati modificati perché ci sono prenotazioni future.',
+            ),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Scheda locale aggiornata.')),
+        );
+      }
 
-      // Torna indietro notificando che qualcosa è cambiato (se serve).
       Navigator.of(context).pop(true);
     } catch (e, st) {
       debugPrint('Errore salvataggio partner: $e\n$st');
@@ -373,17 +668,117 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // 6) Orari di apertura (testo libero)
-                TextFormField(
-                  controller: _openingCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Orari di apertura',
-                    hintText: 'Es. Lun-Ven 8:00-20:00, Sab 9:00-18:00',
-                    border: OutlineInputBorder(),
+                // 6) Orari di apertura (giornalieri con eventuale pausa)
+                Text(
+                  'Orari di apertura (tutti i giorni)',
+                  style: theme.textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+
+                if (_hasFutureBookings)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: Text(
+                      'Ci sono prenotazioni future: non puoi modificare orari e capacità finché non saranno concluse.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.error,
+                      ),
+                    ),
                   ),
-                  maxLines: 2,
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _hasFutureBookings
+                            ? null
+                            : () async {
+                                final picked = await showTimePicker(
+                                  context: context,
+                                  initialTime: _open1 ?? const TimeOfDay(hour: 8, minute: 0),
+                                );
+                                if (picked != null) {
+                                  setState(() => _open1 = picked);
+                                }
+                              },
+                        child: Text(
+                          _open1 == null
+                              ? 'Apertura mattina'
+                              : 'Apre: ${_open1!.format(context)}',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _hasFutureBookings
+                            ? null
+                            : () async {
+                                final picked = await showTimePicker(
+                                  context: context,
+                                  initialTime: _close1 ?? const TimeOfDay(hour: 13, minute: 0),
+                                );
+                                if (picked != null) {
+                                  setState(() => _close1 = picked);
+                                }
+                              },
+                        child: Text(
+                          _close1 == null
+                              ? 'Chiusura mattina'
+                              : 'Chiude: ${_close1!.format(context)}',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _hasFutureBookings
+                            ? null
+                            : () async {
+                                final picked = await showTimePicker(
+                                  context: context,
+                                  initialTime: _open2 ?? const TimeOfDay(hour: 15, minute: 0),
+                                );
+                                if (picked != null) {
+                                  setState(() => _open2 = picked);
+                                }
+                              },
+                        child: Text(
+                          _open2 == null
+                              ? 'Apertura pomeriggio (opz.)'
+                              : 'Apre: ${_open2!.format(context)}',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _hasFutureBookings
+                            ? null
+                            : () async {
+                                final picked = await showTimePicker(
+                                  context: context,
+                                  initialTime: _close2 ?? const TimeOfDay(hour: 20, minute: 0),
+                                );
+                                if (picked != null) {
+                                  setState(() => _close2 = picked);
+                                }
+                              },
+                        child: Text(
+                          _close2 == null
+                              ? 'Chiusura pom. (opz.)'
+                              : 'Chiude: ${_close2!.format(context)}',
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
+
 
                 // 7) Capacità per taglia
                 Text(
@@ -399,6 +794,7 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                     border: OutlineInputBorder(),
                   ),
                   keyboardType: TextInputType.number,
+                  enabled: !_hasFutureBookings,
                 ),
                 const SizedBox(height: 8),
 
@@ -409,6 +805,7 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                     border: OutlineInputBorder(),
                   ),
                   keyboardType: TextInputType.number,
+                  enabled: !_hasFutureBookings,
                 ),
                 const SizedBox(height: 8),
 
@@ -419,6 +816,7 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                     border: OutlineInputBorder(),
                   ),
                   keyboardType: TextInputType.number,
+                  enabled: !_hasFutureBookings,
                 ),
                 const SizedBox(height: 12),
 

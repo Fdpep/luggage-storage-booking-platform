@@ -43,7 +43,7 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
   void initState() {
     super.initState();
     _loadPhotos();
-    _loadAvailability();
+    //_loadAvailability();  non serve la capacita totale
   }
 
   Future<void> _loadPhotos() async {
@@ -328,8 +328,6 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
                   final effectiveTotal =
                       totalFromSizes > 0 ? totalFromSizes : partner.capacity;
 
-                  final availability = _availability;
-
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -346,61 +344,6 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
                               style: textTheme.bodySmall),
                         if (capL > 0)
                           Text('• Large (L): $capL', style: textTheme.bodySmall),
-                      ],
-                      const SizedBox(height: 8),
-
-                      if (_loadingAvailability) ...[
-                        Row(
-                          children: [
-                            SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: cs.primary,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Calcolo disponibilità in tempo reale...',
-                              style: textTheme.bodySmall
-                                  ?.copyWith(color: cs.outline),
-                            ),
-                          ],
-                        ),
-                      ] else if (_availabilityError != null) ...[
-                        Text(
-                          _availabilityError!,
-                          style: textTheme.bodySmall
-                              ?.copyWith(color: cs.error),
-                        ),
-                      ] else if (availability != null) ...[
-                        Text(
-                          'Disponibilità attuale: ${availability.availableTotal} su ${availability.capacityTotal} posti.',
-                          style: textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        if (availability.capacityS > 0 ||
-                            availability.capacityM > 0 ||
-                            availability.capacityL > 0) ...[
-                          if (availability.capacityS > 0)
-                            Text(
-                              '• Small (S): ${availability.availableS}/${availability.capacityS} disponibili',
-                              style: textTheme.bodySmall,
-                            ),
-                          if (availability.capacityM > 0)
-                            Text(
-                              '• Medium (M): ${availability.availableM}/${availability.capacityM} disponibili',
-                              style: textTheme.bodySmall,
-                            ),
-                          if (availability.capacityL > 0)
-                            Text(
-                              '• Large (L): ${availability.availableL}/${availability.capacityL} disponibili',
-                              style: textTheme.bodySmall,
-                            ),
-                        ],
                       ],
                     ],
                   );

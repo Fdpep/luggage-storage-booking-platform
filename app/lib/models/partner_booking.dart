@@ -15,6 +15,11 @@ class PartnerBooking {
   final int bagsL;
   final String? notes;
 
+  /// Nuovi campi per data + orari della prenotazione
+  final DateTime bookingDate;   // solo data (00:00)
+  final String startTime;       // "HH:MM:SS" (come arriva da Supabase)
+  final String endTime;         // "HH:MM:SS"
+
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -32,6 +37,9 @@ class PartnerBooking {
     required this.bagsL,
     required this.createdAt,
     required this.updatedAt,
+    required this.bookingDate,
+    required this.startTime,
+    required this.endTime,
     this.notes,
   });
 
@@ -49,8 +57,15 @@ class PartnerBooking {
       bagsM: map['bags_m'] as int,
       bagsL: map['bags_l'] as int,
       notes: map['notes'] as String?,
+
+      // nuovi campi:
+      bookingDate: DateTime.parse(map['booking_date'] as String),
+      startTime: map['start_time'] as String,
+      endTime: map['end_time'] as String,
+
       createdAt: DateTime.parse(map['created_at'] as String),
       updatedAt: DateTime.parse(map['updated_at'] as String),
     );
   }
+
 }

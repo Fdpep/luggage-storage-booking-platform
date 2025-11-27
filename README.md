@@ -13,16 +13,26 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
 * Verifica email via codice OTP
 * Login / Logout
 * Mappa interattiva con marker dei partner
-* Scheda dettagliata partner (foto, regole, prezzi, orari)
-* **Prenotazione deposito bagagli presso un partner** (flusso base già attivo: dati contatto + numero bagagli S/M/L, creazione record `partner_bookings`)
+* Scheda dettagliata partner (foto, regole, prezzi, orari, posizione su mappa)
+* **Prenotazione deposito bagagli presso un partner**, con:
+  * step guidati (Contatto → Data & Orario → Bagagli → Riepilogo)
+  * scelta del **giorno** tramite date picker
+  * scelta della **durata**:
+    * **tutto il giorno**
+    * oppure **fascia oraria di 3 ore** generata automaticamente in base agli orari di apertura del locale (mattina/pomeriggio)
+  * selezione bagagli per **taglia S / M / L**
+  * controllo capacità **live** sullo **slot selezionato** (data + orario) con blocco automatico se non ci sono abbastanza posti
+  * salvataggio in `partner_bookings` con:
+    * `booking_date` (giorno prenotazione)
+    * `start_time`, `end_time` (fascia oraria)
 * **Schermata “Le mie prenotazioni”**:
-
   * tab dedicata nella home utente
   * lista delle prenotazioni con card per ogni booking (nome attività, stato, data, numero bagagli)
   * accesso al dettaglio attività collegato alla prenotazione
   * riepilogo completo dei dati inseriti (contatto + bagagli S/M/L)
 
-> N.B.: pagamento online, QR code e disponibilità in tempo reale sono ancora da implementare.
+> N.B.: pagamento online e QR code sono ancora da implementare. La disponibilità in tempo reale è già gestita **per giorno + orario selezionato** nel flusso di prenotazione, ma mancano ancora viste riassuntive più avanzate.
+
 
 ## 🏬 Partner
 
@@ -352,29 +362,41 @@ Flusso di onboarding del partner:
 
 * `booking_flow_screen.dart`
 
-  * Flusso di prenotazione in **3 step**:
+  * Flusso di prenotazione in **4 step**:
 
-    1. Dati di contatto (nome, cognome, telefono, email, note).
-    2. Selezione numero bagagli per taglia **S/M/L**.
-    3. Riepilogo prenotazione.
+    1. **Dati di contatto** (nome, cognome, telefono, email, note).
+    2. **Data & Orario**:
+       * selezione del **giorno** con `showDatePicker` (da oggi a +1 anno)
+       * scelta della **durata**:
+         * **“Tutto il giorno”** (full day)
+         * oppure **“Fascia di 3 ore”**
+       * nel caso “Fascia di 3 ore”:
+         * vengono generati automaticamente degli slot di 3 ore sulla base degli orari di apertura del partner (`opening_hours`)
+         * supporta uno schema di apertura **con pausa pranzo** (mattina + pomeriggio)
+    3. **Bagagli**:
+       * selezione numero bagagli per taglia **S/M/L**
+       * mostra la disponibilità residua nell’intervallo scelto (`availableS/M/L`)
+       * limita i pulsanti +/– in base ai posti residui per quello slot
+    4. **Riepilogo**:
+       * partner, contatto, numero bagagli
+       * (TODO: surface della data + orario in evidenza nel riepilogo finale)
 
   * Validazioni lato client:
-
-    * telefono obbligatorio, con esattamente **10 cifre** (vengono ignorati spazi, +39, ecc.),
-    * almeno 1 bagaglio selezionato.
+    * telefono obbligatorio, con esattamente **10 cifre** (vengono ignorati spazi, +39, ecc.)
+    * almeno 1 bagaglio selezionato
+    * data obbligatoria
+    * per fascia oraria: slot obbligatorio
 
   * Alla conferma:
-
-    * chiama prima `PartnerBookingRepo.getPartnerAvailability(partnerId)` per calcolare la disponibilità residua S/M/L e totale,
-    * se non c’è abbastanza spazio per una o più taglie (o sul totale) mostra un dialog di errore e **non** crea la prenotazione,
-    * se tutto ok chiama `PartnerBookingRepo.createBooking(...)`,
-    * crea una riga in `partner_bookings` con:
-
-      * `partner_id`, `user_id`
-      * contatto
-      * `bags_s`, `bags_m`, `bags_l`
-      * `notes`
+    * ricontrolla la capacità per **quella data + slot** usando `PartnerBookingRepo.getPartnerAvailabilityForInterval(...)`
+    * se non c’è abbastanza spazio:
+      * mostra un dialog con i dettagli (S/M/L e/o totale) e **non** crea la prenotazione
+    * se tutto ok chiama `PartnerBookingRepo.createBooking(...)`, che salva anche:
+      * `booking_date`
+      * `start_time`
+      * `end_time`
     * mostra snackbar di conferma e torna alla scheda partner.
+
 
 > N.B.: pagamento online e QR code sono ancora da integrare in uno step successivo.
 
@@ -440,25 +462,40 @@ Flusso di onboarding del partner:
 
   * Modifica scheda locale:
 
-    * nome attività,
+    * nome attività
+    * indirizzo (solo lettura)
+    * descrizione
+    * telefono
+    * regole deposito
+    * **orari di apertura strutturati**:
+      * configurazione di un’apertura **giornaliera con pausa**:
+        * `open_1` / `close_1` (es. 08:00–12:00)
+        * `open_2` / `close_2` (es. 15:00–20:00)
+      * salvati in `opening_hours` come:
+        ```json
+        {
+          "type": "daily_with_break",
+          "open_1": "08:00",
+          "close_1": "12:00",
+          "open_2": "15:00",
+          "close_2": "20:00",
+          "text": "Lun-Dom 08–12, 15–20"
+        }
+        ```
+      * il testo `text` viene mostrato lato utente alla voce “Orari di apertura”
+    * **capacità massima per taglia**:
+      * campi separati `capacity_s`, `capacity_m`, `capacity_l`
+      * capacità totale calcolata come somma (S+M+L) e salvata in `capacity`
+    * prezzi 2h / giorno
+    * stato `is_active` (attivo/sospeso)
 
-    * indirizzo (solo lettura),
+  * **Blocco modifiche con prenotazioni future**:
+    * prima di permettere il salvataggio dei nuovi orari/capacità, viene chiamato
+      `PartnerBookingRepo.hasActiveFutureBookingsForPartner(partner.id)`
+    * se esistono prenotazioni future (status != cancelled, `booking_date >= oggi`):
+      * viene impedita la modifica di **orari di apertura** e **capacità S/M/L**
+      * viene mostrato un messaggio informativo al partner (per evitare inconsistenze con prenotazioni già attive).
 
-    * descrizione,
-
-    * telefono,
-
-    * regole deposito,
-
-    * orari apertura (campo testo salvato in `opening_hours["text"]`),
-
-    * **capacità totale** (per ora un solo numero),
-
-    * prezzi 2h / giorno,
-
-    * stato `is_active` (attivo/sospeso).
-
-  > La capacità S/M/L è già gestita in fase di registrazione, ma qui al momento si modifica solo la capacità totale. L’aggiornamento dell’edit per S/M/L è fra le cose ancora da fare.
 
 * `partner_photos_screen.dart`
 
@@ -503,12 +540,21 @@ Dashboard amministratore:
 * Modello per la tabella `partner_bookings`.
 * Campi principali:
 
-  * id, partner_id, user_id
-  * status
-  * contact_first_name / last_name / phone / email
+  * `id`, `partner_id`, `user_id`
+  * `status`
+  * `contact_first_name` / `last_name` / `phone` / `email`
   * `bags_s`, `bags_m`, `bags_l`
-  * notes
-  * created_at, updated_at
+  * `notes`
+  * **nuovi campi temporali:**
+    * `booking_date` → giorno della prenotazione (solo data)
+    * `start_time` → orario di inizio (stringa "HH:MM[:SS]")
+    * `end_time` → orario di fine (stringa "HH:MM[:SS]")
+  * `created_at`, `updated_at`
+
+* Permette di distinguere:
+  * prenotazioni passate vs future
+  * prenotazioni sullo stesso partner in fasce orarie diverse dello stesso giorno.
+
 
 ### `services/supabase/partner_repo.dart`
 
@@ -532,34 +578,49 @@ Dashboard amministratore:
 
 * Repository per gestire il flusso prenotazioni (`partner_bookings`).
 
-* `createBooking(...)`
-
-  * richiede utente loggato,
+* `createBooking({...})`
+  * richiede utente loggato
   * inserisce una nuova prenotazione con:
-
     * `partner_id`, `user_id`
-    * contatto
-    * `bags_s/m/l`
+    * dati di contatto
+    * `bags_s`, `bags_m`, `bags_l`
     * `notes`
-    * status di default `confirmed`.
+    * `booking_date` (se non passato, default = oggi)
+    * `start_time` (default "00:00")
+    * `end_time` (default "23:59")
+  * status di default `confirmed`
 
 * `getMyBookings()`
-
   * prenotazioni dell’utente corrente (lato app utente).
 
 * `getBookingsForPartner(String partnerId)`
-
   * tutte le prenotazioni associate a un partner (lato dashboard partner).
 
 * `getPartnerAvailability(String partnerId)`
+  * calcola la disponibilità globale del partner (senza considerare l’orario):
+    * legge capacità `capacity_s/m/l` e `capacity` totale da `partners`
+    * somma S/M/L delle prenotazioni attive (`status != 'cancelled'`)
+    * ritorna un DTO `PartnerAvailability` con:
+      * capacità per taglia + totale
+      * usato per taglia + totale
+      * disponibilità residua per taglia + totale
 
-  * ritorna un oggetto `PartnerAvailability` che contiene:
+* `getPartnerAvailabilityForInterval({...})`
+  * calcola la disponibilità **per un intervallo specifico** su un certo giorno:
+    * parametri: `partnerId`, `bookingDate`, `startTime`, `endTime`
+    * legge le prenotazioni di quel partner in quel giorno (`booking_date`)
+    * considera solo prenotazioni non cancellate
+    * somma i bagagli delle prenotazioni che si **sovrappongono** all’intervallo richiesto (logica overlap sugli orari)
+    * ritorna un `PartnerAvailability` con capacità residua valida **solo per quello slot**
 
-    * capacità `capacity_s/m/l` e `capacity` totale lette da `partners`,
-    * somma dei bagagli S/M/L delle prenotazioni attive (`status != 'cancelled'`),
-    * disponibilità residua per taglia e totale (`availableS/M/L/Total`).
+  * usato da `BookingFlowScreen`:
+    * al passaggio Data & Orario → Bagagli
+    * al momento della conferma finale
 
-  * usato da `BookingFlowScreen` per bloccare prenotazioni che superano la capacità disponibile.
+* `hasActiveFutureBookingsForPartner(String partnerId)`
+  * controlla se il partner ha prenotazioni future (`booking_date >= oggi`, `status != 'cancelled'`)
+  * usato in `partner_edit_screen.dart` per:
+    * bloccare modifiche a orari di apertura e capacità S/M/L quando esistono prenotazioni future attive.
 
 
 ---
@@ -588,53 +649,64 @@ Dashboard amministratore:
 
 ## 📦 Prenotazioni (stato attuale)
 
-Flusso già implementato:
+Flusso attuale:
 
-1. Utente apre la **scheda partner** (`PartnerDetailScreen`).
+1. L’utente apre la **scheda partner** (`PartnerDetailScreen`).
 
 2. Clicca **“Prenota ora”** → si apre `BookingFlowScreen`.
 
-3. Step 1 → inserisce **dati contatto**.
+3. Step 1 → inserisce **dati di contatto**.
 
-4. Step 2 → seleziona **numero bagagli S/M/L**.
+4. Step 2 → sceglie **giorno e orario**:
+   * selezione data (oggi → +1 anno)
+   * scelta durata:
+     * **tutto il giorno**
+     * oppure **fascia da 3 ore**
+   * per le fasce da 3 ore:
+     * gli slot disponibili sono generati automaticamente in base a `opening_hours` del partner (mattina + eventuale pomeriggio)
 
-5. Step 3 → vede un **riepilogo**.
+5. Step 3 → seleziona **bagagli per taglia S/M/L**:
+   * vede la disponibilità residua S/M/L per **quello specifico slot**
+   * i pulsanti +/– sono limitati dalla capacità residua (se `availableS = 2`, non può selezionare 3 S)
 
-6. Clic su **“Conferma prenotazione”**:
+6. Step 4 → vede un **riepilogo** (partner, contatto, bagagli; TODO: esporre bene anche data + fascia oraria in grassetto).
 
-   * viene creato un record in `partner_bookings`.
+7. Clic su **“Conferma prenotazione”**:
+   * viene ricalcolata la capacità per `booking_date + start_time/end_time`
+   * se non c’è spazio:
+     * viene mostrato un dialog di errore dettagliato
+     * la prenotazione **non** viene creata
+   * se tutto ok:
+     * viene creato un record in `partner_bookings` con:
+       * info contatto
+       * `bags_s/m/l`
+       * `booking_date`, `start_time`, `end_time`
+       * `status = 'confirmed'`
 
-7. Lato partner:
-
+8. Lato partner:
    * nella tab “Prenotazioni” (`PrenotazioniPage`) vede la lista di tutte le prenotazioni con:
+     * nome/cognome
+     * contatti
+     * data/ora (in base a come vengono mostrati)
+     * numero bagagli (totale + S/M/L)
+     * note
+     * stato
 
-     * nome/cognome,
-     * contatti,
-     * data,
-     * numero bagagli (totale + S/M/L),
-     * note,
-     * stato.
-
-8. Lato utente:
-
+9. Lato utente:
    * nella tab “Prenotazioni” (`UserBookingsPage`) vede la lista **delle proprie prenotazioni**:
-
-     * card con stato, data, numero di bagagli e nome dell’attività.
+     * card con stato, data, numero di bagagli e nome attività
    * tap su una card:
-
-     * apre `BookingPartnerDetailScreen` con il **dettaglio dell’attività** collegata,
-     * da lì può:
-
-       * aprire il **riepilogo prenotazione** (`BookingRecapScreen`),
-       * in futuro, mostrare il QR code per il check-in/out (placeholder già presente).
+     * apre `BookingPartnerDetailScreen` con il **dettaglio dell’attività**
+     * da lì può aprire il **riepilogo prenotazione** (`BookingRecapScreen`)
 
 Cose **non ancora** implementate nel flusso prenotazioni:
 
-* Visualizzazione esplicita della **disponibilità in tempo reale** (posti occupati/restanti) nelle UI partner / utente.
-* Prenotazione del giorno , con limiti temporali , date chiusure negozio ecc. Quindi inserire un calendario.
-* Ulteriori controlli sulle prenotazioni lato backend (duplicati, orari, ecc. – vedi sezione “Controlli prenotazioni” in fondo).
-* QR code di check-in / check-out (solo placeholder lato UI).
-* Pagamento online.
+* visualizzazione ancora poco “in evidenza” di data + orario nel riepilogo e nelle liste (utente & partner)
+* gestione **giorni di chiusura/ferie** o aperture speciali oltre allo schema standard giornaliero con pausa
+* cancellazione / modifica prenotazioni lato utente/partner
+* QR code di check-in / check-out (solo placeholder lato UI)
+* pagamento online.
+
 
 ---
 
@@ -666,14 +738,29 @@ Cose **non ancora** implementate nel flusso prenotazioni:
 
 ## 1️⃣ Sistema Prenotazioni (step successivi)
 
-* Controllo capacità S/M/L:
+* Migliorare UX data/orario:
+  * mostrare chiaramente **data + fascia oraria**:
+    * nel riepilogo finale
+    * nella lista “Le mie prenotazioni”
+    * nella lista prenotazioni lato partner
+* Gestione **giorni di chiusura / ferie / eccezioni**:
+  * estendere `opening_hours` o introdurre una tabella dedicata per:
+    * chiusure straordinarie
+    * orari speciali per singole date
+* Cancellazione e modifica prenotazioni:
+  * permettere all’utente di:
+    * cancellare una prenotazione futura
+    * eventualmente spostarla a un’altra data/orario se c’è disponibilità
+* Hardening lato backend:
+  * evitare condizioni di gara sulla capacità (due utenti che prenotano l’ultimo posto in contemporanea)
+  * vincoli più rigidi sul conteggio bagagli vs capacità partner
+* Pagamento (Stripe o altro) con:
+  * creazione prenotazione in stato “pending”
+  * conferma post-pagamento
+* QR code:
+  * generazione QR collegato a `partner_bookings.id`
+  * scanner lato partner + cambio di stato (es. checked_in / checked_out).
 
-  * leggere `capacity_s/m/l` del partner,
-  * sommare bagagli già prenotati,
-  * bloccare nuove prenotazioni se non c’è spazio.
-* Disponibilità in tempo reale su `PartnerDetailScreen` e/o `BookingPartnerDetailScreen`.
-* Eventuale pagamento (Stripe o altro).
-* QR code associato alla prenotazione (generazione, visualizzazione in app, validazione lato partner).
 
 ## 2️⃣ Scanner QR
 
