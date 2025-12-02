@@ -35,10 +35,23 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
   // DATA / ORARIO
   DateTime? _selectedDate;
+
+  /// true  = prenotazione per tutto il giorno (dall’apertura alla chiusura)
+  /// false = prenotazione con fascia di 3 ore
   bool _fullDay = true;
-  TimeOfDay? _slotStart;
-  TimeOfDay? _slotEnd;
-  _TimeSlot? _selectedSlot; 
+
+  /// Orario di inizio selezionato dall’utente (solo se _fullDay == false).
+  /// Di default lo inizializziamo all’orario attuale (utente può modificarlo).
+  TimeOfDay? _startTime;
+
+  /// Orari di apertura settimanali normalizzati.
+  /// Per ogni giorno (mon..sun) abbiamo una lista di intervalli {open, close} "HH:MM".
+  late Map<String, List<Map<String, dynamic>>> _weeklyHours;
+
+  /// Eccezioni calendario: chiusure / aperture straordinarie per date specifiche.
+  /// Le chiavi sono stringhe "YYYY-MM-DD".
+  Set<String> _closedDateKeys = {};
+  Set<String> _forcedOpenDateKeys = {};
 
   PartnerAvailability? _availability;
   bool _loadingAvailability = false;
@@ -48,6 +61,41 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   int _bagsM = 0;
   int _bagsL = 0;
 
+  String _weekdayKey(int weekday) {
+    switch (weekday) {
+      case DateTime.monday:
+        return 'mon';
+      case DateTime.tuesday:
+        return 'tue';
+      case DateTime.wednesday:
+        return 'wed';
+      case DateTime.thursday:
+        return 'thu';
+      case DateTime.friday:
+        return 'fri';
+      case DateTime.saturday:
+        return 'sat';
+      case DateTime.sunday:
+      default:
+        return 'sun';
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Data di default = oggi (l’utente può cambiarla con il date picker).
+    final now = DateTime.now();
+    _selectedDate = DateTime(now.year, now.month, now.day);
+
+    // Orario di default = ora attuale (usato solo per la modalità "3 ore").
+    _startTime = TimeOfDay.fromDateTime(now);
+    // Normalizza opening_hours (weekly_v1 / legacy) + eccezioni calendario
+    _initOpeningHours();
+    // 🔹 Prefill dati contatto dall'utente loggato (metadata Supabase)
+    _prefillContactFromCurrentUser();
+  }
 
   @override
   void dispose() {
@@ -59,37 +107,416 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     super.dispose();
   }
 
+  /// Converte un TimeOfDay in minuti da mezzanotte (utile per confronti).
+  int _timeOfDayToMinutes(TimeOfDay t) => t.hour * 60 + t.minute;
+
+  /// Converte minuti da mezzanotte in TimeOfDay (mod 24h).
+  TimeOfDay _minutesToTimeOfDay(int m) {
+    m = m % (24 * 60);
+    final h = m ~/ 60;
+    final min = m % 60;
+    return TimeOfDay(hour: h, minute: min);
+  }
+
+  /// Prima apertura del giorno corrente (_selectedDate) in base a weekly + eccezioni.
+  /// - se la data è chiusa (weekly vuoto + non forced_open, oppure closed_dates) → null
+  /// - se è apertura straordinaria su giorno normalmente chiuso → 00:00
+  TimeOfDay? get _firstOpenTime {
+    if (_selectedDate == null) return null;
+
+    final date = _selectedDate!;
+    final dateKey = _dateKey(date);
+
+    // Chiusura straordinaria → nessuna apertura
+    if (_closedDateKeys.contains(dateKey)) {
+      return null;
+    }
+
+    final dayKey = _weekdayKey(date.weekday);
+    final list = _weeklyHours[dayKey] ?? const <Map<String, dynamic>>[];
+
+    // Giorno normalmente chiuso e non forzato aperto → nessuna apertura
+    if (list.isEmpty && !_forcedOpenDateKeys.contains(dateKey)) {
+      return null;
+    }
+
+    // Giorno normalmente chiuso ma apertura straordinaria → aperto tutto il giorno
+    if (list.isEmpty && _forcedOpenDateKeys.contains(dateKey)) {
+      return const TimeOfDay(hour: 0, minute: 0);
+    }
+
+    // Prendiamo l'apertura più precoce tra gli intervalli
+    TimeOfDay? best;
+    for (final m in list) {
+      final t = _parseTimeOfDay(m['open'] as String?);
+      if (t == null) continue;
+      if (best == null || _timeOfDayToMinutes(t) < _timeOfDayToMinutes(best)) {
+        best = t;
+      }
+    }
+    return best;
+  }
+
+  /// Ultima chiusura del giorno corrente (_selectedDate) in base a weekly + eccezioni.
+  /// - se la data è chiusa → null
+  /// - se è apertura straordinaria su giorno normalmente chiuso → 23:59
+  TimeOfDay? get _lastCloseTime {
+    if (_selectedDate == null) return null;
+
+    final date = _selectedDate!;
+    final dateKey = _dateKey(date);
+
+    if (_closedDateKeys.contains(dateKey)) {
+      return null;
+    }
+
+    final dayKey = _weekdayKey(date.weekday);
+    final list = _weeklyHours[dayKey] ?? const <Map<String, dynamic>>[];
+
+    if (list.isEmpty && !_forcedOpenDateKeys.contains(dateKey)) {
+      return null;
+    }
+
+    if (list.isEmpty && _forcedOpenDateKeys.contains(dateKey)) {
+      return const TimeOfDay(hour: 23, minute: 59);
+    }
+
+    TimeOfDay? best;
+    for (final m in list) {
+      final t = _parseTimeOfDay(m['close'] as String?);
+      if (t == null) continue;
+      if (best == null || _timeOfDayToMinutes(t) > _timeOfDayToMinutes(best)) {
+        best = t;
+      }
+    }
+    return best;
+  }
+
+  /// Orario di fine per prenotazione "3 ore" a partire da _startTime.
+  TimeOfDay? get _threeHoursEndTime {
+    if (_startTime == null) return null;
+    final m = _timeOfDayToMinutes(_startTime!) + 180; // +3h
+    return _minutesToTimeOfDay(m);
+  }
+
+  /// Orario di inizio effettivo da salvare su Supabase.
+  /// - full day → prima apertura
+  /// - 3 ore → _startTime scelto dall’utente
+  TimeOfDay? get _effectiveStartTime {
+    if (_fullDay) {
+      return _firstOpenTime;
+    }
+    return _startTime;
+  }
+
+  /// Orario di fine effettivo da salvare su Supabase.
+  /// - full day → ultima chiusura
+  /// - 3 ore → _startTime + 3h
+  TimeOfDay? get _effectiveEndTime {
+    if (_fullDay) {
+      return _lastCloseTime;
+    }
+    return _threeHoursEndTime;
+  }
+
+  /// Ritorna true se l’orario di inizio è dentro l’arco "giorno lavorativo"
+  /// (tra prima apertura e ultima chiusura).
+  bool _isStartInsideWorkingDay(TimeOfDay start) {
+    final firstOpen = _firstOpenTime;
+    final lastClose = _lastCloseTime;
+    if (firstOpen == null || lastClose == null) {
+      // In teoria non succede (abbiamo fallback), ma non blocchiamo.
+      return true;
+    }
+    final s = _timeOfDayToMinutes(start);
+    final o = _timeOfDayToMinutes(firstOpen);
+    final c = _timeOfDayToMinutes(lastClose);
+    return s >= o && s < c;
+  }
+
+  /// Se l’intervallo di prenotazione supera l’orario di chiusura,
+  /// ritorna un messaggio di avviso (soft) da mostrare all’utente.
+  /// Altrimenti ritorna null (nessun avviso).
+  String? _warningIfEndAfterClose(TimeOfDay start, TimeOfDay end) {
+    final lastClose = _lastCloseTime;
+    if (lastClose == null) return null;
+
+    final endMin = _timeOfDayToMinutes(end);
+    final closeMin = _timeOfDayToMinutes(lastClose);
+    if (endMin <= closeMin) {
+      // L’intervallo termina prima della chiusura → nessun warning.
+      return null;
+    }
+
+    // Calcoliamo "quanta parte" dell’intervallo cade prima della chiusura,
+    // per poter scrivere un messaggio tipo: "avrai circa X ore e Y minuti".
+    final startMin = _timeOfDayToMinutes(start);
+    final minutiResidui = closeMin - startMin;
+    final chiusuraStr = _formatTimeDisplay(lastClose);
+
+    if (minutiResidui <= 0) {
+      // In pratica l’acquirente seleziona un orario praticamente a chiusura
+      // (o addirittura dopo). Avviso più generico.
+      return 'Il locale risulta quasi chiuso nell\'orario selezionato.\n'
+          'Chiude alle $chiusuraStr.';
+    }
+
+    final ore = minutiResidui ~/ 60;
+    final min = minutiResidui % 60;
+    final durataStr = ore > 0
+        ? (min > 0 ? '$ore h e $min min' : '$ore h')
+        : '$min min';
+
+    return 'Il locale chiude alle $chiusuraStr.\n'
+        'Con l\'orario scelto avrai meno di 3 ore complete di deposito '
+        '(circa $durataStr).';
+  }
+
+  /// Ritorna true se per quella data, in base a weekly_v1 + eccezioni,
+  /// il locale è chiuso (nessun intervallo per quel giorno).
+  bool _isClosedDay(DateTime date) {
+    final keyDate = _dateKey(date);
+
+    // Chiusura straordinaria ha precedenza
+    if (_closedDateKeys.contains(keyDate)) {
+      return true;
+    }
+
+    // Apertura straordinaria ha precedenza su weekly chiuso
+    if (_forcedOpenDateKeys.contains(keyDate)) {
+      return false;
+    }
+
+    final dayKey = _weekdayKey(date.weekday);
+    final list = _weeklyHours[dayKey] ?? const <Map<String, dynamic>>[];
+
+    return list.isEmpty;
+  }
+
+  /// Normalizza opening_hours in formato settimanale:
+  /// - se è null → 08:00-20:00 tutti i giorni
+  /// - se è 'weekly_v1' → usa le liste mon..sun così come sono
+  /// - se è 'daily_with_break' → converte open_1/close_1, open_2/close_2 per tutti i giorni
+  /// - se è legacy (mon/tue/... senza type) → lo usa direttamente
+  Map<String, List<Map<String, dynamic>>> _normalizeOpeningWeekly(
+    Map<String, dynamic>? raw,
+  ) {
+    const dayKeys = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
+    final result = <String, List<Map<String, dynamic>>>{
+      for (final d in dayKeys) d: <Map<String, dynamic>>[],
+    };
+
+    // Nessun dato -> fallback 08:00-20:00 tutti i giorni
+    if (raw == null) {
+      final def = {"open": "08:00", "close": "20:00"};
+      for (final d in dayKeys) {
+        result[d] = [Map<String, dynamic>.from(def)];
+      }
+      return result;
+    }
+
+    final type = raw['type'] as String?;
+
+    // Già weekly_v1
+    if (type == 'weekly_v1') {
+      for (final d in dayKeys) {
+        final list = raw[d] as List<dynamic>? ?? [];
+        result[d] = list
+            .map((e) => Map<String, dynamic>.from(e as Map<String, dynamic>))
+            .toList();
+      }
+      return result;
+    }
+
+    // Vecchio formato daily_with_break → convertito in intervalli per tutti i giorni
+    if (type == 'daily_with_break') {
+      final String? o1 = raw['open_1'] as String?;
+      final String? c1 = raw['close_1'] as String?;
+      final String? o2 = raw['open_2'] as String?;
+      final String? c2 = raw['close_2'] as String?;
+
+      final intervals = <Map<String, dynamic>>[];
+      if (o1 != null && c1 != null) {
+        intervals.add({'open': o1, 'close': c1});
+      }
+      if (o2 != null && c2 != null) {
+        intervals.add({'open': o2, 'close': c2});
+      }
+
+      if (intervals.isEmpty) {
+        // Nessun orario -> tutti chiusi
+        return result;
+      }
+
+      for (final d in dayKeys) {
+        result[d] = intervals.map((i) => Map<String, dynamic>.from(i)).toList();
+      }
+      return result;
+    }
+
+    // Caso legacy: trattiamo raw come weekly senza 'type'
+    for (final d in dayKeys) {
+      final list = raw[d] as List<dynamic>? ?? [];
+      result[d] = list
+          .map((e) => Map<String, dynamic>.from(e as Map<String, dynamic>))
+          .toList();
+    }
+    return result;
+  }
+
+  /// Chiave "YYYY-MM-DD" per confrontare le date nelle eccezioni.
+  String _dateKey(DateTime d) {
+    final y = d.year.toString().padLeft(4, '0');
+    final m = d.month.toString().padLeft(2, '0');
+    final day = d.day.toString().padLeft(2, '0');
+    return '$y-$m-$day';
+  }
+
+  /// Inizializza _weeklyHours e le eccezioni (chiusure/aperture straordinarie).
+  void _initOpeningHours() {
+    final opening = widget.partner.openingHours;
+
+    if (opening is Map<String, dynamic>) {
+      _weeklyHours = _normalizeOpeningWeekly(opening);
+
+      _closedDateKeys = {};
+      _forcedOpenDateKeys = {};
+
+      final ex = opening['exceptions'];
+      if (ex is Map<String, dynamic>) {
+        final rawClosed = ex['closed_dates'];
+        if (rawClosed is List) {
+          _closedDateKeys = rawClosed
+              .map((e) => e.toString())
+              .where((s) => s.length >= 10)
+              .map((s) => s.substring(0, 10))
+              .toSet();
+        }
+
+        final rawForced = ex['forced_open_dates'];
+        if (rawForced is List) {
+          _forcedOpenDateKeys = rawForced
+              .map((e) => e.toString())
+              .where((s) => s.length >= 10)
+              .map((s) => s.substring(0, 10))
+              .toSet();
+        }
+      }
+    } else {
+      // Nessun opening_hours sul partner → fallback 08-20 tutti i giorni, nessuna eccezione
+      _weeklyHours = _normalizeOpeningWeekly(null);
+      _closedDateKeys = {};
+      _forcedOpenDateKeys = {};
+    }
+  }
+
   Future<void> _nextStep() async {
     if (_step == 0) {
-      // Valida form contatto
+      // Step 0 → 1: validazione form contatto
       if (!(_formContactKey.currentState?.validate() ?? false)) return;
       setState(() => _step = 1);
     } else if (_step == 1) {
-      // Data + orario
+      // Step 1 → 2: data + orario
       if (_selectedDate == null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Seleziona un giorno.')));
+        return;
+      }
+
+      final selDate = _selectedDate!;
+
+      // 1) Se il giorno è chiuso (weekly + eccezioni), blocchiamo subito
+      if (_isClosedDay(selDate)) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Seleziona un giorno.')),
+          const SnackBar(
+            content: Text(
+              'In questo giorno il locale è chiuso. Scegli un\'altra data.',
+            ),
+          ),
         );
         return;
       }
 
-      if (!_fullDay && _slotStart == null) {
+      // 2) Se è prenotazione 3 ore, l’utente deve aver scelto l’orario di inizio.
+      if (!_fullDay && _startTime == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Seleziona una fascia oraria di 3 ore.')),
+          const SnackBar(
+            content: Text(
+              'Seleziona un orario di inizio per la fascia di 3 ore.',
+            ),
+          ),
         );
         return;
       }
 
+      // 3) Calcoliamo orario di inizio/fine effettivi in base alla durata scelta.
+      final startTime = _effectiveStartTime;
+      final endTime = _effectiveEndTime;
+
+      if (startTime == null || endTime == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Orari di apertura del locale non configurati correttamente.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      // Controllo "hard": l’orario di inizio deve essere dentro il giorno lavorativo.
+      if (!_isStartInsideWorkingDay(startTime)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Seleziona un orario in cui il locale è aperto.'),
+          ),
+        );
+        return;
+      }
+
+      // Controllo "soft": se l’intervallo supera la chiusura, chiediamo conferma.
+      final warning = !_fullDay
+          ? _warningIfEndAfterClose(startTime, endTime)
+          : null;
+      if (warning != null) {
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) {
+            return AlertDialog(
+              title: const Text('Attenzione orario di chiusura'),
+              content: Text(warning),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text('Annulla'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: const Text('Continua'),
+                ),
+              ],
+            );
+          },
+        );
+        if (proceed != true) {
+          // L’utente ha annullato dopo il warning → rimaniamo nello step 1.
+          return;
+        }
+      }
+
+      // Se tutto ok, carichiamo la disponibilità per data + orario scelti.
       await _loadAvailabilityForSelection();
       if (!mounted) return;
       if (_availability == null) {
-        // errore già mostrato nello snackbar
+        // eventuali errori sono già stati gestiti in _loadAvailabilityForSelection
         return;
       }
 
       setState(() => _step = 2);
     } else if (_step == 2) {
-      // Deve esserci almeno 1 bagaglio
+      // Step 2 → 3: bagagli
       if (_bagsS + _bagsM + _bagsL <= 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Seleziona almeno un bagaglio.')),
@@ -99,15 +526,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       setState(() => _step = 3);
     }
   }
-
-
-  @override
-  void initState() {
-    super.initState();
-    // La disponibilità verrà caricata solo dopo che l’utente ha scelto
-    // data + orario.
-  }
-
 
   Future<void> _loadAvailabilityForSelection() async {
     if (_selectedDate == null) return;
@@ -153,14 +571,18 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     }
   }
 
+  /// Orario di inizio nel formato "HH:MM" da mandare al backend.
   String get _selectedStartTimeString {
-    if (_fullDay || _slotStart == null) return '00:00';
-    return _formatTimeForApi(_slotStart!);
+    final t = _effectiveStartTime;
+    if (t == null) return '00:00';
+    return _formatTimeForApi(t);
   }
 
+  /// Orario di fine nel formato "HH:MM" da mandare al backend.
   String get _selectedEndTimeString {
-    if (_fullDay || _slotEnd == null) return '23:59';
-    return _formatTimeForApi(_slotEnd!);
+    final t = _effectiveEndTime;
+    if (t == null) return '23:59';
+    return _formatTimeForApi(t);
   }
 
   String _formatTimeForApi(TimeOfDay t) {
@@ -185,89 +607,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     return TimeOfDay(hour: h, minute: m);
   }
 
-  List<_TimeSlot> _buildTimeSlots() {
-    final opening = widget.partner.openingHours;
-
-    // Default 08:00–20:00 senza pausa
-    TimeOfDay open1 = const TimeOfDay(hour: 8, minute: 0);
-    TimeOfDay close1 = const TimeOfDay(hour: 20, minute: 0);
-    TimeOfDay? open2;
-    TimeOfDay? close2;
-
-    if (opening != null && opening['type'] == 'daily_with_break') {
-      final o1 = _parseTimeOfDay(opening['open_1'] as String?);
-      final c1 = _parseTimeOfDay(opening['close_1'] as String?);
-      final o2 = _parseTimeOfDay(opening['open_2'] as String?);
-      final c2 = _parseTimeOfDay(opening['close_2'] as String?);
-
-      if (o1 != null && c1 != null) {
-        open1 = o1;
-        close1 = c1;
-      }
-      if (o2 != null && c2 != null) {
-        open2 = o2;
-        close2 = c2;
-      }
-    }
-
-    final slots = <_TimeSlot>[];
-
-    void addSlots(TimeOfDay from, TimeOfDay to) {
-      const slotMinutes = 180;
-      var startMinutes = from.hour * 60 + from.minute;
-      final limit = to.hour * 60 + to.minute;
-
-      while (true) {
-        final end = startMinutes + slotMinutes;
-        if (end > limit) break;
-        final s = TimeOfDay(
-          hour: startMinutes ~/ 60,
-          minute: startMinutes % 60,
-        );
-        final e = TimeOfDay(
-          hour: end ~/ 60,
-          minute: end % 60,
-        );
-        slots.add(_TimeSlot(start: s, end: e));
-        startMinutes = end;
-      }
-    }
-
-    addSlots(open1, close1);
-    if (open2 != null && close2 != null) {
-      addSlots(open2!, close2!);
-    }
-
-    // Se per qualche motivo non generiamo slot, fallback 08–20
-    if (slots.isEmpty) {
-      const fallbackFrom = TimeOfDay(hour: 8, minute: 0);
-      const fallbackTo = TimeOfDay(hour: 20, minute: 0);
-      const slotMinutes = 180;
-      var startMinutes =
-          fallbackFrom.hour * 60 + fallbackFrom.minute;
-      final limit = fallbackTo.hour * 60 + fallbackTo.minute;
-
-      while (true) {
-        final end = startMinutes + slotMinutes;
-        if (end > limit) break;
-        final s = TimeOfDay(
-          hour: startMinutes ~/ 60,
-          minute: startMinutes % 60,
-        );
-        final e = TimeOfDay(
-          hour: end ~/ 60,
-          minute: end % 60,
-        );
-        slots.add(_TimeSlot(start: s, end: e));
-        startMinutes = end;
-      }
-    }
-
-    return slots;
-  }
-
-
-
   void _prevStep() {
     if (_step == 0) return;
     setState(() => _step -= 1);
@@ -279,6 +618,50 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
     final client = Supabase.instance.client;
     final repo = PartnerBookingRepo(client);
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final in7Days = today.add(const Duration(days: 7));
+
+    final sel = _selectedDate!;
+    final selDateOnly = DateTime(sel.year, sel.month, sel.day);
+
+    // Vietato nel passato
+    if (selDateOnly.isBefore(today)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('La data selezionata è nel passato.')),
+      );
+      setState(() => _busy = false);
+      return;
+    }
+
+    // Vietato oltre 7 giorni
+    if (selDateOnly.isAfter(in7Days)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Puoi prenotare al massimo entro 7 giorni.'),
+        ),
+      );
+      setState(() => _busy = false);
+      return;
+    }
+
+        // Vietato prenotare in un giorno chiuso (weekly + eccezioni)
+    if (_isClosedDay(selDateOnly)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'In questo giorno il locale è chiuso. Scegli un\'altra data.',
+          ),
+        ),
+      );
+      setState(() => _busy = false);
+      return;
+    }
+
 
     try {
       // 0) Controllo che il partner sia prenotabile
@@ -298,25 +681,31 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       // 1) Safety: data + orario ancora validi?
       if (_selectedDate == null) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Seleziona una data.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Seleziona una data.')));
         setState(() => _busy = false);
         return;
       }
-      if (!_fullDay && _slotStart == null) {
+
+      final startTime = _effectiveStartTime;
+      final endTime = _effectiveEndTime;
+
+      if (startTime == null || endTime == null) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Seleziona una fascia oraria di 3 ore.'),
+            content: Text(
+              'Orari di apertura del locale non disponibili. Riprova più tardi.',
+            ),
           ),
         );
         setState(() => _busy = false);
         return;
       }
 
-      final startStr = _selectedStartTimeString;
-      final endStr = _selectedEndTimeString;
+      final startStr = _formatTimeForApi(startTime);
+      final endStr = _formatTimeForApi(endTime);
 
       // 2) Controllo disponibilità per intervallo specifico
       final availability = await repo.getPartnerAvailabilityForInterval(
@@ -331,9 +720,9 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
       final bool hasPerSizeCapacity =
           (availability.capacityS +
-                  availability.capacityM +
-                  availability.capacityL) >
-              0;
+              availability.capacityM +
+              availability.capacityL) >
+          0;
 
       if (hasPerSizeCapacity) {
         if (_bagsS > 0 && _bagsS > availability.availableS) {
@@ -431,6 +820,21 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  void _prefillContactFromCurrentUser() {
+    final client = Supabase.instance.client;
+    final user = client.auth.currentUser;
+    if (user == null) return;
+
+    final meta = user.userMetadata ?? {};
+
+    _firstNameCtrl.text =
+        (meta['first_name'] as String?) ?? _firstNameCtrl.text;
+    _lastNameCtrl.text = (meta['last_name'] as String?) ?? _lastNameCtrl.text;
+    _phoneCtrl.text = (meta['phone'] as String?) ?? _phoneCtrl.text;
+
+    _emailCtrl.text = user.email ?? _emailCtrl.text;
   }
 
   @override
@@ -531,18 +935,16 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         children: [
           Text(
             'Dati di contatto',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 12),
 
           // Nome
           TextFormField(
             controller: _firstNameCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Nome',
-            ),
+            decoration: const InputDecoration(labelText: 'Nome'),
             validator: (v) {
               if ((v ?? '').trim().isEmpty) {
                 return 'Inserisci il nome';
@@ -556,9 +958,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           // Cognome
           TextFormField(
             controller: _lastNameCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Cognome',
-            ),
+            decoration: const InputDecoration(labelText: 'Cognome'),
             validator: (v) {
               if ((v ?? '').trim().isEmpty) {
                 return 'Inserisci il cognome';
@@ -596,9 +996,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           // Email
           TextFormField(
             controller: _emailCtrl,
-            decoration: const InputDecoration(
-              labelText: 'E-mail',
-            ),
+            decoration: const InputDecoration(labelText: 'E-mail'),
             keyboardType: TextInputType.emailAddress,
             validator: (v) {
               final t = (v ?? '').trim();
@@ -629,8 +1027,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
 
-    final slots = _buildTimeSlots();
-
+    // Label data
     String dateLabel;
     if (_selectedDate == null) {
       dateLabel = 'Seleziona una data';
@@ -641,14 +1038,26 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           '${_selectedDate!.year}';
     }
 
-    String slotLabel;
+    // Label orario/durata
+    String timeLabel;
     if (_fullDay) {
-      slotLabel = 'Tutto il giorno';
-    } else if (_slotStart != null && _slotEnd != null) {
-      slotLabel =
-          '${_formatTimeDisplay(_slotStart!)} - ${_formatTimeDisplay(_slotEnd!)}';
+      final start = _firstOpenTime;
+      final end = _lastCloseTime;
+      if (start != null && end != null) {
+        timeLabel =
+            '${_formatTimeDisplay(start)} - ${_formatTimeDisplay(end)} (tutto il giorno)';
+      } else {
+        timeLabel = 'Tutto il giorno (orari di apertura non disponibili)';
+      }
     } else {
-      slotLabel = 'Seleziona fascia 3h';
+      final start = _startTime;
+      final end = _threeHoursEndTime;
+      if (start != null && end != null) {
+        timeLabel =
+            '${_formatTimeDisplay(start)} - ${_formatTimeDisplay(end)} (3 ore)';
+      } else {
+        timeLabel = 'Seleziona l\'orario di inizio';
+      }
     }
 
     return ListView(
@@ -667,19 +1076,18 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           trailing: const Icon(Icons.calendar_today),
           onTap: () async {
             final now = DateTime.now();
+            final today = DateTime(now.year, now.month, now.day);
+            final in7Days = today.add(const Duration(days: 7));
             final initialDate = _selectedDate ?? now;
             final picked = await showDatePicker(
               context: context,
-              initialDate: initialDate,
-              firstDate: DateTime(now.year, now.month, now.day),
-              lastDate: DateTime(now.year + 1),
+              initialDate: _selectedDate ?? today,
+              firstDate: today,
+              lastDate: in7Days,
             );
             if (picked != null) {
               setState(() {
                 _selectedDate = DateTime(picked.year, picked.month, picked.day);
-                _selectedSlot = null;
-                _slotStart = null;
-                _slotEnd = null;
               });
             }
           },
@@ -701,9 +1109,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                 if (!v) return;
                 setState(() {
                   _fullDay = true;
-                  _slotStart = null;
-                  _slotEnd = null;
-                  _selectedSlot = null;   // <--- AGGIUNGI
                 });
               },
             ),
@@ -722,47 +1127,52 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         ),
         const SizedBox(height: 12),
 
+        // Se la durata è 3 ore, l’utente sceglie l’orario di inizio
         if (!_fullDay) ...[
-          Text(
-            'Seleziona una fascia oraria di 3 ore',
-            style: textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 8),
-          DropdownButtonFormField<_TimeSlot>(
-            value: _selectedSlot,
-            items: slots
-                .map(
-                  (slot) => DropdownMenuItem<_TimeSlot>(
-                    value: slot,
-                    child: Text(slot.toLabel(_formatTimeDisplay)),
-                  ),
-                )
-                .toList(),
-            onChanged: (slot) {
-              if (slot == null) return;
-              setState(() {
-                _selectedSlot = slot;
-                _slotStart = slot.start;
-                _slotEnd = slot.end;
-              });
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Orario di inizio'),
+            subtitle: Text(timeLabel),
+            trailing: const Icon(Icons.access_time),
+            onTap: () async {
+              final initial =
+                  _startTime ??
+                  _firstOpenTime ??
+                  const TimeOfDay(hour: 9, minute: 0);
+              final picked = await showTimePicker(
+                context: context,
+                initialTime: initial,
+              );
+              if (picked != null) {
+                setState(() {
+                  _startTime = picked;
+                });
+              }
             },
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              labelText: 'Fascia oraria',
-            ),
           ),
-
+        ] else ...[
+          // Se è "tutto il giorno" mostriamo un breve riepilogo orario.
+          Text(timeLabel, style: textTheme.bodyMedium),
         ],
 
         const SizedBox(height: 16),
         Text(
-          'Gli orari disponibili sono calcolati in base agli orari di apertura impostati dal locale.',
-          style: textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+          'Gli orari della prenotazione vengono calcolati in base agli orari di apertura impostati dal locale. '
+          'In caso di fascia di 3 ore vicina alla chiusura, potresti avere meno di 3 ore effettive di deposito.',
+          style: textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.outline,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Puoi prenotare da oggi fino a 7 giorni dopo. Le prenotazioni nel passato non sono consentite.',
+          style: textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.outline,
+          ),
         ),
       ],
     );
   }
-
 
   Widget _buildBagsForm() {
     if (_loadingAvailability) {
@@ -792,9 +1202,9 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       children: [
         Text(
           'Seleziona numero e dimensione dei bagagli',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
         ),
         if (av != null) ...[
           const SizedBox(height: 4),
@@ -834,13 +1244,27 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   Widget _buildSummary() {
     final totalBags = _bagsS + _bagsM + _bagsL;
 
+    final start = _effectiveStartTime;
+    final end = _effectiveEndTime;
+
+    String timeText;
+    if (start == null || end == null) {
+      timeText = 'Orario non selezionato';
+    } else if (_fullDay) {
+      timeText =
+          '${_formatTimeDisplay(start)} - ${_formatTimeDisplay(end)} (tutto il giorno)';
+    } else {
+      timeText =
+          '${_formatTimeDisplay(start)} - ${_formatTimeDisplay(end)} (3 ore)';
+    }
+
     return ListView(
       children: [
         Text(
           'Riepilogo prenotazione',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 12),
         Card(
@@ -865,7 +1289,8 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           ),
         ),
         const SizedBox(height: 12),
-                // Data e orario
+
+        // Data e orario
         Card(
           child: Padding(
             padding: const EdgeInsets.all(12),
@@ -879,22 +1304,14 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                 const SizedBox(height: 4),
                 Text(
                   _selectedDate == null
-                      ? 'Non selezionata'
+                      ? 'Data non selezionata'
                       : '${_selectedDate!.day.toString().padLeft(2, '0')}/'
-                        '${_selectedDate!.month.toString().padLeft(2, '0')}/'
-                        '${_selectedDate!.year}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                  ),
+                            '${_selectedDate!.month.toString().padLeft(2, '0')}/'
+                            '${_selectedDate!.year}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  _fullDay
-                      ? 'Tutto il giorno (entro orario di apertura)'
-                      : (_slotStart != null && _slotEnd != null)
-                          ? '${_formatTimeDisplay(_slotStart!)} - ${_formatTimeDisplay(_slotEnd!)}'
-                          : 'Orario non selezionato',
-                ),
+                Text(timeText),
               ],
             ),
           ),
@@ -913,7 +1330,8 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                    '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}'),
+                  '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
+                ),
                 Text(_phoneCtrl.text.trim()),
                 Text(_emailCtrl.text.trim()),
               ],
@@ -997,7 +1415,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : Text(_step < 3 ? 'Avanti' : 'Conferma prenotazione'),
-
           ),
         ),
       ],
@@ -1078,36 +1495,4 @@ class _BagRow extends StatelessWidget {
       ),
     );
   }
-}
-
-class _TimeSlot {
-  final TimeOfDay start;
-  final TimeOfDay end;
-
-  const _TimeSlot({
-    required this.start,
-    required this.end,
-  });
-
-  String toLabel(String Function(TimeOfDay) fmt) {
-    return '${fmt(start)} - ${fmt(end)}';
-  }
-
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-    if (other is! _TimeSlot) return false;
-
-    return start.hour == other.start.hour &&
-        start.minute == other.start.minute &&
-        end.hour == other.end.hour &&
-        end.minute == other.end.minute;
-  }
-
-  @override
-  int get hashCode =>
-      start.hour.hashCode ^
-      start.minute.hashCode ^ 
-      end.hour.hashCode ^
-      end.minute.hashCode;
 }

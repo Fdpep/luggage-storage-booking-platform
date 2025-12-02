@@ -676,12 +676,91 @@ class _PartnerBottomCardState extends State<_PartnerBottomCard> {
     );
   }
 
+  TimeOfDay? _parseTod(String? s) {
+    if (s == null || s.isEmpty) return null;
+    final parts = s.split(':');
+    if (parts.length != 2) return null;
+    final h = int.tryParse(parts[0]) ?? 0;
+    final m = int.tryParse(parts[1]) ?? 0;
+    return TimeOfDay(hour: h, minute: m);
+  }
+
+  String _weekdayKey(int weekday) {
+    switch (weekday) {
+      case DateTime.monday:
+        return 'mon';
+      case DateTime.tuesday:
+        return 'tue';
+      case DateTime.wednesday:
+        return 'wed';
+      case DateTime.thursday:
+        return 'thu';
+      case DateTime.friday:
+        return 'fri';
+      case DateTime.saturday:
+        return 'sat';
+      case DateTime.sunday:
+      default:
+        return 'sun';
+    }
+  }
+
+  bool _isOpenNow(Partner p) {
+    final oh = p.openingHours;
+    if (oh == null) return false;
+
+    final now = DateTime.now();
+    final tod = TimeOfDay.fromDateTime(now);
+
+    bool within(TimeOfDay? a, TimeOfDay? b) {
+      if (a == null || b == null) return false;
+      final nowMin = tod.hour * 60 + tod.minute;
+      final aMin = a.hour * 60 + a.minute;
+      final bMin = b.hour * 60 + b.minute;
+      return nowMin >= aMin && nowMin < bMin;
+    }
+
+    final type = oh['type'] as String?;
+
+    if (type == 'weekly_v1') {
+      final key = _weekdayKey(now.weekday);
+      final list = oh[key] as List<dynamic>? ?? [];
+      for (final raw in list) {
+        final map = raw as Map<String, dynamic>;
+        final open = _parseTod(map['open'] as String?);
+        final close = _parseTod(map['close'] as String?);
+        if (within(open, close)) return true;
+      }
+      return false;
+    }
+
+    if (type == 'daily_with_break') {
+      final open1 = _parseTod(oh['open_1'] as String?);
+      final close1 = _parseTod(oh['close_1'] as String?);
+      final open2 = _parseTod(oh['open_2'] as String?);
+      final close2 = _parseTod(oh['close_2'] as String?);
+      return within(open1, close1) || within(open2, close2);
+    }
+
+    // Legacy: proviamo a interpretarlo come weekly senza 'type'
+    final key = _weekdayKey(now.weekday);
+    final list = oh[key] as List<dynamic>? ?? [];
+    for (final raw in list) {
+      final map = raw as Map<String, dynamic>;
+      final open = _parseTod(map['open'] as String?);
+      final close = _parseTod(map['close'] as String?);
+      if (within(open, close)) return true;
+    }
+
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-
     final partner = widget.partner;
+    final isOpen = _isOpenNow(partner);
     final price2h = _formatPrice(partner.price2h, '2h da');
     final pricePerDay = _formatPrice(partner.pricePerDay, 'Giorno da');
 
@@ -720,6 +799,31 @@ class _PartnerBottomCardState extends State<_PartnerBottomCard> {
                             overflow: TextOverflow.ellipsis,
                             style: textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.bold,
+                            ),
+                          ),
+
+                          //padding aperto/chiuso
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4.0),
+                            child: Row(
+                              children: [
+                                Chip(
+                                  label: Text(isOpen ? 'Aperto ora' : 'Chiuso'),
+                                  backgroundColor: isOpen
+                                      ? Colors.green.withOpacity(0.15)
+                                      : Colors.red.withOpacity(0.12),
+                                  labelStyle: TextStyle(
+                                    color: isOpen
+                                        ? Colors.green[700]
+                                        : Colors.red[700],
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  visualDensity: VisualDensity.compact,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
 

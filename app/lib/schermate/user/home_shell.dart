@@ -745,24 +745,190 @@ class _BookingCard extends StatelessWidget {
   }
 }
 
-class _ProfiloPage extends StatelessWidget {
+
+
+class _ProfiloPage extends StatefulWidget {
   final User? user;
   const _ProfiloPage({this.user});
 
   @override
+  State<_ProfiloPage> createState() => _ProfiloPageState();
+}
+
+class _ProfiloPageState extends State<_ProfiloPage> {
+  final _formKey = GlobalKey<FormState>();
+
+  final _firstNameCtrl = TextEditingController();
+  final _lastNameCtrl = TextEditingController();
+  final _phoneCtrl = TextEditingController();
+
+  User? _currentUser;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  @override
+  void dispose() {
+    _firstNameCtrl.dispose();
+    _lastNameCtrl.dispose();
+    _phoneCtrl.dispose();
+    super.dispose();
+  }
+
+  void _loadUserData() {
+    final client = Supabase.instance.client;
+    final user = client.auth.currentUser ?? widget.user;
+
+    _currentUser = user;
+    final meta = user?.userMetadata ?? {};
+
+    _firstNameCtrl.text = (meta['first_name'] as String?) ?? '';
+    _lastNameCtrl.text = (meta['last_name'] as String?) ?? '';
+    _phoneCtrl.text = (meta['phone'] as String?) ?? '';
+    setState(() {});
+  }
+
+  Future<void> _saveProfile() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    setState(() => _saving = true);
+    try {
+      final client = Supabase.instance.client;
+      final user = client.auth.currentUser;
+      if (user == null) {
+        throw Exception('Nessun utente autenticato');
+      }
+
+      // Manteniamo gli altri metadata esistenti (source, otp_verified, ecc.)
+      final meta =
+          Map<String, dynamic>.from(user.userMetadata ?? {});
+      meta['first_name'] = _firstNameCtrl.text.trim();
+      meta['last_name'] = _lastNameCtrl.text.trim();
+      meta['phone'] = _phoneCtrl.text.trim();
+
+      await client.auth.updateUser(
+        UserAttributes(data: meta),
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Dati profilo aggiornati')),
+      );
+
+      // Aggiorniamo il riferimento locale
+      _currentUser = client.auth.currentUser;
+      setState(() {});
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Errore durante il salvataggio: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final email = user?.email ?? 'n/d';
+    final email = _currentUser?.email ?? widget.user?.email ?? 'n/d';
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         const _SectionTitle('Profilo'),
         const SizedBox(height: 8),
         _InfoTile(label: 'Email', value: email),
-        const _InfoTile(label: 'KYC', value: 'none (placeholder)'),
+
+        const SizedBox(height: 24),
+        Text(
+          'Dati personali',
+          style: Theme.of(context)
+              .textTheme
+              .titleMedium
+              ?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+
+        Form(
+          key: _formKey,
+          child: Column(
+            children: [
+              TextFormField(
+                controller: _firstNameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Nome',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) {
+                  if ((v ?? '').trim().isEmpty) {
+                    return 'Inserisci il nome';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _lastNameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Cognome',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) {
+                  if ((v ?? '').trim().isEmpty) {
+                    return 'Inserisci il cognome';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _phoneCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(
+                  labelText: 'Telefono',
+                  hintText: '+39 ...',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) {
+                  final t = (v ?? '').trim();
+                  if (t.isEmpty) {
+                    return 'Inserisci un numero di telefono';
+                  }
+                  final digitsOnly =
+                      t.replaceAll(RegExp(r'[^0-9]'), '');
+                  if (digitsOnly.length < 9 || digitsOnly.length > 15) {
+                    return 'Inserisci un numero di telefono valido';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _saving ? null : _saveProfile,
+                  child: _saving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Salva dati'),
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
 }
+
 
 /// Gate: se l’utente non è loggato, mostra invito ad accedere/registrarsi.
 /// Usato nelle tab "Prenotazioni" e "Profilo".
