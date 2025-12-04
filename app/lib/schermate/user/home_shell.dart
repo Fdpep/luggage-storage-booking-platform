@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math'; 
 import 'package:BagDrop/schermate/autenticazione/registrazione.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -9,6 +10,10 @@ import '../autenticazione/accesso.dart';
 import 'package:BagDrop/models/partner_booking.dart';
 import '../../services/supabase/partner_booking_repo.dart';
 import 'bookings/user_bookings_page.dart';
+import 'package:BagDrop/models/user_profile.dart';
+import 'package:BagDrop/services/supabase/user_repo.dart';
+import 'delete_account_screen.dart';
+
 
 
 
@@ -756,19 +761,313 @@ class _ProfiloPage extends StatefulWidget {
 }
 
 class _ProfiloPageState extends State<_ProfiloPage> {
-  final _formKey = GlobalKey<FormState>();
+  final _userRepo = UserRepo();
 
+  User? _currentUser;
+  UserProfile? _userProfile;
+  bool _loading = true;
+  String? _error;
+  int _myBookingsCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final client = Supabase.instance.client;
+      final user = client.auth.currentUser ?? widget.user;
+
+      if (user == null) {
+        throw StateError('Nessun utente autenticato.');
+      }
+
+      // Profilo user_profiles
+      UserProfile? profile;
+      try {
+        profile = await _userRepo.getMe();
+      } catch (_) {
+        profile = null; // se non esiste ancora la riga non è un errore bloccante
+      }
+
+      // Numero prenotazioni totali effettuate
+      final bookingRepo = PartnerBookingRepo(client);
+      List<PartnerBooking> myBookings = [];
+      try {
+        myBookings = await bookingRepo.getMyBookings();
+      } catch (_) {
+        myBookings = [];
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _currentUser = user;
+        _userProfile = profile;
+        _myBookingsCount = myBookings.length;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Impossibile caricare i dati profilo. Riprova più tardi.';
+      });
+    }
+  }
+
+  String _buildFullName(Map<String, dynamic> meta) {
+    final first = (meta['first_name'] as String?)?.trim() ?? '';
+    final last = (meta['last_name'] as String?)?.trim() ?? '';
+    final full = '$first $last'.trim();
+    if (full.isNotEmpty) return full;
+    return _currentUser?.email ?? 'Utente BagDrop';
+  }
+
+  String _roleLabel(String role) {
+    switch (role) {
+      case 'partner':
+        return 'Partner';
+      case 'admin':
+        return 'Amministratore';
+      default:
+        return 'Utente';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_currentUser == null) {
+      return const Center(child: Text('Nessun utente autenticato.'));
+    }
+
+    final meta = _currentUser!.userMetadata ?? {};
+    final fullName = _buildFullName(meta);
+    final email = _currentUser!.email ?? 'n/d';
+    final phone =
+        (meta['phone'] as String?)?.trim().isNotEmpty == true
+            ? (meta['phone'] as String).trim()
+            : 'Non impostato';
+
+    final role = _roleLabel(_userProfile?.role ?? 'user');
+    final createdAt = _userProfile?.createdAt;
+    final createdText = createdAt == null
+        ? 'n/d'
+        : '${createdAt.day.toString().padLeft(2, '0')}/'
+          '${createdAt.month.toString().padLeft(2, '0')}/'
+          '${createdAt.year}';
+
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const _SectionTitle('Profilo'),
+          const SizedBox(height: 12),
+
+          // HEADER PROFILO
+          Card(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 28,
+                    backgroundColor: AppTheme.brandYellow,
+                    foregroundColor: Colors.black,
+                    child: Text(
+                      fullName.isNotEmpty
+                          ? fullName[0].toUpperCase()
+                          : (email.isNotEmpty ? email[0].toUpperCase() : 'U'),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 22,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          fullName,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 18,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          email,
+                          style: TextStyle(
+                            color: cs.onSurface.withOpacity(0.7),
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: cs.primary.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            role,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: cs.primary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          Text(
+            'Dati personali',
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+
+          _InfoTile(label: 'Nome', value: fullName),
+          _InfoTile(label: 'Telefono', value: phone),
+          _InfoTile(label: 'Email', value: email),
+          _InfoTile(
+            label: 'Cliente su BagDrop dal',
+            value: createdText,
+          ),
+          _InfoTile(
+            label: 'Prenotazioni effettuate',
+            value: '$_myBookingsCount',
+          ),
+
+          const SizedBox(height: 24),
+          Text(
+            'Azioni',
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+
+          // Bottone modifica dati
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () async {
+                final changed = await Navigator.of(context).push<bool>(
+                  MaterialPageRoute(
+                    builder: (_) => const _EditProfileScreen(),
+                  ),
+                );
+                if (changed == true) {
+                  await _loadData();
+                }
+              },
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('Modifica dati'),
+            ),
+          ),
+
+          const SizedBox(height: 8),
+
+          // Bottone rosso "Elimina account"
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: cs.error,
+                side: BorderSide(color: cs.error),
+              ),
+              onPressed: () async {
+                final deleted = await Navigator.of(context).push<bool>(
+                  MaterialPageRoute(
+                    builder: (_) => const DeleteAccountScreen(),
+                  ),
+                );
+
+                if (deleted == true && mounted) {
+                  // AuthGate / RootGate dovrebbe già reagire al signOut
+                  // fatto nella schermata di eliminazione.
+                  // Qui possiamo opzionalmente mostrare un messaggio,
+                  // ma tanto l'utente esce dall'area utente.
+                }
+              },
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('Elimina account'),
+            ),
+          ),
+
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _error!,
+              style: TextStyle(
+                color: cs.error,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+
+/// Schermata separata per modificare i dati del profilo utente.
+/// Apre un form con Nome, Cognome e Telefono.
+/// Alla fine aggiorna i metadata di Supabase + user_profiles.full_name
+class _EditProfileScreen extends StatefulWidget {
+  const _EditProfileScreen();
+
+  @override
+  State<_EditProfileScreen> createState() => _EditProfileScreenState();
+}
+
+class _EditProfileScreenState extends State<_EditProfileScreen> {
+  final _formKey = GlobalKey<FormState>();
   final _firstNameCtrl = TextEditingController();
   final _lastNameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
 
-  User? _currentUser;
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-    _loadUserData();
+    _loadInitialData();
   }
 
   @override
@@ -779,23 +1078,21 @@ class _ProfiloPageState extends State<_ProfiloPage> {
     super.dispose();
   }
 
-  void _loadUserData() {
+  void _loadInitialData() {
     final client = Supabase.instance.client;
-    final user = client.auth.currentUser ?? widget.user;
-
-    _currentUser = user;
+    final user = client.auth.currentUser;
     final meta = user?.userMetadata ?? {};
 
     _firstNameCtrl.text = (meta['first_name'] as String?) ?? '';
     _lastNameCtrl.text = (meta['last_name'] as String?) ?? '';
     _phoneCtrl.text = (meta['phone'] as String?) ?? '';
-    setState(() {});
   }
 
-  Future<void> _saveProfile() async {
+  Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     setState(() => _saving = true);
+
     try {
       final client = Supabase.instance.client;
       final user = client.auth.currentUser;
@@ -803,16 +1100,20 @@ class _ProfiloPageState extends State<_ProfiloPage> {
         throw Exception('Nessun utente autenticato');
       }
 
-      // Manteniamo gli altri metadata esistenti (source, otp_verified, ecc.)
-      final meta =
-          Map<String, dynamic>.from(user.userMetadata ?? {});
+      // Aggiorniamo i metadata mantenendo il resto (otp_verified, source, ecc.)
+      final meta = Map<String, dynamic>.from(user.userMetadata ?? {});
       meta['first_name'] = _firstNameCtrl.text.trim();
       meta['last_name'] = _lastNameCtrl.text.trim();
       meta['phone'] = _phoneCtrl.text.trim();
 
-      await client.auth.updateUser(
-        UserAttributes(data: meta),
-      );
+      await client.auth.updateUser(UserAttributes(data: meta));
+
+      // Aggiorniamo anche user_profiles.full_name per avere un nome leggibile lì
+      final fullName =
+          '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}'
+              .trim();
+      final userRepo = UserRepo();
+      await userRepo.upsertMe(nomeCompleto: fullName);
 
       if (!mounted) return;
 
@@ -820,111 +1121,121 @@ class _ProfiloPageState extends State<_ProfiloPage> {
         const SnackBar(content: Text('Dati profilo aggiornati')),
       );
 
-      // Aggiorniamo il riferimento locale
-      _currentUser = client.auth.currentUser;
-      setState(() {});
+      // Torniamo alla pagina profilo, indicando che ci sono state modifiche
+      Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Errore durante il salvataggio: $e')),
       );
-    } finally {
-      if (mounted) setState(() => _saving = false);
+      setState(() => _saving = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final email = _currentUser?.email ?? widget.user?.email ?? 'n/d';
+    final cs = Theme.of(context).colorScheme;
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        const _SectionTitle('Profilo'),
-        const SizedBox(height: 8),
-        _InfoTile(label: 'Email', value: email),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Modifica dati profilo'),
+        backgroundColor: cs.primary,
+        foregroundColor: cs.onPrimary,
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Aggiorna i tuoi dati personali',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 16),
 
-        const SizedBox(height: 24),
-        Text(
-          'Dati personali',
-          style: Theme.of(context)
-              .textTheme
-              .titleMedium
-              ?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 8),
+                // Nome
+                TextFormField(
+                  controller: _firstNameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Nome',
+                    border: OutlineInputBorder(),
+                  ),
+                  textInputAction: TextInputAction.next,
+                  validator: (v) {
+                    if ((v ?? '').trim().isEmpty) {
+                      return 'Inserisci il nome';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 12),
 
-        Form(
-          key: _formKey,
-          child: Column(
-            children: [
-              TextFormField(
-                controller: _firstNameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Nome',
-                  border: OutlineInputBorder(),
+                // Cognome
+                TextFormField(
+                  controller: _lastNameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Cognome',
+                    border: OutlineInputBorder(),
+                  ),
+                  textInputAction: TextInputAction.next,
+                  validator: (v) {
+                    if ((v ?? '').trim().isEmpty) {
+                      return 'Inserisci il cognome';
+                    }
+                    return null;
+                  },
                 ),
-                validator: (v) {
-                  if ((v ?? '').trim().isEmpty) {
-                    return 'Inserisci il nome';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _lastNameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Cognome',
-                  border: OutlineInputBorder(),
+                const SizedBox(height: 12),
+
+                // Telefono
+                TextFormField(
+                  controller: _phoneCtrl,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Telefono',
+                    hintText: '+39 ...',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) {
+                    final t = (v ?? '').trim();
+                    if (t.isEmpty) {
+                      return 'Inserisci un numero di telefono';
+                    }
+                    final digitsOnly =
+                        t.replaceAll(RegExp(r'[^0-9]'), '');
+                    if (digitsOnly.length < 9 || digitsOnly.length > 15) {
+                      return 'Inserisci un numero di telefono valido';
+                    }
+                    return null;
+                  },
                 ),
-                validator: (v) {
-                  if ((v ?? '').trim().isEmpty) {
-                    return 'Inserisci il cognome';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _phoneCtrl,
-                keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(
-                  labelText: 'Telefono',
-                  hintText: '+39 ...',
-                  border: OutlineInputBorder(),
+
+                const SizedBox(height: 24),
+
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _saving ? null : _save,
+                    child: _saving
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Salva modifiche'),
+                  ),
                 ),
-                validator: (v) {
-                  final t = (v ?? '').trim();
-                  if (t.isEmpty) {
-                    return 'Inserisci un numero di telefono';
-                  }
-                  final digitsOnly =
-                      t.replaceAll(RegExp(r'[^0-9]'), '');
-                  if (digitsOnly.length < 9 || digitsOnly.length > 15) {
-                    return 'Inserisci un numero di telefono valido';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _saving ? null : _saveProfile,
-                  child: _saving
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Salva dati'),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      ],
+      ),
     );
   }
 }
