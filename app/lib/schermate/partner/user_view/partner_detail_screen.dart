@@ -179,24 +179,199 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
     );
   }
 
+  // Giorni in ordine e label in italiano
+  static const _dayOrder = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+  static const _dayLabels = {
+    'mon': 'Lunedì',
+    'tue': 'Martedì',
+    'wed': 'Mercoledì',
+    'thu': 'Giovedì',
+    'fri': 'Venerdì',
+    'sat': 'Sabato',
+    'sun': 'Domenica',
+  };
+
+  /// Normalizza opening_hours in formato settimanale:
+  /// { "mon": [ {open:"HH:MM", close:"HH:MM"}, ... ], ... }
+  Map<String, List<Map<String, dynamic>>> _normalizeOpeningWeekly(
+    Map<String, dynamic>? raw,
+  ) {
+    final result = <String, List<Map<String, dynamic>>>{
+      for (final d in _dayOrder) d: <Map<String, dynamic>>[],
+    };
+
+    // Nessun dato -> fallback 08:00-20:00 tutti i giorni
+    if (raw == null) {
+      final def = {'open': '08:00', 'close': '20:00'};
+      for (final d in _dayOrder) {
+        result[d] = [Map<String, dynamic>.from(def)];
+      }
+      return result;
+    }
+
+    final type = raw['type'] as String?;
+
+    // Già weekly_v1
+    if (type == 'weekly_v1') {
+      for (final d in _dayOrder) {
+        final list = raw[d] as List<dynamic>? ?? [];
+        result[d] = list
+            .map((e) => Map<String, dynamic>.from(e as Map<String, dynamic>))
+            .toList();
+      }
+      return result;
+    }
+
+    // Vecchio formato daily_with_break
+    if (type == 'daily_with_break') {
+      final String? o1 = raw['open_1'] as String?;
+      final String? c1 = raw['close_1'] as String?;
+      final String? o2 = raw['open_2'] as String?;
+      final String? c2 = raw['close_2'] as String?;
+
+      final intervals = <Map<String, dynamic>>[];
+      if (o1 != null && c1 != null) {
+        intervals.add({'open': o1, 'close': c1});
+      }
+      if (o2 != null && c2 != null) {
+        intervals.add({'open': o2, 'close': c2});
+      }
+
+      if (intervals.isEmpty) {
+        // tutti chiusi
+        return result;
+      }
+
+      for (final d in _dayOrder) {
+        result[d] = intervals
+            .map((i) => Map<String, dynamic>.from(i))
+            .toList();
+      }
+      return result;
+    }
+
+    // Caso legacy: trattiamo raw come weekly senza "type"
+    for (final d in _dayOrder) {
+      final list = raw[d] as List<dynamic>? ?? [];
+      result[d] = list
+          .map((e) => Map<String, dynamic>.from(e as Map<String, dynamic>))
+          .toList();
+    }
+
+    return result;
+  }
+
+  List<DateTime> _parseDateList(dynamic raw) {
+    if (raw is List) {
+      return raw
+          .map((e) => DateTime.tryParse(e as String? ?? ''))
+          .whereType<DateTime>()
+          .toList()
+        ..sort();
+    }
+    return [];
+  }
+
+  String _formatDate(DateTime d) {
+    final dd = d.day.toString().padLeft(2, '0');
+    final mm = d.month.toString().padLeft(2, '0');
+    final yyyy = d.year.toString();
+    return '$dd/$mm/$yyyy';
+  }
+
+
   Widget _buildOpeningHours(ThemeData theme) {
     final opening = widget.partner.openingHours;
     if (opening == null || opening.isEmpty) {
       return const Text('Orari non disponibili');
     }
 
-    // Se hai codificato gli orari come { "text": "Lun-Ven 9-18..." }
-    final text = opening['text'];
-    if (text is String && text.trim().isNotEmpty) {
-      return Text(text, style: theme.textTheme.bodyMedium);
-    }
+    final weekly = _normalizeOpeningWeekly(opening);
+    final exceptions = opening['exceptions'] as Map<String, dynamic>?;
 
-    // Fallback: mostriamo chiave: valore.toString()
+    final closedDates = _parseDateList(exceptions?['closed_dates']);
+    final forcedOpenDates = _parseDateList(exceptions?['forced_open_dates']);
+
+    final tt = theme.textTheme;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: opening.entries.map((e) {
-        return Text('${e.key}: ${e.value}', style: theme.textTheme.bodyMedium);
-      }).toList(),
+      children: [
+        // Giorni da lunedì a domenica
+        ..._dayOrder.map((dayKey) {
+          final label = _dayLabels[dayKey] ?? dayKey;
+          final intervals = weekly[dayKey] ?? const <Map<String, dynamic>>[];
+
+          String value;
+          if (intervals.isEmpty) {
+            value = 'Chiuso';
+          } else {
+            value = intervals.map((i) {
+              final o = (i['open'] ?? '').toString();
+              final c = (i['close'] ?? '').toString();
+              if (o.isEmpty || c.isEmpty) return '-';
+              return '$o - $c';
+            }).join('  /  ');
+          }
+
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 95,
+                  child: Text(
+                    label,
+                    style: tt.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    value,
+                    style: tt.bodyMedium,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+
+        const SizedBox(height: 12),
+
+        // Chiusure straordinarie
+        Text(
+          'Chiusure straordinarie',
+          style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 4),
+        if (closedDates.isEmpty)
+          Text('No', style: tt.bodyMedium)
+        else
+          Text(
+            closedDates.map(_formatDate).join(', '),
+            style: tt.bodyMedium,
+          ),
+
+        const SizedBox(height: 8),
+
+        // Aperture straordinarie
+        Text(
+          'Aperture straordinarie',
+          style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 4),
+        if (forcedOpenDates.isEmpty)
+          Text('No', style: tt.bodyMedium)
+        else
+          Text(
+            forcedOpenDates.map(_formatDate).join(', '),
+            style: tt.bodyMedium,
+          ),
+      ],
     );
   }
 

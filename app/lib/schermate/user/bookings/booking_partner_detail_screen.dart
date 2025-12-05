@@ -169,6 +169,146 @@ class _BookingPartnerDetailScreenState
     );
   }
 
+
+  Widget _buildOpeningHours(ThemeData theme) {
+    final opening = widget.partner.openingHours;
+    if (opening == null || opening.isEmpty) {
+      return const Text('Orari non disponibili');
+    }
+
+    // Caso 1: formato compatto "text"
+    final text = opening['text'];
+    if (text is String && text.trim().isNotEmpty) {
+      return Text(text, style: theme.textTheme.bodyMedium);
+    }
+
+    // Mappa dayKey -> label in italiano
+    const dayLabels = {
+      'mon': 'Lunedì',
+      'tue': 'Martedì',
+      'wed': 'Mercoledì',
+      'thu': 'Giovedì',
+      'fri': 'Venerdì',
+      'sat': 'Sabato',
+      'sun': 'Domenica',
+    };
+
+    // Ordine dei giorni
+    const orderedDays = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+    // Eccezioni (se presenti)
+    Map<String, dynamic>? exceptions;
+    if (opening['exceptions'] is Map<String, dynamic>) {
+      exceptions = Map<String, dynamic>.from(
+        opening['exceptions'] as Map<String, dynamic>,
+      );
+    }
+
+    final closedDates = <String>{};
+    final forcedOpenDates = <String>{};
+
+    if (exceptions != null) {
+      final rawClosed = exceptions['closed_dates'];
+      if (rawClosed is List) {
+        closedDates.addAll(
+          rawClosed
+              .map((e) => e.toString())
+              .where((s) => s.length >= 10)
+              .map((s) => s.substring(0, 10)),
+        );
+      }
+
+      final rawForced = exceptions['forced_open_dates'];
+      if (rawForced is List) {
+        forcedOpenDates.addAll(
+          rawForced
+              .map((e) => e.toString())
+              .where((s) => s.length >= 10)
+              .map((s) => s.substring(0, 10)),
+        );
+      }
+    }
+
+    String formatInterval(Map<String, dynamic> interval) {
+      final open = interval['open'] as String? ?? '';
+      final close = interval['close'] as String? ?? '';
+      return '$open - $close';
+    }
+
+    Widget buildWeekly() {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: orderedDays.map((dayKey) {
+          final label = dayLabels[dayKey] ?? dayKey;
+          final list = opening[dayKey] as List<dynamic>? ?? const [];
+
+          if (list.isEmpty) {
+            return Text(
+              '$label: chiuso',
+              style: theme.textTheme.bodyMedium,
+            );
+          }
+
+          final intervals = list
+              .map((e) => (e as Map).cast<String, dynamic>())
+              .map(formatInterval)
+              .join('  •  ');
+
+          return Text(
+            '$label: $intervals',
+            style: theme.textTheme.bodyMedium,
+          );
+        }).toList(),
+      );
+    }
+
+    final children = <Widget>[];
+
+    // Orari settimanali
+    children.add(buildWeekly());
+    children.add(const SizedBox(height: 8));
+
+    // Liste ordinate per le eccezioni
+    final closedList = closedDates.toList()..sort();
+    final forcedList = forcedOpenDates.toList()..sort();
+
+    // Chiusure straordinarie
+    children.add(
+      Text(
+        'Chiusure straordinarie:',
+        style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+      ),
+    );
+    children.add(
+      Text(
+        closedList.isEmpty ? 'No' : closedList.join(', '),
+        style: theme.textTheme.bodySmall,
+      ),
+    );
+
+    children.add(const SizedBox(height: 4));
+
+    // Aperture straordinarie
+    children.add(
+      Text(
+        'Aperture straordinarie:',
+        style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+      ),
+    );
+    children.add(
+      Text(
+        forcedList.isEmpty ? 'No' : forcedList.join(', '),
+        style: theme.textTheme.bodySmall,
+      ),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: children,
+    );
+  }
+
+
   @override
   Widget build(BuildContext context) {
     final partner = widget.partner;
@@ -260,30 +400,11 @@ class _BookingPartnerDetailScreenState
               const SizedBox(height: 16),
               const Divider(),
 
-              // Orari di apertura (versione compatta)
+              // Orari di apertura
               Text('Orari di apertura', style: textTheme.titleMedium),
               const SizedBox(height: 4),
-              Builder(
-                builder: (context) {
-                  final opening = partner.openingHours;
-                  if (opening == null || opening.isEmpty) {
-                    return const Text('Orari non disponibili');
-                  }
-                  final text = opening['text'];
-                  if (text is String && text.trim().isNotEmpty) {
-                    return Text(text, style: textTheme.bodyMedium);
-                  }
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: opening.entries.map((e) {
-                      return Text(
-                        '${e.key}: ${e.value}',
-                        style: textTheme.bodyMedium,
-                      );
-                    }).toList(),
-                  );
-                },
-              ),
+              _buildOpeningHours(theme),
+
 
               const SizedBox(height: 16),
               const Divider(),
