@@ -29,7 +29,7 @@ class PartnerRepo {
     return Partner.fromMap(data);
   }
 
-    /// Carica un partner a partire dal suo id.
+  /// Carica un partner a partire dal suo id.
   /// Usato nella sezione "Le mie prenotazioni" lato utente.
   Future<Partner?> getPartnerById(String partnerId) async {
     final data = await _db
@@ -42,7 +42,6 @@ class PartnerRepo {
     return Partner.fromMap(data);
   }
 
-
   /// Aggiorna alcuni campi base (esempio).
   Future<void> updateBasics({
     required String partnerId,
@@ -52,8 +51,6 @@ class PartnerRepo {
     int? capacityS,
     int? capacityM,
     int? capacityL,
-    num? price2h,
-    num? pricePerDay,
     bool? isActive,
     String? description,
     String? phone,
@@ -67,8 +64,6 @@ class PartnerRepo {
     if (capacityS != null) patch['capacity_s'] = capacityS;
     if (capacityM != null) patch['capacity_m'] = capacityM;
     if (capacityL != null) patch['capacity_l'] = capacityL;
-    if (price2h != null) patch['price_2h'] = price2h;
-    if (pricePerDay != null) patch['price_per_day'] = pricePerDay;
     if (isActive != null) patch['is_active'] = isActive;
     if (description != null) patch['description'] = description;
     if (phone != null) patch['phone'] = phone;
@@ -92,6 +87,11 @@ class PartnerRepo {
   /// - altrimenti → insert
   ///
   /// Ora supporta capacità per taglia (S/M/L) + capacità totale (fallback).
+  /// Crea o aggiorna l’attività dell’utente corrente e inserisce una riga
+  /// in partner_requests con stato "pending".
+  ///
+  /// NOTA: i prezzi NON sono più configurabili per partner.
+  /// Le tariffe sono definite globalmente da BagDrop.
   Future<void> submitPartnerApplication({
     required String userId,
     required String name,
@@ -100,8 +100,6 @@ class PartnerRepo {
     int? capacityS,
     int? capacityM,
     int? capacityL,
-    double? price2h,
-    double? pricePerDay,
     String? message,
     double? lat,
     double? lng,
@@ -129,8 +127,7 @@ class PartnerRepo {
       'capacity_s': capS,
       'capacity_m': capM,
       'capacity_l': capL,
-      'price_2h': price2h,
-      'price_per_day': pricePerDay,
+      // 'price_2h' e 'price_per_day' non vengono più impostati.
       'lat': lat,
       'lng': lng,
       'status': 'pending',
@@ -139,50 +136,40 @@ class PartnerRepo {
       'updated_at': DateTime.now().toIso8601String(),
     };
 
-    dynamic partnerRow;
-
-    if (existing != null) {
-      // UPDATE
-      final updated = await _client
+    if (existing == null) {
+      // Nuovo partner
+      partnerData['created_at'] = DateTime.now().toIso8601String();
+      final inserted = await _client
           .from('partners')
-          .update(partnerData)
-          .eq('id', existing['id'] as String)
+          .insert(partnerData)
           .select()
           .single();
 
-      partnerRow = updated;
+      final partnerId = inserted['id'] as String;
+
+      await _client.from('partner_requests').insert({
+        'partner_id': partnerId,
+        'user_id': userId,
+        'status': 'pending',
+        'message': message,
+        'created_at': DateTime.now().toIso8601String(),
+      });
     } else {
-      // INSERT
-      partnerData['created_at'] = DateTime.now().toIso8601String();
-      final inserted =
-          await _client.from('partners').insert(partnerData).select().single();
+      // Aggiornamento partner esistente
+      final partnerId = existing['id'] as String;
 
-      partnerRow = inserted;
+      await _client.from('partners').update(partnerData).eq('id', partnerId);
+
+      await _client.from('partner_requests').insert({
+        'partner_id': partnerId,
+        'user_id': userId,
+        'status': 'pending',
+        'message': message,
+        'created_at': DateTime.now().toIso8601String(),
+      });
     }
-
-    final partnerId = partnerRow['id'] as String;
-
-    // 2) partner_requests → upsert log richiesta
-    //
-    // ⚠️ IMPORTANTE: user_id DEVE essere = auth.uid()
-    // per rispettare la policy:
-    //   create policy "own_requests_insert"
-    //   on public.partner_requests
-    //   for insert
-    //   with check (auth.uid() = user_id);
-    final requestData = {
-      'user_id': userId,
-      'partner_id': partnerId,
-      'message': message,
-      'status': 'pending',
-      'admin_note': null,
-      'reviewed_at': null,
-      'reviewed_by': null,
-      'created_at': DateTime.now().toIso8601String(),
-    };
-
-    await _client.from('partner_requests').insert(requestData);
   }
+
   /// Carica la lista di partner APPROVATI e ATTIVI nelle vicinanze di un punto.
   ///
   /// [centerLat], [centerLng] → centro della ricerca (es. posizione utente).

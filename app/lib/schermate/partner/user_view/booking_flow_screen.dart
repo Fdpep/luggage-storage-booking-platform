@@ -2,7 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import 'package:BagDrop/config/bagdrop_pricing.dart';
 import 'package:BagDrop/models/partner.dart';
 import 'package:BagDrop/services/supabase/partner_booking_repo.dart';
 
@@ -35,6 +35,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
   // DATA / ORARIO
   DateTime? _selectedDate;
+  DateTime? _endDate;
 
   /// true  = prenotazione per tutto il giorno (dall’apertura alla chiusura)
   /// false = prenotazione con fascia di 3 ore
@@ -43,6 +44,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   /// Orario di inizio selezionato dall’utente (solo se _fullDay == false).
   /// Di default lo inizializziamo all’orario attuale (utente può modificarlo).
   TimeOfDay? _startTime;
+  TimeOfDay? _endTime;
 
   /// Orari di apertura settimanali normalizzati.
   /// Per ogni giorno (mon..sun) abbiamo una lista di intervalli {open, close} "HH:MM".
@@ -527,6 +529,32 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     }
   }
 
+  /// Data+ora di consegna effettive, oppure null se manca qualcosa.
+  DateTime? get _startDateTime {
+    if (_selectedDate == null || _startTime == null) return null;
+    return DateTime(
+      _selectedDate!.year,
+      _selectedDate!.month,
+      _selectedDate!.day,
+      _startTime!.hour,
+      _startTime!.minute,
+    );
+  }
+
+  /// Data+ora di ritiro effettive, oppure null se manca qualcosa.
+  /// Se _endDate è null, usiamo _selectedDate (es. modalità 3 ore).
+  DateTime? get _endDateTime {
+    final endDate = _endDate ?? _selectedDate;
+    if (endDate == null || _endTime == null) return null;
+    return DateTime(
+      endDate.year,
+      endDate.month,
+      endDate.day,
+      _endTime!.hour,
+      _endTime!.minute,
+    );
+  }
+
   Future<void> _loadAvailabilityForSelection() async {
     if (_selectedDate == null) return;
 
@@ -541,10 +569,22 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     final client = Supabase.instance.client;
     final repo = PartnerBookingRepo(client);
 
+    final bookingStartDate = _selectedDate!;
+    final bookingEndDate = _endDate ?? _selectedDate!; // 3h = stesso giorno
+   /* final startTimeStr = _effectiveStartTime != null
+        ? _formatTimeToDb(_effectiveStartTime!)
+        : '00:00';
+
+    final endTimeStr = _effectiveEndTime != null
+        ? _formatTimeToDb(_effectiveEndTime!)
+        : '23:59';*/
+
     try {
       final av = await repo.getPartnerAvailabilityForInterval(
         partnerId: widget.partner.id,
         bookingDate: _selectedDate!,
+        startDate: bookingStartDate,
+        endDate: bookingEndDate,
         startTime: startStr,
         endTime: endStr,
       );
@@ -648,7 +688,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       return;
     }
 
-        // Vietato prenotare in un giorno chiuso (weekly + eccezioni)
+    // Vietato prenotare in un giorno chiuso (weekly + eccezioni)
     if (_isClosedDay(selDateOnly)) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -661,7 +701,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       setState(() => _busy = false);
       return;
     }
-
 
     try {
       // 0) Controllo che il partner sia prenotabile
@@ -707,10 +746,15 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       final startStr = _formatTimeForApi(startTime);
       final endStr = _formatTimeForApi(endTime);
 
+      final bookingStartDate = _selectedDate!;
+      final bookingEndDate = _endDate ?? _selectedDate!; // 3h = stesso giorno
+
       // 2) Controllo disponibilità per intervallo specifico
       final availability = await repo.getPartnerAvailabilityForInterval(
         partnerId: widget.partner.id,
         bookingDate: _selectedDate!,
+        startDate: bookingStartDate,
+        endDate: bookingEndDate,
         startTime: startStr,
         endTime: endStr,
       );
@@ -782,6 +826,38 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         return;
       }
 
+      //  Recuperiamo data+ora effettive da quello che ha scelto l'utente
+      final startDt = _startDateTime;
+      final endDt = _endDateTime;
+
+      if (startDt == null || endDt == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Seleziona giorno e orario di consegna e di ritiro.'),
+          ),
+        );
+        return;
+      }
+
+      if (!startDt.isBefore(endDt)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'L\'orario di ritiro deve essere dopo quello di consegna.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      // Orari "HH:MM:SS"
+      final startTimeStr = _formatTimeToDb(
+        TimeOfDay(hour: startDt.hour, minute: startDt.minute),
+      );
+      final endTimeStr = _formatTimeToDb(
+        TimeOfDay(hour: endDt.hour, minute: endDt.minute),
+      );
+
       // 3) Se tutto ok → creiamo la prenotazione
       await repo.createBooking(
         partnerId: widget.partner.id,
@@ -794,8 +870,9 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         bagsL: _bagsL,
         notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
         bookingDate: _selectedDate!,
-        startTime: startStr,
-        endTime: endStr,
+        startTime: startTimeStr,
+        endTime: endTimeStr,
+        endDate: bookingEndDate,
       );
 
       if (!mounted) return;
@@ -822,6 +899,14 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     }
   }
 
+  /// Converte un TimeOfDay nel formato stringa usato dal DB.
+  /// Esempio: 9:5  → "09:05:00"
+  String _formatTimeToDb(TimeOfDay t) {
+    final hh = t.hour.toString().padLeft(2, '0');
+    final mm = t.minute.toString().padLeft(2, '0');
+    return '$hh:$mm:00'; // se preferisci solo "HH:MM", usa '$hh:$mm'
+  }
+
   void _prefillContactFromCurrentUser() {
     final client = Supabase.instance.client;
     final user = client.auth.currentUser;
@@ -835,6 +920,131 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     _phoneCtrl.text = (meta['phone'] as String?) ?? _phoneCtrl.text;
 
     _emailCtrl.text = user.email ?? _emailCtrl.text;
+  }
+
+  /// Determina la durata tariffaria in base allo stato del flow.
+  ///
+  /// Per ora:
+  /// - se l'utente ha scelto "Tutto il giorno" → 1 giorno
+  /// - altrimenti → 3 ore
+  ///
+  /// In futuro qui potremo estendere a:
+  /// - 1,5 giorni
+  /// - 2 giorni
+  /// - 3 giorni
+  BagDropDuration _currentDuration() {
+    final DateTime? startDate = _selectedDate;
+    final TimeOfDay? startTime = _effectiveStartTime; // già usato nel riepilogo
+    final DateTime? endDate = _endDate;
+    final TimeOfDay? endTime = _endTime;
+
+    if (startDate != null &&
+        startTime != null &&
+        endDate != null &&
+        endTime != null) {
+      final start = DateTime(
+        startDate.year,
+        startDate.month,
+        startDate.day,
+        startTime.hour,
+        startTime.minute,
+      );
+      final end = DateTime(
+        endDate.year,
+        endDate.month,
+        endDate.day,
+        endTime.hour,
+        endTime.minute,
+      );
+      return _inferDurationFromStartEnd(start, end);
+    }
+
+    // Fallback: comportamento vecchio (solo 3h / 1 giorno)
+    return _fullDay ? BagDropDuration.oneDay : BagDropDuration.threeHours;
+  }
+
+  /// Calcola la durata tariffaria a partire da start/end reali.
+  ///
+  /// Logica:
+  /// - se end <= start → 3 ore (fallback di sicurezza)
+  /// - se durata <= 3h → 3 ore
+  /// - se inizio e fine sono lo stesso giorno → 1 giorno
+  /// - se il ritiro è il giorno dopo e entro le 13:00 → 1 giorno e mezzo
+  /// - se durata <= 48h → 2 giorni
+  /// - altrimenti → 3 giorni
+  BagDropDuration _inferDurationFromStartEnd(DateTime start, DateTime end) {
+    if (!end.isAfter(start)) {
+      return BagDropDuration.threeHours;
+    }
+
+    final diff = end.difference(start);
+    final hours = diff.inMinutes / 60.0;
+
+    // Fino a 3 ore → tariffa 3h
+    if (hours <= 3.0) {
+      return BagDropDuration.threeHours;
+    }
+
+    // Stesso giorno → 1 giorno
+    if (_isSameCalendarDay(start, end)) {
+      return BagDropDuration.oneDay;
+    }
+
+    // Giorno successivo → possibile 1 giorno e mezzo
+    final nextDay = start.add(const Duration(days: 1));
+    final bool isNextDay = _isSameCalendarDay(nextDay, end);
+
+    if (isNextDay) {
+      // Soglia "pranzo": 13:00 del giorno dopo
+      final cutoff = DateTime(end.year, end.month, end.day, 13, 0);
+      if (!end.isAfter(cutoff)) {
+        return BagDropDuration.oneAndHalfDay;
+      }
+    }
+
+    // Fino a 48h → 2 giorni
+    if (hours <= 48.0) {
+      return BagDropDuration.twoDays;
+    }
+
+    // Oltre → 3 giorni (per ora limitiamoci qui)
+    return BagDropDuration.threeDays;
+  }
+
+  bool _isSameCalendarDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  /// Testo leggibile per la durata, usato nel riepilogo.
+  String _durationLabel() {
+    switch (_currentDuration()) {
+      case BagDropDuration.threeHours:
+        return '3 ore';
+      case BagDropDuration.oneDay:
+        return '1 giorno';
+      case BagDropDuration.oneAndHalfDay:
+        return '1 giorno e mezzo';
+      case BagDropDuration.twoDays:
+        return '2 giorni';
+      case BagDropDuration.threeDays:
+        return '3 giorni';
+    }
+  }
+
+  /// Calcolo del prezzo totale usando BagDropPricing
+  double _currentTotalPrice() {
+    final duration = _currentDuration();
+    return BagDropPricing.totalFor(
+      duration: duration,
+      bagsS: _bagsS,
+      bagsM: _bagsM,
+      bagsL: _bagsL,
+    );
+  }
+
+  /// Helper per formattare un double in "X,YY €".
+  String _formatPrice(double value) {
+    return BagDropPricing.formatEuro(value);
   }
 
   @override
@@ -1027,99 +1237,126 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
 
-    // Label data
-    String dateLabel;
-    if (_selectedDate == null) {
-      dateLabel = 'Seleziona una data';
-    } else {
-      dateLabel =
-          '${_selectedDate!.day.toString().padLeft(2, '0')}/'
-          '${_selectedDate!.month.toString().padLeft(2, '0')}/'
-          '${_selectedDate!.year}';
+    String _formatDate(DateTime? d, String emptyLabel) {
+      if (d == null) return emptyLabel;
+      return '${d.day.toString().padLeft(2, '0')}/'
+          '${d.month.toString().padLeft(2, '0')}/'
+          '${d.year}';
     }
 
-    // Label orario/durata
-    String timeLabel;
-    if (_fullDay) {
-      final start = _firstOpenTime;
-      final end = _lastCloseTime;
-      if (start != null && end != null) {
-        timeLabel =
-            '${_formatTimeDisplay(start)} - ${_formatTimeDisplay(end)} (tutto il giorno)';
-      } else {
-        timeLabel = 'Tutto il giorno (orari di apertura non disponibili)';
+    /// Mantiene allineati giorno/ora di fine quando siamo in modalità "3 ore".
+    void _syncThreeHoursEnd() {
+      // Modalità rapida: 3 ore sulla stessa data
+      if (!_fullDay) {
+        // Se non c'è ancora una data, imposto oggi
+        if (_selectedDate == null) {
+          final now = DateTime.now();
+          _selectedDate = DateTime(now.year, now.month, now.day);
+        }
+
+        // Orario di inizio: se manca, uso prima apertura o 9:00
+        _startTime ??= _firstOpenTime ?? const TimeOfDay(hour: 9, minute: 0);
+
+        // Giorno di ritiro = stesso giorno
+        _endDate = _selectedDate;
+
+        // Orario di fine = 3 ore dopo (o logica custom se hai _threeHoursEndTime)
+        final predefinedEnd = _threeHoursEndTime;
+        if (predefinedEnd != null) {
+          _endTime = predefinedEnd;
+        } else {
+          final start = _startTime!;
+          _endTime = TimeOfDay(
+            hour: (start.hour + 3) % 24,
+            minute: start.minute,
+          );
+        }
       }
-    } else {
+    }
+
+    final bool isQuickThreeHours = !_fullDay; // opzione rapida
+    final bool isCustomDuration = _fullDay; // durata libera
+
+    // Label per la tile della fascia 3 ore
+    String threeHoursTimeLabel;
+    if (isQuickThreeHours) {
       final start = _startTime;
-      final end = _threeHoursEndTime;
+      final end = _endTime;
       if (start != null && end != null) {
-        timeLabel =
+        threeHoursTimeLabel =
             '${_formatTimeDisplay(start)} - ${_formatTimeDisplay(end)} (3 ore)';
       } else {
-        timeLabel = 'Seleziona l\'orario di inizio';
+        threeHoursTimeLabel =
+            'Scegli l\'orario di inizio (ti teniamo il bagaglio per 3 ore)';
       }
+    } else {
+      threeHoursTimeLabel = '';
+    }
+
+    // Riepilogo sintetico (per la card in basso)
+    String startSummary;
+    if (_selectedDate == null || _startTime == null) {
+      startSummary = 'Non ancora impostato';
+    } else {
+      startSummary =
+          '${_formatDate(_selectedDate, '')} · ${_formatTimeDisplay(_startTime!)}';
+    }
+
+    String endSummary;
+    if (_endDate == null || _endTime == null) {
+      if (isQuickThreeHours) {
+        endSummary = 'Verrà impostato automaticamente 3 ore dopo l\'inizio';
+      } else {
+        endSummary = 'Non ancora impostato';
+      }
+    } else {
+      endSummary =
+          '${_formatDate(_endDate, '')} · ${_formatTimeDisplay(_endTime!)}';
     }
 
     return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
       children: [
         Text(
-          'Quando vuoi lasciare i bagagli?',
+          'Quando vuoi lasciare e ritirare i bagagli?',
           style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 16),
 
-        // Data
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Giorno'),
-          subtitle: Text(dateLabel),
-          trailing: const Icon(Icons.calendar_today),
-          onTap: () async {
-            final now = DateTime.now();
-            final today = DateTime(now.year, now.month, now.day);
-            final in7Days = today.add(const Duration(days: 7));
-            final initialDate = _selectedDate ?? now;
-            final picked = await showDatePicker(
-              context: context,
-              initialDate: _selectedDate ?? today,
-              firstDate: today,
-              lastDate: in7Days,
-            );
-            if (picked != null) {
-              setState(() {
-                _selectedDate = DateTime(picked.year, picked.month, picked.day);
-              });
-            }
-          },
-        ),
-        const SizedBox(height: 12),
-
-        // Toggle full day vs 3h
+        // =========================
+        // 1. TIPO DI DURATA
+        // =========================
         Text(
-          'Durata',
+          '1. Scegli la modalità',
           style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 8),
+
         Row(
           children: [
+            // Prima opzione: 3 ore veloci (scelta rapida)
             ChoiceChip(
-              label: const Text('Tutto il giorno'),
-              selected: _fullDay,
+              label: const Text('3 ore'),
+              selected: isQuickThreeHours,
               onSelected: (v) {
                 if (!v) return;
                 setState(() {
-                  _fullDay = true;
+                  _fullDay = false; // false = modalità 3 ore
+                  _syncThreeHoursEnd();
                 });
               },
             ),
             const SizedBox(width: 8),
+            // Seconda opzione: durata personalizzata
             ChoiceChip(
-              label: const Text('Fascia di 3 ore'),
-              selected: !_fullDay,
+              label: const Text('Durata personalizzata'),
+              selected: isCustomDuration,
               onSelected: (v) {
                 if (!v) return;
                 setState(() {
-                  _fullDay = false;
+                  _fullDay = true; // true = durata libera
+                  // In modalità personalizzata non tocchiamo automaticamente
+                  // _endDate / _endTime: li imposta l’utente.
                 });
               },
             ),
@@ -1127,18 +1364,153 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         ),
         const SizedBox(height: 12),
 
-        // Se la durata è 3 ore, l’utente sceglie l’orario di inizio
-        if (!_fullDay) ...[
+        if (isQuickThreeHours) ...[
+          // =========================
+          // MODALITÀ 3 ORE VELOCI
+          // =========================
+          Text(
+            'Lascia al volo il tuo bagaglio e riprendilo in giornata.',
+            style: textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          Text(
+            '2. Quando inizi le 3 ore?',
+            style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+          ),
+
+          const SizedBox(height: 8),
+
+          // Giorno (per default oggi, ma l’utente può cambiare)
           ListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('Orario di inizio'),
-            subtitle: Text(timeLabel),
+            title: const Text('Giorno'),
+            subtitle: Text(
+              _formatDate(_selectedDate, 'Oggi (puoi cambiare il giorno)'),
+            ),
+            trailing: const Icon(Icons.calendar_today),
+            onTap: () async {
+              final now = DateTime.now();
+              final today = DateTime(now.year, now.month, now.day);
+              final in7Days = today.add(const Duration(days: 7));
+
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: _selectedDate ?? today,
+                firstDate: today,
+                lastDate: in7Days,
+              );
+              if (picked != null) {
+                setState(() {
+                  _selectedDate = DateTime(
+                    picked.year,
+                    picked.month,
+                    picked.day,
+                  );
+                  _syncThreeHoursEnd();
+                });
+              }
+            },
+          ),
+          const SizedBox(height: 8),
+
+          // Orario di inizio (fine auto-calcolata)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Orario di inizio (3 ore)'),
+            subtitle: Text(threeHoursTimeLabel),
             trailing: const Icon(Icons.access_time),
             onTap: () async {
               final initial =
                   _startTime ??
                   _firstOpenTime ??
                   const TimeOfDay(hour: 9, minute: 0);
+
+              final picked = await showTimePicker(
+                context: context,
+                initialTime: initial,
+              );
+              if (picked != null) {
+                setState(() {
+                  _startTime = picked;
+                  _syncThreeHoursEnd();
+                });
+              }
+            },
+          ),
+
+          const SizedBox(height: 12),
+
+          // Spiegazione breve per le 3 ore
+          Text(
+            'Per la modalità "3 ore " il ritiro è previsto lo stesso giorno, '
+            '3 ore dopo l\'orario di inizio che scegli.',
+            style: textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+          ),
+        ] else ...[
+          // =========================
+          // MODALITÀ DURATA PERSONALIZZATA
+          // =========================
+          Text(
+            '2. Quando consegni i bagagli?',
+            style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+
+          // Giorno di consegna
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Giorno di consegna'),
+            subtitle: Text(
+              _formatDate(_selectedDate, 'Seleziona il giorno di consegna'),
+            ),
+            trailing: const Icon(Icons.calendar_today),
+            onTap: () async {
+              final now = DateTime.now();
+              final today = DateTime(now.year, now.month, now.day);
+              final in7Days = today.add(const Duration(days: 7));
+
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: _selectedDate ?? today,
+                firstDate: today,
+                lastDate: in7Days,
+              );
+              if (picked != null) {
+                setState(() {
+                  _selectedDate = DateTime(
+                    picked.year,
+                    picked.month,
+                    picked.day,
+                  );
+
+                  // Se il ritiro è prima della consegna, riallineo la data di ritiro.
+                  if (_endDate != null && _endDate!.isBefore(_selectedDate!)) {
+                    _endDate = _selectedDate;
+                  }
+                });
+              }
+            },
+          ),
+          const SizedBox(height: 8),
+
+          // Orario di consegna
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Orario di consegna'),
+            subtitle: Text(
+              _startTime == null
+                  ? 'Seleziona l\'orario di consegna'
+                  : _formatTimeDisplay(_startTime!),
+            ),
+            trailing: const Icon(Icons.access_time),
+            onTap: () async {
+              final initial =
+                  _startTime ?? const TimeOfDay(hour: 10, minute: 0);
               final picked = await showTimePicker(
                 context: context,
                 initialTime: initial,
@@ -1150,20 +1522,125 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
               }
             },
           ),
-        ] else ...[
-          // Se è "tutto il giorno" mostriamo un breve riepilogo orario.
-          Text(timeLabel, style: textTheme.bodyMedium),
+
+          const SizedBox(height: 16),
+
+          Text(
+            '3. Quando li ritiri?',
+            style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+
+          // Giorno di ritiro
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Giorno di ritiro'),
+            subtitle: Text(
+              _formatDate(_endDate, 'Seleziona il giorno di ritiro'),
+            ),
+            trailing: const Icon(Icons.calendar_today),
+            onTap: () async {
+              final now = DateTime.now();
+              final today = DateTime(now.year, now.month, now.day);
+
+              final baseStartDate = _selectedDate ?? today;
+              final firstDate = baseStartDate;
+              final lastDate = baseStartDate.add(const Duration(days: 7));
+              final initial = _endDate ?? baseStartDate;
+
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: initial,
+                firstDate: firstDate,
+                lastDate: lastDate,
+              );
+              if (picked != null) {
+                setState(() {
+                  _endDate = DateTime(picked.year, picked.month, picked.day);
+                });
+              }
+            },
+          ),
+          const SizedBox(height: 8),
+
+          // Orario di ritiro
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Orario di ritiro'),
+            subtitle: Text(
+              _endTime == null
+                  ? 'Seleziona l\'orario di ritiro'
+                  : _formatTimeDisplay(_endTime!),
+            ),
+            trailing: const Icon(Icons.access_time),
+            onTap: () async {
+              final initialTime =
+                  _endTime ??
+                  _startTime ??
+                  const TimeOfDay(hour: 18, minute: 0);
+              final picked = await showTimePicker(
+                context: context,
+                initialTime: initialTime,
+              );
+              if (picked != null) {
+                setState(() {
+                  _endTime = picked;
+                });
+              }
+            },
+          ),
+
+          const SizedBox(height: 8),
+          Text(
+            'In modalità "durata personalizzata" puoi scegliere liberamente giorno e orario di consegna e di ritiro, '
+            'entro i limiti di prenotazione del locale.',
+            style: textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+          ),
         ],
 
+        const SizedBox(height: 20),
+
+        // =========================
+        // RIEPILOGO VISIVO GENERALE
+        // =========================
+        Card(
+          elevation: 0,
+          color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Riepilogo orari',
+                  style: textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text('Consegna: $startSummary'),
+                Text('Ritiro:   $endSummary'),
+              ],
+            ),
+          ),
+        ),
+
         const SizedBox(height: 16),
+
+        // NOTE FINALI
         Text(
-          'Gli orari della prenotazione vengono calcolati in base agli orari di apertura impostati dal locale. '
-          'In caso di fascia di 3 ore vicina alla chiusura, potresti avere meno di 3 ore effettive di deposito.',
+          'Gli orari effettivi di deposito devono rientrare negli orari di apertura del locale. '
+          'Controlla sempre la scheda del partner per verificare gli orari.',
           style: textTheme.bodySmall?.copyWith(
             color: theme.colorScheme.outline,
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 8),
         Text(
           'Puoi prenotare da oggi fino a 7 giorni dopo. Le prenotazioni nel passato non sono consentite.',
           style: textTheme.bodySmall?.copyWith(
@@ -1302,9 +1779,11 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                   style: TextStyle(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 4),
+
+                // Deposito
                 Text(
                   _selectedDate == null
-                      ? 'Data non selezionata'
+                      ? 'Data di deposito non selezionata'
                       : '${_selectedDate!.day.toString().padLeft(2, '0')}/'
                             '${_selectedDate!.month.toString().padLeft(2, '0')}/'
                             '${_selectedDate!.year}',
@@ -1312,6 +1791,32 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(timeText),
+
+                const SizedBox(height: 8),
+
+                // Ritiro
+                const Text(
+                  'Ritiro bagagli',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _endDate == null
+                      ? 'Data di ritiro non selezionata'
+                      : '${_endDate!.day.toString().padLeft(2, '0')}/'
+                            '${_endDate!.month.toString().padLeft(2, '0')}/'
+                            '${_endDate!.year}',
+                ),
+                if (_endTime != null)
+                  Text('Ore ${_formatTimeDisplay(_endTime!)}'),
+
+                const SizedBox(height: 8),
+
+                // Durata tariffaria
+                Text(
+                  'Durata tariffaria: ${_durationLabel()}',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
               ],
             ),
           ),
@@ -1358,6 +1863,35 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
             ),
           ),
         ),
+
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Prezzo stimato',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                if (_selectedDate == null || totalBags == 0)
+                  const Text(
+                    'Seleziona data, orario e almeno un bagaglio per vedere il prezzo.',
+                  )
+                else
+                  Text(
+                    _formatPrice(_currentTotalPrice()),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+
         if (_notesCtrl.text.trim().isNotEmpty) ...[
           const SizedBox(height: 12),
           Card(

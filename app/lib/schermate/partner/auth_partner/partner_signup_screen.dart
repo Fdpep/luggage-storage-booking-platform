@@ -36,10 +36,7 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
   // (puoi anche eliminare questo se non ti serve più)
   final _capacityCtrl = TextEditingController();
 
-  final _price2hCtrl = TextEditingController();
-  final _pricePerDayCtrl = TextEditingController();
   final _messageCtrl = TextEditingController();
-
 
   int _parseCap(TextEditingController c) {
     final t = c.text.trim();
@@ -51,7 +48,6 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       _parseCap(_capacitySCtrl) +
       _parseCap(_capacityMCtrl) +
       _parseCap(_capacityLCtrl);
-
 
   // Suggerimenti indirizzo (autocomplete)
   List<PlaceSuggestion> _addressSuggestions = [];
@@ -80,8 +76,6 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
     _capacityMCtrl.dispose();
     _capacityLCtrl.dispose();
     _capacityCtrl.dispose();
-    _price2hCtrl.dispose();
-    _pricePerDayCtrl.dispose();
     _messageCtrl.dispose();
     super.dispose();
   }
@@ -146,17 +140,10 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       final capacity = capS + capM + capL;
 
       if (capacity <= 0) {
-        throw AuthException(
-          'Inserisci almeno 1 bagaglio tra S, M e L.',
-        );
+        throw AuthException('Inserisci almeno 1 bagaglio tra S, M e L.');
       }
 
-      final price2h = _price2hCtrl.text.trim().isEmpty
-          ? null
-          : double.parse(_price2hCtrl.text.trim().replaceAll(',', '.'));
-      final pricePerDay = _pricePerDayCtrl.text.trim().isEmpty
-          ? null
-          : double.parse(_pricePerDayCtrl.text.trim().replaceAll(',', '.'));
+      // Messaggio facoltativo del partner (es. "siamo al primo piano").
       final message = _messageCtrl.text.trim().isEmpty
           ? null
           : _messageCtrl.text.trim();
@@ -173,12 +160,10 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
           'partner_signup': {
             'name': _nameCtrl.text.trim(),
             'address': _addressCtrl.text.trim(),
-            'capacity': capacity,      // totale
+            'capacity': capacity, // totale
             'capacity_s': capS,
             'capacity_m': capM,
             'capacity_l': capL,
-            'price2h': price2h,
-            'pricePerDay': pricePerDay,
             'message': message,
             'lat': _lat,
             'lng': _lng,
@@ -225,8 +210,6 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
             partnerName: _nameCtrl.text.trim(),
             partnerAddress: _addressCtrl.text.trim(),
             partnerCapacity: capacity,
-            partnerPrice2h: price2h,
-            partnerPricePerDay: pricePerDay,
             partnerMessage: message,
             partnerLat: _lat!, // safe: li abbiamo controllati sopra
             partnerLng: _lng!,
@@ -766,32 +749,12 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
 
                   const SizedBox(height: 12),
 
-                  TextFormField(
-                    controller: _price2hCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Prezzo per 2 ore (EUR, opzionale)',
-                      hintText: 'Es: 5.00',
-                    ),
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    enabled: !_busy,
+                  const SizedBox(height: 12),
+                  Text(
+                    'Le tariffe di deposito sono definite da BagDrop e sono uguali per tutti i locali. ',
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 12),
-
-                  TextFormField(
-                    controller: _pricePerDayCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Prezzo per giorno (EUR, opzionale)',
-                      hintText: 'Es: 12.00',
-                    ),
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    enabled: !_busy,
-                  ),
-                  const SizedBox(height: 12),
-
                   TextFormField(
                     controller: _messageCtrl,
                     decoration: const InputDecoration(

@@ -16,8 +16,18 @@ class Partner {
   final int capacityM; // capacità bagagli MEDIUM
   final int capacityL; // capacità bagagli LARGE
 
+  /// [LEGACY] Prezzo per 2h specifico del partner.
+  /// Non viene più usato nella logica dell’app:
+  /// le tariffe sono globali e definite in [BagDropPricing].
+  @Deprecated('Prezzo per-partner non più supportato. Usa BagDropPricing.')
   final double? price2h;
+
+  /// [LEGACY] Prezzo per giorno specifico del partner.
+  /// Non viene più usato nella logica dell’app:
+  /// le tariffe sono globali e definite in [BagDropPricing].
+  @Deprecated('Prezzo per-partner non più supportato. Usa BagDropPricing.')
   final double? pricePerDay;
+
   final bool isActive;
 
   /// Nuovi campi descrittivi per la scheda locale
@@ -46,6 +56,7 @@ class Partner {
     this.capacityS = 0,
     this.capacityM = 0,
     this.capacityL = 0,
+   // Campi prezzo legacy (non più usati dalla UI).
     this.price2h,
     this.pricePerDay,
     this.isActive = true,
@@ -72,7 +83,8 @@ class Partner {
       capacityS: (map['capacity_s'] as int?) ?? 0,
       capacityM: (map['capacity_m'] as int?) ?? 0,
       capacityL: (map['capacity_l'] as int?) ?? 0,
-
+      // Prezzi legacy per-partner: non più usati a livello di logica,
+      // ma ancora letti per compatibilità con il DB esistente.
       price2h: (map['price_2h'] as num?)?.toDouble(),
       pricePerDay: (map['price_per_day'] as num?)?.toDouble(),
       isActive: (map['is_active'] as bool?) ?? true,
@@ -103,6 +115,8 @@ class Partner {
       'capacity_s': capacityS,
       'capacity_m': capacityM,
       'capacity_l': capacityL,
+         // Campi prezzo legacy: non più aggiornati dall'app,
+      // ma ancora presenti nel modello finché le colonne esistono nel DB.
       'price_2h': price2h,
       'price_per_day': pricePerDay,
       'is_active': isActive,

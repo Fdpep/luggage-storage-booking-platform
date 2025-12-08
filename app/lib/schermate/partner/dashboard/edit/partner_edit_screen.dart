@@ -103,9 +103,9 @@ class _OpeningHoursEditorState extends State<OpeningHoursEditor> {
     for (final d in days) {
       final list = raw[d] as List<dynamic>? ?? [];
       _dayIntervals[d] = list
-          .map((e) => OpeningInterval.fromJson(
-                (e as Map).cast<String, dynamic>(),
-              ))
+          .map(
+            (e) => OpeningInterval.fromJson((e as Map).cast<String, dynamic>()),
+          )
           .whereType<OpeningInterval>()
           .toList();
     }
@@ -122,7 +122,12 @@ class _OpeningHoursEditorState extends State<OpeningHoursEditor> {
   bool _isStrictBefore(TimeOfDay a, TimeOfDay b) =>
       _toMinutes(a) < _toMinutes(b);
 
-  bool _overlaps(TimeOfDay aOpen, TimeOfDay aClose, TimeOfDay bOpen, TimeOfDay bClose) {
+  bool _overlaps(
+    TimeOfDay aOpen,
+    TimeOfDay aClose,
+    TimeOfDay bOpen,
+    TimeOfDay bClose,
+  ) {
     final aStart = _toMinutes(aOpen);
     final aEnd = _toMinutes(aClose);
     final bStart = _toMinutes(bOpen);
@@ -135,9 +140,7 @@ class _OpeningHoursEditorState extends State<OpeningHoursEditor> {
   Map<String, dynamic> _serialize() {
     final map = <String, dynamic>{};
     for (final d in days) {
-      map[d] = _dayIntervals[d]!
-          .map((interval) => interval.toJson())
-          .toList();
+      map[d] = _dayIntervals[d]!.map((interval) => interval.toJson()).toList();
     }
     return map;
   }
@@ -153,7 +156,9 @@ class _OpeningHoursEditorState extends State<OpeningHoursEditor> {
     if (index == null && intervals.length >= 2) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Puoi impostare al massimo due fasce orarie per giorno.'),
+          content: Text(
+            'Puoi impostare al massimo due fasce orarie per giorno.',
+          ),
         ),
       );
       return;
@@ -174,7 +179,8 @@ class _OpeningHoursEditorState extends State<OpeningHoursEditor> {
 
     // 2) Seleziona orario di chiusura
     final suggestedCloseHour = (pickedOpen.hour + 4).clamp(0, 23);
-    final initialClose = existing?.close ??
+    final initialClose =
+        existing?.close ??
         TimeOfDay(hour: suggestedCloseHour, minute: pickedOpen.minute);
 
     final pickedClose = await showTimePicker(
@@ -215,11 +221,15 @@ class _OpeningHoursEditorState extends State<OpeningHoursEditor> {
       if (index == null) {
         intervals.add(OpeningInterval(open: pickedOpen, close: pickedClose));
       } else {
-        intervals[index] =
-            OpeningInterval(open: pickedOpen, close: pickedClose);
+        intervals[index] = OpeningInterval(
+          open: pickedOpen,
+          close: pickedClose,
+        );
       }
       // Ordiniamo per orario di apertura
-      intervals.sort((a, b) => _toMinutes(a.open).compareTo(_toMinutes(b.open)));
+      intervals.sort(
+        (a, b) => _toMinutes(a.open).compareTo(_toMinutes(b.open)),
+      );
       _dayIntervals[day] = intervals;
     });
 
@@ -256,9 +266,7 @@ class _OpeningHoursEditorState extends State<OpeningHoursEditor> {
     setState(() {
       for (final d in targets) {
         _dayIntervals[d] = source
-            .map(
-              (i) => OpeningInterval(open: i.open, close: i.close),
-            )
+            .map((i) => OpeningInterval(open: i.open, close: i.close))
             .toList();
       }
     });
@@ -285,8 +293,9 @@ class _OpeningHoursEditorState extends State<OpeningHoursEditor> {
         // 🔹 RIGA AZIONI RAPIDE
         Text(
           'Azioni rapide',
-          style: theme.textTheme.bodyMedium
-              ?.copyWith(fontWeight: FontWeight.w600),
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
         ),
         const SizedBox(height: 4),
         Wrap(
@@ -296,26 +305,19 @@ class _OpeningHoursEditorState extends State<OpeningHoursEditor> {
             OutlinedButton.icon(
               icon: const Icon(Icons.copy, size: 18),
               label: const Text('Copia Lunedì su Lun–Ven'),
-              onPressed: () => _copyDayToTargets(
-                'mon',
-                ['mon', 'tue', 'wed', 'thu', 'fri'],
-              ),
+              onPressed: () =>
+                  _copyDayToTargets('mon', ['mon', 'tue', 'wed', 'thu', 'fri']),
             ),
             OutlinedButton.icon(
               icon: const Icon(Icons.copy_all, size: 18),
               label: const Text('Copia Lunedì su tutti'),
-              onPressed: () => _copyDayToTargets(
-                'mon',
-                days,
-              ),
+              onPressed: () => _copyDayToTargets('mon', days),
             ),
             TextButton.icon(
               icon: const Icon(Icons.block, size: 18),
               label: const Text('Imposta tutti chiusi'),
               onPressed: _closeAllDays,
-              style: TextButton.styleFrom(
-                foregroundColor: cs.error,
-              ),
+              style: TextButton.styleFrom(foregroundColor: cs.error),
             ),
           ],
         ),
@@ -360,8 +362,8 @@ class _OpeningHoursEditorState extends State<OpeningHoursEditor> {
                           isClosed
                               ? 'Chiuso'
                               : (intervals.length == 1
-                                  ? 'Orario continuato'
-                                  : 'Mattina + Pomeriggio'),
+                                    ? 'Orario continuato'
+                                    : 'Mattina + Pomeriggio'),
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
@@ -383,8 +385,9 @@ class _OpeningHoursEditorState extends State<OpeningHoursEditor> {
                   if (isClosed)
                     Text(
                       'Nessuna fascia impostata: il locale risulta chiuso in questo giorno.',
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: cs.outline),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.outline,
+                      ),
                     )
                   else
                     Column(
@@ -420,13 +423,14 @@ class _OpeningHoursEditorState extends State<OpeningHoursEditor> {
                                 IconButton(
                                   icon: const Icon(Icons.edit, size: 18),
                                   tooltip: 'Modifica fascia',
-                                  onPressed: () => _addOrEditInterval(
-                                    day,
-                                    index: idx,
-                                  ),
+                                  onPressed: () =>
+                                      _addOrEditInterval(day, index: idx),
                                 ),
                                 IconButton(
-                                  icon: const Icon(Icons.delete_outline, size: 18),
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    size: 18,
+                                  ),
                                   tooltip: 'Rimuovi fascia',
                                   onPressed: () => _removeInterval(day, idx),
                                 ),
@@ -448,8 +452,7 @@ class _OpeningHoursEditorState extends State<OpeningHoursEditor> {
                       ),
                       const Spacer(),
                       TextButton(
-                        onPressed:
-                            isClosed ? null : () => _setClosed(day),
+                        onPressed: isClosed ? null : () => _setClosed(day),
                         child: Text(
                           'Imposta chiuso',
                           style: TextStyle(
@@ -695,9 +698,6 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
   final _capacityMCtrl = TextEditingController();
   final _capacityLCtrl = TextEditingController();
 
-  final _price2hCtrl = TextEditingController();
-  final _pricePerDayCtrl = TextEditingController();
-
   Map<String, dynamic>? _openingHoursStructured;
   Map<String, dynamic>? _openingExceptions;
   bool _isActive = true;
@@ -789,8 +789,6 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
     _capacitySCtrl.dispose();
     _capacityMCtrl.dispose();
     _capacityLCtrl.dispose();
-    _price2hCtrl.dispose();
-    _pricePerDayCtrl.dispose();
     super.dispose();
   }
 
@@ -837,17 +835,6 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
       _capacityMCtrl.text = capM.toString();
       _capacityLCtrl.text = capL.toString();
 
-      if (partner.price2h != null) {
-        _price2hCtrl.text = partner.price2h!
-            .toStringAsFixed(2)
-            .replaceAll('.', ',');
-      }
-      if (partner.pricePerDay != null) {
-        _pricePerDayCtrl.text = partner.pricePerDay!
-            .toStringAsFixed(2)
-            .replaceAll('.', ',');
-      }
-
       // Orari di apertura settimanali (weekly)
       _openingHoursStructured = _normalizeOpeningWeekly(partner.openingHours);
 
@@ -887,14 +874,6 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
     }
   }
 
-  /// Converte una stringa in double, gestendo anche la virgola.
-  double? _parsePrice(String text) {
-    final t = text.trim();
-    if (t.isEmpty) return null;
-    final normalized = t.replaceAll(',', '.');
-    return double.tryParse(normalized);
-  }
-
   /// Salva le modifiche su Supabase usando PartnerRepo.updateBasics.
   Future<void> _save() async {
     if (_partner == null) return;
@@ -925,9 +904,6 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
       return;
     }
 
-    final price2h = _parsePrice(_price2hCtrl.text);
-    final pricePerDay = _parsePrice(_pricePerDayCtrl.text);
-
     // Orari di apertura settimanali (weekly_v1)
     Map<String, dynamic>? openingHours;
     if (_openingHoursStructured != null) {
@@ -952,8 +928,6 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
         capacityS: canEditCapacityAndHours ? capS : null,
         capacityM: canEditCapacityAndHours ? capM : null,
         capacityL: canEditCapacityAndHours ? capL : null,
-        price2h: price2h,
-        pricePerDay: pricePerDay,
         isActive: _isActive,
         description: _descCtrl.text.trim().isEmpty
             ? null
@@ -1236,34 +1210,10 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                 const SizedBox(height: 12),
 
                 // 8) Prezzi
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _price2hCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Prezzo 2h (€)',
-                          border: OutlineInputBorder(),
-                        ),
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _pricePerDayCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Prezzo / giorno (€)',
-                          border: OutlineInputBorder(),
-                        ),
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                      ),
-                    ),
-                  ],
+                const SizedBox(height: 12),
+                Text(
+                  'I prezzi di deposito sono uguali per tutti i partner e vengono gestiti direttamente da BagDrop.',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
                 const SizedBox(height: 12),
 

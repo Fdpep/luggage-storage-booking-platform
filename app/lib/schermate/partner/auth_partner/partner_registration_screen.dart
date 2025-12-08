@@ -162,8 +162,6 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
         capacityS: capS,
         capacityM: capM,
         capacityL: capL,
-        price2h: price2h,
-        pricePerDay: priceDay,
         message: note,
         lat: _lat,
         lng: _lng,

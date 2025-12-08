@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:BagDrop/models/partner_booking.dart';
+import 'package:BagDrop/services/supabase/client.dart';
 
 /// DTO per la disponibilità di un partner.
 class PartnerAvailability {
@@ -57,14 +58,24 @@ class PartnerBookingRepo {
     required DateTime bookingDate,
     required String startTime,
     required String endTime,
+    DateTime? endDate,
   }) async {
     final userId = client.auth.currentUser?.id;
     if (userId == null) {
-      throw AuthException('Devi essere autenticato per creare una prenotazione.');
+      throw AuthException(
+        'Devi essere autenticato per creare una prenotazione.',
+      );
     }
 
-    // Normalizziamo la data a "YYYY-MM-DD"
-    final bookingDateStr = bookingDate.toIso8601String().split('T').first;
+    // Normalizziamo le date a "solo giorno"
+    final startDay = DateTime(
+      bookingDate.year,
+      bookingDate.month,
+      bookingDate.day,
+    );
+
+    final endDayRaw = endDate ?? bookingDate;
+    final endDay = DateTime(endDayRaw.year, endDayRaw.month, endDayRaw.day);
 
     await client.from('partner_bookings').insert({
       'partner_id': partnerId,
@@ -78,7 +89,8 @@ class PartnerBookingRepo {
       'bags_l': bagsL,
       'notes': notes,
       // nuovi campi per lo scheduling
-      'booking_date': bookingDateStr,
+      'booking_date': startDay.toIso8601String(),
+      'end_date': endDay.toIso8601String(),
       'start_time': startTime,
       'end_time': endTime,
       // status default: 'confirmed' come da migration
@@ -89,7 +101,9 @@ class PartnerBookingRepo {
   Future<List<PartnerBooking>> getMyBookings() async {
     final userId = client.auth.currentUser?.id;
     if (userId == null) {
-      throw AuthException('Devi essere autenticato per vedere le tue prenotazioni.');
+      throw AuthException(
+        'Devi essere autenticato per vedere le tue prenotazioni.',
+      );
     }
 
     final data = await client
@@ -200,6 +214,8 @@ class PartnerBookingRepo {
   Future<PartnerAvailability> getPartnerAvailabilityForInterval({
     required String partnerId,
     required DateTime bookingDate,
+    required DateTime startDate,
+    required DateTime endDate,
     required String startTime,
     required String endTime,
   }) async {
@@ -224,21 +240,97 @@ class PartnerBookingRepo {
 
     final bookingDateStr = bookingDate.toIso8601String().split('T').first;
 
+
+      // 1) Intervallo richiesto dal nuovo booking
+    final DateTime requestStart = DateTime(
+      startDate.year,
+      startDate.month,
+      startDate.day,
+      _parseHour(startTime),
+      _parseMinute(startTime),
+    );
+
+    final DateTime requestEnd = DateTime(
+      endDate.year,
+      endDate.month,
+      endDate.day,
+      _parseHour(endTime),
+      _parseMinute(endTime),
+    );
+
+    // 2) Leggiamo tutte le prenotazioni non cancellate per quel partner.
+    //    Se vuoi ottimizzare puoi filtrare per date, ma per semplicità:
+    final rows = await client
+        .from('partner_bookings')
+        .select(
+          'booking_date,end_date,start_time,end_time,bags_s,bags_m,bags_l,status',
+        )
+        .eq('partner_id', partnerId)
+        .neq('status', 'cancelled');
+
+    int usedS = 0;
+    int usedM = 0;
+    int usedL = 0;
+
+    for (final raw in rows) {
+      final map = raw as Map<String, dynamic>;
+
+      final DateTime bookingStartDay =
+          DateTime.parse(map['booking_date'] as String);
+      final DateTime bookingEndDay = map['end_date'] == null
+          ? bookingStartDay
+          : DateTime.parse(map['end_date'] as String);
+
+      final String bStart = map['start_time'] as String;
+      final String bEnd = map['end_time'] as String;
+
+      final bookingStart = DateTime(
+        bookingStartDay.year,
+        bookingStartDay.month,
+        bookingStartDay.day,
+        _parseHour(bStart),
+        _parseMinute(bStart),
+      );
+      final bookingEnd = DateTime(
+        bookingEndDay.year,
+        bookingEndDay.month,
+        bookingEndDay.day,
+        _parseHour(bEnd),
+        _parseMinute(bEnd),
+      );
+
+      // Se non c'è overlap tra [bookingStart, bookingEnd) e [requestStart, requestEnd),
+      // la prenotazione non occupa capacità nello slot richiesto.
+      if (!_intervalsOverlap(bookingStart, bookingEnd, requestStart, requestEnd)) {
+        continue;
+      }
+
+      usedS += (map['bags_s'] as int? ?? 0);
+      usedM += (map['bags_m'] as int? ?? 0);
+      usedL += (map['bags_l'] as int? ?? 0);
+    }
+
+    // 3) Qui usi la tua logica attuale per costruire il PartnerAvailability
+    //    usando capacityS/capacityM/capacityL letti dal partner + usedS/M/L.
+
+
+
+
+
+
     // 2) Prenotazioni che si sovrappongono all'intervallo
     //
     // Condizione di overlap: start_time < endTime AND end_time > startTime
     final bookingsData = await client
         .from('partner_bookings')
-        .select('bags_s, bags_m, bags_l, status, booking_date, start_time, end_time')
+        .select(
+          'bags_s, bags_m, bags_l, status, booking_date, start_time, end_time',
+        )
         .eq('partner_id', partnerId)
         .eq('booking_date', bookingDateStr)
         .neq('status', 'cancelled')
         .lt('start_time', endTime)
         .gt('end_time', startTime);
-
-    int usedS = 0;
-    int usedM = 0;
-    int usedL = 0;
 
     for (final row in bookingsData as List) {
       usedS += (row['bags_s'] as int?) ?? 0;
@@ -278,7 +370,9 @@ class PartnerBookingRepo {
   Future<bool> hasBookingForPartnerToday(String partnerId) async {
     final userId = client.auth.currentUser?.id;
     if (userId == null) {
-      throw AuthException('Devi essere autenticato per creare una prenotazione.');
+      throw AuthException(
+        'Devi essere autenticato per creare una prenotazione.',
+      );
     }
 
     final nowUtc = DateTime.now().toUtc();
@@ -315,10 +409,56 @@ class PartnerBookingRepo {
         .limit(1);
 
     final list = data as List;
-    return list.isNotEmpty;
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    final rows = await client
+        .from('partner_bookings')
+        .select('booking_date, end_date, status')
+        .eq('partner_id', partnerId)
+        .neq('status', 'cancelled');
+
+    for (final raw in rows) {
+      final map = raw as Map<String, dynamic>;
+
+      final DateTime startDay = DateTime.parse(map['booking_date'] as String);
+      final DateTime endDay = map['end_date'] == null
+          ? startDay
+          : DateTime.parse(map['end_date'] as String);
+
+      // Se l'intervallo [startDay, endDay] ha almeno un giorno >= oggi,
+      // la consideriamo "futura/attiva".
+      if (!endDay.isBefore(today)) {
+        return true;
+      }
+    }
+
+    return false;
+
   }
 
 
+    int _parseHour(String hhmm) {
+    final parts = hhmm.split(':');
+    if (parts.isEmpty) return 0;
+    return int.tryParse(parts[0]) ?? 0;
+  }
+
+  int _parseMinute(String hhmm) {
+    final parts = hhmm.split(':');
+    if (parts.length < 2) return 0;
+    return int.tryParse(parts[1]) ?? 0;
+  }
+
+  bool _intervalsOverlap(
+    DateTime aStart,
+    DateTime aEnd,
+    DateTime bStart,
+    DateTime bEnd,
+  ) {
+    // [aStart, aEnd) e [bStart, bEnd) si sovrappongono se:
+    return aStart.isBefore(bEnd) && bStart.isBefore(aEnd);
+  }
+
 }
-
-

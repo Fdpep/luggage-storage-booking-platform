@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import 'package:BagDrop/config/bagdrop_pricing.dart';
 import 'package:BagDrop/models/partner.dart';
 import 'package:BagDrop/models/partner_photo.dart';
 import 'package:BagDrop/services/supabase/partner_photo/partner_photo_repo.dart';
@@ -89,9 +89,18 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
     }
   }
 
-  String _formatPrice(double? value, String label) {
-    if (value == null) return '';
-    return '$label ${value.toStringAsFixed(2)} €';
+  /// Restituisce la stringa breve per il prezzo "3h da X €"
+  /// usando il listino globale (qui prendiamo come riferimento la taglia M).
+  String _shortPrice3h() {
+    if (BagDropPricing.m3h <= 0) return '';
+    return '3h da ${BagDropPricing.formatEuro(BagDropPricing.m3h)}';
+  }
+
+  /// Restituisce la stringa breve per il prezzo "Giorno da X €"
+  /// usando il listino globale (sempre taglia M come base).
+  String _shortPriceDay() {
+    if (BagDropPricing.m1d <= 0) return '';
+    return 'Giorno da ${BagDropPricing.formatEuro(BagDropPricing.m1d)}';
   }
 
   Widget _buildPhotoSection(ColorScheme cs) {
@@ -139,7 +148,7 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
                       child: CircularProgressIndicator(
                         value: progress.expectedTotalBytes != null
                             ? progress.cumulativeBytesLoaded /
-                                (progress.expectedTotalBytes ?? 1)
+                                  (progress.expectedTotalBytes ?? 1)
                             : null,
                       ),
                     );
@@ -243,9 +252,7 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
       }
 
       for (final d in _dayOrder) {
-        result[d] = intervals
-            .map((i) => Map<String, dynamic>.from(i))
-            .toList();
+        result[d] = intervals.map((i) => Map<String, dynamic>.from(i)).toList();
       }
       return result;
     }
@@ -279,7 +286,6 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
     return '$dd/$mm/$yyyy';
   }
 
-
   Widget _buildOpeningHours(ThemeData theme) {
     final opening = widget.partner.openingHours;
     if (opening == null || opening.isEmpty) {
@@ -306,12 +312,14 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
           if (intervals.isEmpty) {
             value = 'Chiuso';
           } else {
-            value = intervals.map((i) {
-              final o = (i['open'] ?? '').toString();
-              final c = (i['close'] ?? '').toString();
-              if (o.isEmpty || c.isEmpty) return '-';
-              return '$o - $c';
-            }).join('  /  ');
+            value = intervals
+                .map((i) {
+                  final o = (i['open'] ?? '').toString();
+                  final c = (i['close'] ?? '').toString();
+                  if (o.isEmpty || c.isEmpty) return '-';
+                  return '$o - $c';
+                })
+                .join('  /  ');
           }
 
           return Padding(
@@ -323,18 +331,11 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
                   width: 95,
                   child: Text(
                     label,
-                    style: tt.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+                    style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
                   ),
                 ),
                 const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    value,
-                    style: tt.bodyMedium,
-                  ),
-                ),
+                Expanded(child: Text(value, style: tt.bodyMedium)),
               ],
             ),
           );
@@ -351,10 +352,7 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
         if (closedDates.isEmpty)
           Text('No', style: tt.bodyMedium)
         else
-          Text(
-            closedDates.map(_formatDate).join(', '),
-            style: tt.bodyMedium,
-          ),
+          Text(closedDates.map(_formatDate).join(', '), style: tt.bodyMedium),
 
         const SizedBox(height: 8),
 
@@ -408,9 +406,9 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final textTheme = theme.textTheme;
-
-    final price2h = _formatPrice(partner.price2h, '2h da');
-    final pricePerDay = _formatPrice(partner.pricePerDay, 'Giorno da');
+    // Prezzi globali BagDrop (non più letti dal partner)
+    final price3h = _shortPrice3h();
+    final priceDay = _shortPriceDay();
 
     return Scaffold(
       appBar: AppBar(title: Text(partner.name)),
@@ -439,17 +437,18 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
               const SizedBox(height: 12),
 
               // Prezzi
+              // Prezzi (da listino globale BagDrop)
               Row(
                 children: [
-                  if (price2h.isNotEmpty)
+                  if (price3h.isNotEmpty)
                     Text(
-                      price2h,
+                      price3h,
                       style: textTheme.titleMedium?.copyWith(color: cs.primary),
                     ),
-                  if (price2h.isNotEmpty && pricePerDay.isNotEmpty)
+                  if (price3h.isNotEmpty && priceDay.isNotEmpty)
                     const SizedBox(width: 16),
-                  if (pricePerDay.isNotEmpty)
-                    Text(pricePerDay, style: textTheme.titleMedium),
+                  if (priceDay.isNotEmpty)
+                    Text(priceDay, style: textTheme.titleMedium),
                 ],
               ),
 
@@ -500,8 +499,9 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
                   final capL = partner.capacityL;
 
                   final totalFromSizes = capS + capM + capL;
-                  final effectiveTotal =
-                      totalFromSizes > 0 ? totalFromSizes : partner.capacity;
+                  final effectiveTotal = totalFromSizes > 0
+                      ? totalFromSizes
+                      : partner.capacity;
 
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -513,12 +513,20 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
                       const SizedBox(height: 4),
                       if (totalFromSizes > 0) ...[
                         if (capS > 0)
-                          Text('• Small (S): $capS', style: textTheme.bodySmall),
+                          Text(
+                            '• Small (S): $capS',
+                            style: textTheme.bodySmall,
+                          ),
                         if (capM > 0)
-                          Text('• Medium (M): $capM',
-                              style: textTheme.bodySmall),
+                          Text(
+                            '• Medium (M): $capM',
+                            style: textTheme.bodySmall,
+                          ),
                         if (capL > 0)
-                          Text('• Large (L): $capL', style: textTheme.bodySmall),
+                          Text(
+                            '• Large (L): $capL',
+                            style: textTheme.bodySmall,
+                          ),
                       ],
                     ],
                   );

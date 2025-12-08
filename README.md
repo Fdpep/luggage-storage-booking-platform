@@ -22,7 +22,13 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
   - eventuali **chiusure straordinarie / aperture straordinarie**
   - posizione su mappa
 - **Flusso di prenotazione deposito bagagli presso un partner**, con:
-  - step guidati (Contatto → Bagagli → Riepilogo)
+  - step guidati (**Contatto → Data e orario → Bagagli → Riepilogo**)
+  - scelta della **modalità di durata**:
+    - 3 ore veloci
+    - durata personalizzata (fino a più giorni, incluso il caso “giorno e mezzo”)
+  - selezione:
+    - data/ora di **consegna** dei bagagli
+    - data/ora di **ritiro** dei bagagli
   - inserimento:
     - nome, cognome, telefono, email, note
     - bagagli per taglia **S / M / L**
@@ -31,12 +37,15 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
     - riferimento al partner (`partner_id`)
     - dati di contatto “fotografati” (anche se l’utente cambia profilo in futuro)
     - numero di bagagli S/M/L
+    - **data/ora di consegna** (`booking_date`, `start_time`)
+    - **data/ora di ritiro** (`end_date`, `end_time`)
     - timestamp di creazione (`created_at`)
 - **Schermata “Le mie prenotazioni”**:
   - tab dedicata nella home utente
   - lista delle prenotazioni con:
     - stato (confirmed/pending/cancelled)
     - data di creazione
+    - **data/ora di consegna e ritiro**
     - **nome attività (partner)** caricato da `PartnerRepo.getPartnerById(...)`
     - totale bagagli
   - tap su una prenotazione → apre:
@@ -56,7 +65,8 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
     - l’eliminazione viene eseguita **solo se non esistono prenotazioni attive** collegate a quell’utente
     - dopo la cancellazione viene eseguito `auth.signOut()` lato client
 
-> N.B.: **Data/orario di deposito, slot orari e pagamento online** sono pianificati come estensioni future. Al momento le prenotazioni non hanno ancora `booking_date`, `start_time`, `end_time` in tabella: si lavora solo con il `created_at`.
+> N.B.: la logica di slot orari è per ora **semplificata**: esiste una gestione base di data/ora di consegna/ritiro e il blocco modifiche per prenotazioni future, ma non è ancora presente un motore avanzato di disponibilità per singolo intervallo né il pagamento online.
+
 
 ---
 
@@ -127,13 +137,18 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
     - nome e cognome del contatto
     - telefono, email
     - data di creazione
+    - **data/ora di consegna e ritiro**
     - totale bagagli + dettaglio S/M/L
     - note
     - stato (confirmed / pending / cancelled)
 
 - **Blocco modifiche orari/capacità con prenotazioni future**:
 
+- **Blocco modifiche orari/capacità con prenotazioni future**:
+
   - `PartnerEditScreen` usa `PartnerBookingRepo.hasActiveFutureBookingsForPartner(partner.id)`
+  - la funzione considera le prenotazioni con **fine prenotazione nel futuro**
+    (in base a `end_date` / `end_time`)
   - se esistono prenotazioni future attive:
     - la sezione orari + capacità viene resa non interattiva (opacità + IgnorePointer)
     - viene mostrato un messaggio informativo
@@ -235,14 +250,16 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
 
     notes text,
 
-    -- in futuro: fasce orarie / giorni
-    -- booking_date date,
-    -- start_time   time,
-    -- end_time     time,
+    -- nuova gestione fasce orarie / giorni
+    booking_date date,   -- giorno di consegna
+    start_time   time,   -- orario di consegna
+    end_date     date,   -- giorno di ritiro
+    end_time     time,   -- orario di ritiro
 
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
   );
+
 ````
 
 > ⚠️ Al momento gli orari/slot sono solo **previsti** (commento in migration). Il sistema gestisce prenotazioni “semplici” senza logica di overlap per fascia oraria.
@@ -371,34 +388,38 @@ lib/
 
 ## 🧳 schermate/user/bookings/
 
-* `user_bookings_page.dart`:
-
-  * carica le prenotazioni utente via `PartnerBookingRepo.getMyBookings()`
+ * carica le prenotazioni utente via `PartnerBookingRepo.getMyBookings()`
   * mostra card con:
-
     * stato (chip colorato)
     * data di creazione
+    * **data/ora di consegna e ritiro**
     * nome partner (caricato da `PartnerRepo.getPartnerById`)
     * numero totale bagagli
+
 * `booking_partner_detail_screen.dart`:
 
   * simile a `partner_detail_screen.dart` ma contestualizzata alla prenotazione
   * mostra:
-
-    * foto, descrizione, prezzi
+    * foto, descrizione, prezzi di riferimento del partner
     * **orari di apertura (weekly_v1 + eccezioni)**
     * regole, contatti, mappa
+    * **riassunto della prenotazione corrente**:
+      * data/ora di consegna
+      * data/ora di ritiro
+      * numero bagagli per taglia
+      * eventuale prezzo totale calcolato (dal modello di pricing globale)
   * bottoni in basso:
-
     * “Riepilogo” (apre `BookingRecapScreen`)
     * “QR code” (placeholder)
+
 * `booking_recap_screen.dart`:
 
-  * riepilogo statico:
-
+  * riepilogo statico della prenotazione:
     * dati partner
     * contatto (nome, email, telefono)
     * bagagli totali e per taglia
+    * **data/ora di consegna e ritiro**
+    * eventuale **prezzo totale** (calcolato lato client in base a durata e numero di bagagli)
     * note
 
 ## 🏬 schermate/partner/user_view/
@@ -432,15 +453,43 @@ lib/
   * stepper (UI) per prenotazione:
 
     1. Dati di contatto
-    2. Bagagli (S/M/L)
-    3. Riepilogo finale
-  * valida:
+    2. Data e orario
+    3. Bagagli (S/M/L)
+    4. Riepilogo finale
 
+  * **Step data e orario**:
+    * due modalità:
+      * **3 ore**: l’utente sceglie giorno + orario di consegna, il ritiro viene impostato automaticamente a +3h (stesso giorno, compatibilmente con gli orari del locale)
+      * **durata personalizzata**: l’utente sceglie giorno/ora di consegna e giorno/ora di ritiro (anche su più giorni, es. “giorno e mezzo”)
+    * il riepilogo mostra sempre:
+      * “Consegna: data · ora”
+      * “Ritiro: data · ora”
+
+  * valida:
     * nome/cognome
     * email (contiene `@`)
     * telefono (solo cifre, lunghezza minima)
     * almeno un bagaglio
-  * alla conferma crea record in `partner_bookings` via `PartnerBookingRepo.createBooking(...)`.
+    * coerenza tra data/ora di consegna e ritiro (ritiro > consegna)
+
+  * **Pricing (base)**:
+    * usa una configurazione globale `BagDropPricing` (non personalizzabile per partner) con tariffe per:
+      * taglia **S/M/L**
+      * durata (3h, 1 giorno, 1.5 giorni, 2 giorni, 3 giorni, …)
+    * il totale è calcolato lato client in base a:
+      * durata selezionata
+      * numero di bagagli per taglia
+    * il riepilogo mostra:
+      * dettaglio per taglia (es. “2× S • 1× M”)
+      * durata
+      * **prezzo totale stimato**
+
+  * alla conferma crea record in `partner_bookings` via `PartnerBookingRepo.createBooking(...)` compilando:
+    * `booking_date`, `start_time` (consegna)
+    * `end_date`, `end_time` (ritiro)
+    * dati di contatto
+    * S/M/L
+    * note
 
 ## ✏️ schermate/partner/dashboard/edit/partner_edit_screen.dart
 
@@ -584,26 +633,33 @@ lib/
 
 1. L’utente apre la **scheda partner** (`PartnerDetailScreen`) dalla mappa.
 2. Clicca **“Prenota ora”** → `BookingFlowScreen`.
-3. Step 1:
-
+3. Step 1 – Contatto:
    * inserisce nome, cognome, email, telefono, note.
-4. Step 2:
-
+4. Step 2 – Data e orario:
+   * sceglie:
+     * modalità **3 ore** (con ritiro auto-calcolato sullo stesso giorno)
+     * oppure **durata personalizzata** (giorno/ora di consegna e giorno/ora di ritiro, anche su più giorni).
+5. Step 3 – Bagagli:
    * seleziona numero di bagagli S/M/L (almeno 1 in totale).
-5. Step 3:
+6. Step 4 – Riepilogo:
+   * vede un riepilogo completo con:
+     * partner
+     * contatto
+     * bagagli
+     * **data/ora di consegna e ritiro**
+     * durata
+     * **prezzo totale stimato** in base alla configurazione globale di pricing.
+7. Conferma:
+   * viene creato il record in `partner_bookings` con:
+     * `booking_date`, `start_time`
+     * `end_date`, `end_time`
+     * contatto + S/M/L + note.
+8. Lato utente:
+   * in “Le mie prenotazioni” vede tutte le prenotazioni create, con data/ora e stato.
+9. Lato partner:
+   * in “Prenotazioni” vede tutte le prenotazioni ricevute con data/ora di consegna/ritiro.
 
-   * vede un riepilogo (partner, contatto, bagagli, note).
-6. Conferma:
-
-   * viene creato il record in `partner_bookings`.
-7. Lato utente:
-
-   * in “Le mie prenotazioni” vede tutte le prenotazioni create.
-8. Lato partner:
-
-   * in “Prenotazioni” vede tutte le prenotazioni ricevute.
-
-> Al momento **non esiste ancora la logica di slot giornalieri/orari** né database di `booking_date`, `start_time`, `end_time`. Questi campi sono commentati in migration e previsti per la versione successiva del sistema di prenotazione.
+> La logica di disponibilità per fascia oraria è per ora **di base**: le date/ore sono memorizzate e usate per bloccare modifiche future, ma l’algoritmo di overlap e slot avanzati verrà introdotto in una fase successiva.
 
 ---
 
@@ -618,13 +674,21 @@ lib/
 * ✔ Storage foto partner
 * ✔ Mappa utente con partner reali
 * ✔ AdminShell base
-* ✔ Flusso prenotazione base:
+* ✔ Flusso prenotazione con slot base:
 
-  * BookingFlowScreen lato utente (dati contatto + bagagli S/M/L)
-  * creazione record in `partner_bookings`
-  * PrenotazioniPage lato partner (lista prenotazioni)
+  * `BookingFlowScreen` lato utente:
+    * Step: Contatto → Data e orario → Bagagli S/M/L → Riepilogo
+    * selezione giorno/ora di consegna e ritiro (3h o durata personalizzata)
+    * calcolo prezzo stimato tramite configurazione globale `BagDropPricing`
+  * creazione record in `partner_bookings` con:
+    * dati contatto
+    * S/M/L
+    * note
+    * `booking_date`, `start_time`, `end_date`, `end_time`
+  * `PrenotazioniPage` lato partner (lista prenotazioni con date/ore)
   * Tab “Le mie prenotazioni” lato utente
-  * BookingPartnerDetailScreen + BookingRecapScreen
+  * `BookingPartnerDetailScreen` + `BookingRecapScreen` con riepilogo completo (inclusa data/ora e prezzo)
+
 * ✔ Nuovi orari partner:
 
   * editor settimanale `weekly_v1` con eccezioni (chiusure/aperture straordinarie)
@@ -640,19 +704,21 @@ lib/
 
 ## 1️⃣ Sistema Prenotazioni (evoluzione)
 
-* Aggiunta di:
+* Evoluzione del motore di slot orari a partire da `opening_hours`:
+  * generazione automatica degli slot prenotabili in base alle fasce di apertura (mattina/pomeriggio)
+  * vincoli più rigidi su prenotazioni che sconfinano vicino alla chiusura
+* Calcolo disponibilità **per intervallo**:
+  * gestione overlap avanzata tra prenotazioni sullo stesso giorno e fascia oraria
+  * utilizzo di `booking_date` / `end_date` e `start_time` / `end_time` per la capacità residua effettiva
+* UI migliorata per mostrare in modo chiaro:
+  * data + fascia oraria in:
+    * riepilogo
+    * lista “Le mie prenotazioni”
+    * lista prenotazioni partner
+* Possibile estensione del modello di pricing:
+  * tariffe differenziate per alta/bassa stagione
+  * eventuali sovrapprezzi per notte o orari “speciali”.
 
-  * `booking_date`
-  * `start_time` / `end_time`
-* Slot orari generati dinamicamente in base a `opening_hours` (mattina/pomeriggio).
-* Calcolo disponibilità **per intervallo** (non solo globale).
-* UI migliorata per mostrare:
-
-  * data + fascia oraria in modo evidente:
-
-    * in riepilogo
-    * in lista “Le mie prenotazioni”
-    * in lista prenotazioni partner
 
 ## 2️⃣ QR Code
 

@@ -28,8 +28,6 @@ class SchermataVerifyOtp extends StatefulWidget {
   final int? partnerCapacityM;
   final int? partnerCapacityL;
 
-  final double? partnerPrice2h;
-  final double? partnerPricePerDay;
   final String? partnerMessage;
   final double? partnerLat;
   final double? partnerLng;
@@ -45,8 +43,6 @@ class SchermataVerifyOtp extends StatefulWidget {
     this.partnerCapacityS,
     this.partnerCapacityM,
     this.partnerCapacityL,
-    this.partnerPrice2h,
-    this.partnerPricePerDay,
     this.partnerMessage,
     this.partnerLat,
     this.partnerLng,
@@ -178,11 +174,6 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
         final int sumFromSizes = capacityS + capacityM + capacityL;
         final int totalCapacity =
             sumFromSizes > 0 ? sumFromSizes : legacyCapacity;
-
-        final double? price2h = widget.partnerPrice2h ??
-            (partnerSignup?['price2h'] as num?)?.toDouble();
-        final double? pricePerDay = widget.partnerPricePerDay ??
-            (partnerSignup?['pricePerDay'] as num?)?.toDouble();
         final String? message =
             widget.partnerMessage ?? partnerSignup?['message'] as String?;
         final double? lat = widget.partnerLat ??
@@ -218,8 +209,6 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
           capacityS: capacityS,
           capacityM: capacityM,
           capacityL: capacityL,
-          price2h: price2h,
-          pricePerDay: pricePerDay,
           message: message,
           lat: lat,
           lng: lng,

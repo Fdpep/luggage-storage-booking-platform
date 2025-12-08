@@ -5,6 +5,7 @@ import 'package:BagDrop/models/partner.dart';
 import 'package:BagDrop/models/partner_booking.dart';
 import 'package:BagDrop/models/partner_photo.dart';
 import 'package:BagDrop/services/supabase/partner_photo/partner_photo_repo.dart';
+import 'package:BagDrop/config/bagdrop_pricing.dart';
 
 import 'booking_recap_screen.dart';
 
@@ -54,9 +55,16 @@ class _BookingPartnerDetailScreenState
     }
   }
 
-  String _formatPrice(double? value, String label) {
-    if (value == null) return '';
-    return '$label ${value.toStringAsFixed(2)} €';
+  /// Prezzo "3h da X €" dal listino globale (taglia M come riferimento).
+  String _shortPrice3h() {
+    if (BagDropPricing.m3h <= 0) return '';
+    return '3h da ${BagDropPricing.formatEuro(BagDropPricing.m3h)}';
+  }
+
+  /// Prezzo "Giorno da X €" dal listino globale (taglia M).
+  String _shortPriceDay() {
+    if (BagDropPricing.m1d <= 0) return '';
+    return 'Giorno da ${BagDropPricing.formatEuro(BagDropPricing.m1d)}';
   }
 
   Widget _buildPhotoSection(ColorScheme cs) {
@@ -103,7 +111,7 @@ class _BookingPartnerDetailScreenState
                       child: CircularProgressIndicator(
                         value: progress.expectedTotalBytes != null
                             ? progress.cumulativeBytesLoaded /
-                                (progress.expectedTotalBytes ?? 1)
+                                  (progress.expectedTotalBytes ?? 1)
                             : null,
                       ),
                     );
@@ -168,7 +176,6 @@ class _BookingPartnerDetailScreenState
       ),
     );
   }
-
 
   Widget _buildOpeningHours(ThemeData theme) {
     final opening = widget.partner.openingHours;
@@ -243,10 +250,7 @@ class _BookingPartnerDetailScreenState
           final list = opening[dayKey] as List<dynamic>? ?? const [];
 
           if (list.isEmpty) {
-            return Text(
-              '$label: chiuso',
-              style: theme.textTheme.bodyMedium,
-            );
+            return Text('$label: chiuso', style: theme.textTheme.bodyMedium);
           }
 
           final intervals = list
@@ -254,10 +258,7 @@ class _BookingPartnerDetailScreenState
               .map(formatInterval)
               .join('  •  ');
 
-          return Text(
-            '$label: $intervals',
-            style: theme.textTheme.bodyMedium,
-          );
+          return Text('$label: $intervals', style: theme.textTheme.bodyMedium);
         }).toList(),
       );
     }
@@ -308,7 +309,6 @@ class _BookingPartnerDetailScreenState
     );
   }
 
-
   @override
   Widget build(BuildContext context) {
     final partner = widget.partner;
@@ -317,9 +317,9 @@ class _BookingPartnerDetailScreenState
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final textTheme = theme.textTheme;
-
-    final price2h = _formatPrice(partner.price2h, '2h da');
-    final pricePerDay = _formatPrice(partner.pricePerDay, 'Giorno da');
+    // Prezzi globali BagDrop (non più letti dal partner)
+    final price3h = _shortPrice3h();
+    final priceDay = _shortPriceDay();
 
     return Scaffold(
       appBar: AppBar(
@@ -329,9 +329,7 @@ class _BookingPartnerDetailScreenState
           children: [
             Text(
               partner.name,
-              style: const TextStyle(
-                fontWeight: FontWeight.w600,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 2),
             Text(
@@ -360,27 +358,25 @@ class _BookingPartnerDetailScreenState
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              if (partner.address != null &&
-                  partner.address!.trim().isNotEmpty)
+              if (partner.address != null && partner.address!.trim().isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 4.0),
                   child: Text(partner.address!, style: textTheme.bodyMedium),
                 ),
 
               const SizedBox(height: 12),
-
-              // Prezzi
+              // Prezzi (da listino globale BagDrop)
               Row(
                 children: [
-                  if (price2h.isNotEmpty)
+                  if (price3h.isNotEmpty)
                     Text(
-                      price2h,
+                      price3h,
                       style: textTheme.titleMedium?.copyWith(color: cs.primary),
                     ),
-                  if (price2h.isNotEmpty && pricePerDay.isNotEmpty)
+                  if (price3h.isNotEmpty && priceDay.isNotEmpty)
                     const SizedBox(width: 16),
-                  if (pricePerDay.isNotEmpty)
-                    Text(pricePerDay, style: textTheme.titleMedium),
+                  if (priceDay.isNotEmpty)
+                    Text(priceDay, style: textTheme.titleMedium),
                 ],
               ),
 
@@ -405,7 +401,6 @@ class _BookingPartnerDetailScreenState
               const SizedBox(height: 4),
               _buildOpeningHours(theme),
 
-
               const SizedBox(height: 16),
               const Divider(),
 
@@ -425,14 +420,11 @@ class _BookingPartnerDetailScreenState
               // Contatti
               Text('Contatti', style: textTheme.titleMedium),
               const SizedBox(height: 4),
-              if (partner.phone != null &&
-                  partner.phone!.trim().isNotEmpty)
-                Text('Telefono: ${partner.phone}',
-                    style: textTheme.bodyMedium)
+              if (partner.phone != null && partner.phone!.trim().isNotEmpty)
+                Text('Telefono: ${partner.phone}', style: textTheme.bodyMedium)
               else
                 Text('Telefono non disponibile.', style: textTheme.bodyMedium),
-              if (partner.address != null &&
-                  partner.address!.trim().isNotEmpty)
+              if (partner.address != null && partner.address!.trim().isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 4.0),
                   child: Text(

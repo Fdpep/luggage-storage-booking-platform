@@ -16,12 +16,13 @@ class PartnerBooking {
   final String? notes;
 
   /// Nuovi campi per data + orari della prenotazione
-  final DateTime bookingDate;   // solo data (00:00)
-  final String startTime;       // "HH:MM:SS" (come arriva da Supabase)
-  final String endTime;         // "HH:MM:SS"
+  final DateTime bookingDate; // solo data (00:00)
+  final String startTime; // "HH:MM:SS" (come arriva da Supabase)
+  final String endTime; // "HH:MM:SS"
 
   final DateTime createdAt;
   final DateTime updatedAt;
+  final DateTime? endDate;
 
   PartnerBooking({
     required this.id,
@@ -41,6 +42,7 @@ class PartnerBooking {
     required this.startTime,
     required this.endTime,
     this.notes,
+    this.endDate,
   });
 
   factory PartnerBooking.fromMap(Map<String, dynamic> map) {
@@ -60,6 +62,9 @@ class PartnerBooking {
 
       // nuovi campi:
       bookingDate: DateTime.parse(map['booking_date'] as String),
+      endDate: map['end_date'] == null
+          ? null
+          : DateTime.parse(map['end_date'] as String),
       startTime: map['start_time'] as String,
       endTime: map['end_time'] as String,
 
@@ -67,5 +72,4 @@ class PartnerBooking {
       updatedAt: DateTime.parse(map['updated_at'] as String),
     );
   }
-
 }

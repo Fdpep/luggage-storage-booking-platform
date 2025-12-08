@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-
+import 'package:BagDrop/config/bagdrop_pricing.dart';
 import '../../models/partner.dart'; // adatta il path se usi import assoluti
 import '../../services/supabase/location/location_service.dart'; // nuovo servizio
 import '../../services/supabase/maps/map_geocoding_service.dart';
@@ -610,11 +610,16 @@ class _PartnerBottomCardState extends State<_PartnerBottomCard> {
     }
   }
 
-  /// Helper per formattare i prezzi se presenti
-  String _formatPrice(double? value, String label) {
-    if (value == null) return '';
-    // In futuro potrai internazionalizzare/format tare meglio con intl
-    return '$label ${value.toStringAsFixed(2)} €';
+  /// Prezzo breve "3h da X €" dal listino globale BagDrop.
+  String _shortPrice3h() {
+    if (BagDropPricing.m3h <= 0) return '';
+    return '3h da ${BagDropPricing.formatEuro(BagDropPricing.m3h)}';
+  }
+
+  /// Prezzo breve "Giorno da X €" dal listino globale BagDrop.
+  String _shortPriceDay() {
+    if (BagDropPricing.m1d <= 0) return '';
+    return 'Giorno da ${BagDropPricing.formatEuro(BagDropPricing.m1d)}';
   }
 
   /// Widget che mostra:
@@ -761,8 +766,8 @@ class _PartnerBottomCardState extends State<_PartnerBottomCard> {
     final textTheme = Theme.of(context).textTheme;
     final partner = widget.partner;
     final isOpen = _isOpenNow(partner);
-    final price2h = _formatPrice(partner.price2h, '2h da');
-    final pricePerDay = _formatPrice(partner.pricePerDay, 'Giorno da');
+    final price3h = _shortPrice3h();
+    final priceDay = _shortPriceDay();
 
     return Positioned(
       left: 0,
@@ -845,22 +850,22 @@ class _PartnerBottomCardState extends State<_PartnerBottomCard> {
 
                           const SizedBox(height: 8),
 
-                          // Prezzi → Wrap per evitare overflow
+                          // Prezzi → presi dal listino globale BagDrop
                           Wrap(
                             spacing: 8,
                             runSpacing: 4,
                             crossAxisAlignment: WrapCrossAlignment.center,
                             children: [
-                              if (price2h.isNotEmpty)
+                              if (price3h.isNotEmpty)
                                 Text(
-                                  price2h,
+                                  price3h,
                                   style: textTheme.bodyMedium?.copyWith(
                                     color: cs.primary,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                              if (pricePerDay.isNotEmpty)
-                                Text(pricePerDay, style: textTheme.bodyMedium),
+                              if (priceDay.isNotEmpty)
+                                Text(priceDay, style: textTheme.bodyMedium),
                             ],
                           ),
                         ],

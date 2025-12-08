@@ -51,9 +51,11 @@ class DashboardPage extends StatelessWidget {
           ElevatedButton.icon(
             onPressed: () {
               Navigator.of(context)
-                  .push(MaterialPageRoute(
-                    builder: (_) => const PartnerRegistrationScreen(),
-                  ))
+                  .push(
+                    MaterialPageRoute(
+                      builder: (_) => const PartnerRegistrationScreen(),
+                    ),
+                  )
                   .then((_) => onPartnerChanged());
             },
             icon: const Icon(Icons.business),
@@ -79,8 +81,7 @@ class DashboardPage extends StatelessWidget {
         Row(
           children: [
             Expanded(child: _infoTile("Capacità", "${p.capacity}")),
-            Expanded(child: _infoTile("€ / 2h", p.price2h?.toStringAsFixed(2) ?? "-")),
-            Expanded(child: _infoTile("€/giorno", p.pricePerDay?.toStringAsFixed(2) ?? "-")),
+            Expanded(child: _infoTile("Tariffe", "Listino BagDrop")),
           ],
         ),
 
@@ -105,9 +106,15 @@ class DashboardPage extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         child: Column(
           children: [
-            Text(label, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: Colors.black54),
+            ),
             const SizedBox(height: 6),
-            Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Text(
+              value,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
           ],
         ),
       ),
