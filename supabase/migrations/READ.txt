@@ -2,3 +2,11 @@ Qui in migrations , avremo i file di report del database , che andranno copiati 
 In pratica è la struttura del database , con triggher e RDL Policy.
 
 Per ogni tabella creare un file migrations con formato "Year-month-day_name.sql".
+
+
+----NOTA IMPORTANTE----
+
+Nel file full_schema.sql , c'è lo schema attuale del database ,per tener traccia delle vecchie migrazioni abbiamo sempre i file,
+ma cosi è più facile gestire e riprendere eventuali policy che non abbiamo scritto o altre modifiche.
+
+Adesso le altre migrations le mettiamo in "NuoveMigrazioni" , inseriamo ogni modifica segnata bene nel database.
