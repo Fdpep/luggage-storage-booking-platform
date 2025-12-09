@@ -83,6 +83,42 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
   - Spazi (placeholder)
   - Profilo partner
 
+- **Onboarding partner a step (wizard)**
+
+  - `PartnerSignUpScreen` (utente non loggato) e `PartnerRegistrationScreen` (utente già loggato) sono ora strutturati a step:
+    - **Account** (solo signup)
+    - **Dati attività + indirizzo**
+    - **Capacità bagagli**
+  - Nello step “Capacità bagagli”:
+    - il partner dichiara lo **spazio generale** in termini di **bagagli M** (es. “posso tenere 10 M”)
+    - il sistema calcola automaticamente lo spazio equivalente:
+      - `1 M = 2 S = 0.5 L`
+      - da cui si ricava:
+        - `S_base = M * 2`
+        - `M_base = M`
+        - `L_base = floor(M * 0.5)`
+    - per ogni taglia S/M/L il partner può:
+      - **abilitare/disabilitare** la taglia (es. non accettare L)
+      - **ridurre** la capacità generale con uno slider fino al massimo calcolato
+    - lo step chiede anche se esiste **spazio extra dedicato per singola taglia**:
+      - es. “armadietti solo per S”, “zona solo per L”
+      - questo extra:
+        - si somma solo alla taglia corrispondente
+        - **non riduce** la capacità delle altre taglie
+  - I valori finali usati per il salvataggio sono:
+    - `capacity_s = capacity_generale_s + extra_s`
+    - `capacity_m = capacity_generale_m + extra_m`
+    - `capacity_l = capacity_generale_l + extra_l`
+    - `capacity = capacity_s + capacity_m + capacity_l` (ridondante, per riassunto/filtri)
+
+- Dashboard partner (`PartnerShell`) con bottom navigation:
+
+  - Dashboard (stato attività)
+  - Prenotazioni
+  - Scanner (placeholder)
+  - Spazi (placeholder)
+  - Profilo partner
+
 - **Scheda del locale modificabile** (`PartnerEditScreen`):
 
   - nome attività
@@ -125,10 +161,17 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
   - **capacità bagagli per taglia**:
     - `capacity_s`, `capacity_m`, `capacity_l`
     - `capacity` totale = somma S+M+L
-  - prezzi:
-    - prezzo per 2h
-    - prezzo per giorno
+
+  - **prezzi (vista, non configurazione)**:
+    - il partner NON imposta più tariffe proprie
+    - le tariffe effettive sono definite in una **configurazione globale BagDropPricing**
+      e sono uguali per tutti i locali
+    - nella scheda partner l’utente vede prezzi derivati da questa configurazione globale
+      (es. “a partire da X € / giorno”), in sola lettura
+
   - stato `is_active` (attivo/sospeso su mappa)
+
+
 
 - **Prenotazioni ricevute** (`PrenotazioniPage`):
 
@@ -219,11 +262,13 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
   - `user_id`
   - `status` (`pending` | `approved` | `rejected`)
   - `reject_reason`
-- `partners` → attività partner:
+- `partners` → attività partner:- `partners` → attività partner:
   - id, owner_id
   - nome, indirizzo, lat/lng
   - `capacity_s`, `capacity_m`, `capacity_l`, `capacity` totale
-  - prezzi, regole, description, phone
+  - regole, description, phone
+  - eventuali campi di supporto per mostrare i **prezzi globali** (testi di vetrina),
+    ma le tariffe reali sono definite esternamente in `BagDropPricing`
   - `opening_hours` (JSON `weekly_v1` + `exceptions`)
   - `is_active`, `status` (approved/pending/rejected)
 - `partner_photos` → foto locali partner
@@ -259,6 +304,16 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
   );
+
+> ⚠️ La struttura reale in Supabase può includere campi aggiuntivi legati al pricing
+> (es. importo totale, valuta, eventuale snapshot della configurazione applicata al momento
+> della prenotazione). Il concetto chiave è:
+>
+> - il **calcolo** del prezzo avviene a partire dalla configurazione globale `BagDropPricing`
+> - il partner non definisce tariffe personalizzate
+> - il totale visualizzato lato utente e lato partner è coerente con quella configurazione
+>   e, se necessario, viene salvato nella riga di `partner_bookings` come “prezzo a quella data”.
+
 
 ````
 
@@ -473,7 +528,8 @@ lib/
     * coerenza tra data/ora di consegna e ritiro (ritiro > consegna)
 
   * **Pricing (base)**:
-    * usa una configurazione globale `BagDropPricing` (non personalizzabile per partner) con tariffe per:
+    * usa una **configurazione globale BagDropPricing**, definita lato BagDrop e uguale per tutti i partner
+    * la configurazione contiene tariffe per:
       * taglia **S/M/L**
       * durata (3h, 1 giorno, 1.5 giorni, 2 giorni, 3 giorni, …)
     * il totale è calcolato lato client in base a:
@@ -482,7 +538,8 @@ lib/
     * il riepilogo mostra:
       * dettaglio per taglia (es. “2× S • 1× M”)
       * durata
-      * **prezzo totale stimato**
+      * **prezzo totale** applicato dalle tariffe globali BagDrop (non modificabile dal partner)
+
 
   * alla conferma crea record in `partner_bookings` via `PartnerBookingRepo.createBooking(...)` compilando:
     * `booking_date`, `start_time` (consegna)
@@ -615,19 +672,49 @@ lib/
 
 ## 🏬 Onboarding Partner
 
-1. Partner compila `partner_signup_screen.dart` (o `partner_registration_screen.dart` se già loggato).
-2. Viene creata/aggiornata una riga `partners` con:
+1. Il partner compila il wizard:
 
-   * capacità S/M/L + totale
+   * `PartnerSignUpScreen` → se NON è loggato (include step Account)
+   * `PartnerRegistrationScreen` → se è già loggato come utente normale
+
+2. Nel wizard vengono raccolti:
+
+   * **Dati account** (solo signup)
+   * **Dati attività + indirizzo** (con geocoding/coordinate)
+   * **Capacità bagagli** tramite nuovo flusso:
+
+     - il partner indica quanti **bagagli M** può tenere nello **spazio generale**
+     - il sistema calcola lo spazio equivalente in S e L (`1 M = 2 S = 0.5 L`)
+     - per ogni taglia S/M/L il partner può:
+       - decidere se accettarla o disabilitarla
+       - abbassare la capacità generale tramite slider (rispetto al massimo teorico)
+     - opzionalmente può dichiarare **spazio extra dedicato a S/M/L** che:
+       - viene aggiunto solo alla singola taglia
+       - non consuma capacità delle altre taglie
+
+   * Alla fine del wizard vengono calcolati i valori “effettivi”:
+
+     - `capacity_s = generale_s + extra_s`
+     - `capacity_m = generale_m + extra_m`
+     - `capacity_l = generale_l + extra_l`
+     - `capacity = somma S+M+L` (campo ridondante)
+
+3. Viene creata/aggiornata una riga in `partners` con:
+
+   * capacità S/M/L finali + totale
    * prezzi
    * coordinate, ecc.
-3. Viene creata una riga in `partner_requests` con `status = 'pending'`.
-4. Finché non è approvato:
 
-   * l’utente partner vede `PartnerWaitingScreen` (in caso di `rejected` mostra anche motivo).
-5. Se admin approva:
+4. Viene (ri)creata una riga in `partner_requests` con `status = 'pending'`.
 
-   * partner vede `PartnerShell` (dashboard).
+5. Finché non è approvato:
+
+   * l’utente partner vede `PartnerWaitingScreen` (in caso di `rejected` mostra anche motivo e può reinviare domanda aggiornando i dati).
+
+6. Se admin approva:
+
+   * il partner accede alla `PartnerShell` (dashboard) e può modificare scheda, orari, ecc.
+
 
 ## 📦 Prenotazioni (stato attuale)
 
@@ -693,10 +780,25 @@ lib/
 
   * editor settimanale `weekly_v1` con eccezioni (chiusure/aperture straordinarie)
   * render lato utente per orari + eccezioni
+
 * ✔ Profilo utente:
 
   * visualizzazione/modifica nome, cognome, telefono
   * flusso **eliminazione account** con codice di conferma e blocco se ci sono prenotazioni attive
+
+* ✔ **Wizard capacità partner (nuovo modello M → S/L + extra)**
+
+  * `PartnerSignUpScreen` e `PartnerRegistrationScreen` usano uno **step dedicato “Capacità”**:
+    * il partner dichiara lo spazio generale in numero di bagagli M
+    * il sistema calcola lo spazio equivalente in S e L con rapporto `1 M = 2 S = 0.5 L`
+    * il partner può:
+      * attivare/disattivare singole taglie S/M/L
+      * ridurre la capacità generale per taglia con slider (fino al massimo teorico)
+      * dichiarare spazio **extra dedicato** per S/M/L (armadietti, area speciale, ecc.)
+  * il wizard produce e salva in `partners` i campi:
+    * `capacity_s`, `capacity_m`, `capacity_l`
+    * `capacity` (totale)
+  * **Stato attuale**: i valori vengono usati come limiti statici di capacità; il **motore di disponibilità dinamica per fascia oraria** non è ancora implementato e verrà introdotto nella fase successiva.
 
 ---
 
@@ -707,15 +809,28 @@ lib/
 * Evoluzione del motore di slot orari a partire da `opening_hours`:
   * generazione automatica degli slot prenotabili in base alle fasce di apertura (mattina/pomeriggio)
   * vincoli più rigidi su prenotazioni che sconfinano vicino alla chiusura
-* Calcolo disponibilità **per intervallo**:
+
+* Calcolo disponibilità **per intervallo** usando anche la nuova capacità S/M/L:
+
+  * uso dei campi `capacity_s`, `capacity_m`, `capacity_l`, `capacity` come **limiti dinamici**
   * gestione overlap avanzata tra prenotazioni sullo stesso giorno e fascia oraria
-  * utilizzo di `booking_date` / `end_date` e `start_time` / `end_time` per la capacità residua effettiva
+  * logica di conversione coerente con il modello d’onboarding:
+    * `1 M = 2 S = 0.5 L`
+    * consumo capacità quando arrivano prenotazioni miste (es. 1 L = 2 slot M, ecc.)
+  * distinzione tra:
+    * **spazio generale condiviso** (derivato dai M di base)
+    * **spazio extra dedicato per taglia** (es. solo S) che non entra nel “pool” condiviso
+
 * UI migliorata per mostrare in modo chiaro:
+
   * data + fascia oraria in:
     * riepilogo
     * lista “Le mie prenotazioni”
     * lista prenotazioni partner
+  * eventuale indicatore di **capacità residua** per partner / giorno / fascia
+
 * Possibile estensione del modello di pricing:
+
   * tariffe differenziate per alta/bassa stagione
   * eventuali sovrapprezzi per notte o orari “speciali”.
 

@@ -201,19 +201,20 @@ class PartnerBookingRepo {
     );
   }
 
-  /// Calcola la disponibilità per UN INTERVALLO specifico in un certo giorno.
+  /// Calcola la disponibilità per UN INTERVALLO specifico.
   ///
-  /// [bookingDate] → giorno (solo data)
-  /// [startTime], [endTime] → stringhe "HH:MM" (es. "10:00" → "13:00")
+  /// L’intervallo è definito da:
+  /// - [startDate] + [startTime]
+  /// - [endDate]   + [endTime]
   ///
-  /// Consideriamo solo le prenotazioni:
-  /// - stesso partner
-  /// - stesso booking_date
-  /// - status != cancelled
-  /// - che SI SOVRAPPONGONO all'intervallo (start_time < endTime E end_time > startTime)
+  /// Consideriamo solo le prenotazioni del partner:
+  /// - status IN ('pending','confirmed') → cioè ancora “attive”
+  /// - che si SOVRAPPONGONO all’intervallo richiesto
+  ///
+  /// [bookingDate] rimane nel metodo solo per compatibilità, ma non è usato.
   Future<PartnerAvailability> getPartnerAvailabilityForInterval({
     required String partnerId,
-    required DateTime bookingDate,
+    required DateTime bookingDate, // rimane per compatibilità, non lo usiamo più
     required DateTime startDate,
     required DateTime endDate,
     required String startTime,
@@ -238,10 +239,7 @@ class PartnerBookingRepo {
     final int sumSizes = capS + capM + capL;
     final int capacityTotal = sumSizes > 0 ? sumSizes : capTotalDb;
 
-    final bookingDateStr = bookingDate.toIso8601String().split('T').first;
-
-
-      // 1) Intervallo richiesto dal nuovo booking
+    // 2) Intervallo richiesto dal NUOVO booking
     final DateTime requestStart = DateTime(
       startDate.year,
       startDate.month,
@@ -258,23 +256,23 @@ class PartnerBookingRepo {
       _parseMinute(endTime),
     );
 
-    // 2) Leggiamo tutte le prenotazioni non cancellate per quel partner.
-    //    Se vuoi ottimizzare puoi filtrare per date, ma per semplicità:
+    int usedS = 0;
+    int usedM = 0;
+    int usedL = 0;
+
+    // 3) Prenotazioni attive (pending / confirmed) di quel partner
     final rows = await client
         .from('partner_bookings')
         .select(
           'booking_date,end_date,start_time,end_time,bags_s,bags_m,bags_l,status',
         )
         .eq('partner_id', partnerId)
-        .neq('status', 'cancelled');
+        .or('status.eq.pending,status.eq.confirmed');
 
-    int usedS = 0;
-    int usedM = 0;
-    int usedL = 0;
-
-    for (final raw in rows) {
+    for (final raw in rows as List) {
       final map = raw as Map<String, dynamic>;
 
+      // Giorni di inizio/fine della prenotazione salvata
       final DateTime bookingStartDay =
           DateTime.parse(map['booking_date'] as String);
       final DateTime bookingEndDay = map['end_date'] == null
@@ -299,8 +297,7 @@ class PartnerBookingRepo {
         _parseMinute(bEnd),
       );
 
-      // Se non c'è overlap tra [bookingStart, bookingEnd) e [requestStart, requestEnd),
-      // la prenotazione non occupa capacità nello slot richiesto.
+      // Se non si sovrappone all'intervallo richiesto, non occupa capacità.
       if (!_intervalsOverlap(bookingStart, bookingEnd, requestStart, requestEnd)) {
         continue;
       }
@@ -308,34 +305,6 @@ class PartnerBookingRepo {
       usedS += (map['bags_s'] as int? ?? 0);
       usedM += (map['bags_m'] as int? ?? 0);
       usedL += (map['bags_l'] as int? ?? 0);
-    }
-
-    // 3) Qui usi la tua logica attuale per costruire il PartnerAvailability
-    //    usando capacityS/capacityM/capacityL letti dal partner + usedS/M/L.
-
-
-
-
-
-
-    // 2) Prenotazioni che si sovrappongono all'intervallo
-    //
-    // Condizione di overlap: start_time < endTime AND end_time > startTime
-    final bookingsData = await client
-        .from('partner_bookings')
-        .select(
-          'bags_s, bags_m, bags_l, status, booking_date, start_time, end_time',
-        )
-        .eq('partner_id', partnerId)
-        .eq('booking_date', bookingDateStr)
-        .neq('status', 'cancelled')
-        .lt('start_time', endTime)
-        .gt('end_time', startTime);
-
-    for (final row in bookingsData as List) {
-      usedS += (row['bags_s'] as int?) ?? 0;
-      usedM += (row['bags_m'] as int?) ?? 0;
-      usedL += (row['bags_l'] as int?) ?? 0;
     }
 
     final int usedTotal = usedS + usedM + usedL;

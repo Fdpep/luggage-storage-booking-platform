@@ -180,6 +180,7 @@ class _BookingListItemState extends State<_BookingListItem> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final booking = widget.booking;
+    final dropoff = booking.plannedDropoffLocal;
 
     return FutureBuilder<Partner?>(
       future: _futurePartner,
@@ -245,13 +246,28 @@ class _BookingListItemState extends State<_BookingListItem> {
                         ),
                       ),
                       const Spacer(),
-                      Text(
-                        _formatDate(booking.createdAt),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: cs.onSurface.withOpacity(0.6),
-                        ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            _formatDate(dropoff),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.onSurface.withOpacity(0.8),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'creata il ${_formatDate(booking.createdAt)}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: cs.onSurface.withOpacity(0.5),
+                            ),
+                          ),
+                        ],
                       ),
+
                     ],
                   ),
                   const SizedBox(height: 8),

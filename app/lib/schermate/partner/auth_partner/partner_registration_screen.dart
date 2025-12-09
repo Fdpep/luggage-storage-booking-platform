@@ -12,21 +12,10 @@ import '../../../services/supabase/location/places_autocomplete_service.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 /// Form per registrare/modificare un’attività come Partner BagDrop.
-///
-/// Flusso:
-/// - PRIMA VOLTA:
-///   - non esiste partner per l'utente → INSERT in public.partners (status = 'pending')
-///   - INSERT in public.partner_requests (status = 'pending')
-///
-/// - RIPROVA DOPO RIFIUTO / NUOVA DOMANDA:
-///   - esiste già un partner per owner_id:
-///       -> UPDATE di quel partner (nome, indirizzo, capacità S/M/L, prezzi, status='pending', reject_reason=NULL, is_active=false)
-///   - su partner_requests:
-///       -> se esiste una richiesta per quel partner → UPDATE (status='pending', admin_note=NULL, reviewed_* = NULL, message=nota nuova)
-///       -> altrimenti INSERT nuova riga
-///
-/// Alla fine: vai alla PartnerWaitingScreen (solo messaggio + logout),
-/// SENZA distruggere RootGate/AuthGate.
+/// Ora strutturato a STEP:
+/// 0 = Dati attività
+/// 1 = Indirizzo
+/// 2 = Capacità (S/M/L) + nota + invio
 class PartnerRegistrationScreen extends StatefulWidget {
   const PartnerRegistrationScreen({super.key});
 
@@ -38,22 +27,34 @@ class PartnerRegistrationScreen extends StatefulWidget {
 class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
   final _formKey = GlobalKey<FormState>();
 
+  // Step corrente: 0 = base, 1 = indirizzo, 2 = capacità
+  int _step = 0;
+
   final _nameCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
 
-  // 🔹 NUOVO: capacità per taglia
-  final _capacitySCtrl = TextEditingController();
-  final _capacityMCtrl = TextEditingController();
-  final _capacityLCtrl = TextEditingController();
+  // Capacità – nuova logica
 
-  final _price2hCtrl = TextEditingController();
-  final _priceDayCtrl = TextEditingController();
+  /// Quanti bagagli MEDIUM (M) stanno nello spazio GENERALE
+  final _baseMediumCtrl = TextEditingController();
+
+  /// Capacità GENERALE accettata per taglia (derivata da M e poi modificabile al ribasso)
+  final _generalSCtrl = TextEditingController();
+  final _generalMCtrl = TextEditingController();
+  final _generalLCtrl = TextEditingController();
+
+  /// Capacità EXTRA dedicata solo a quella taglia
+  final _extraSCtrl = TextEditingController();
+  final _extraMCtrl = TextEditingController();
+  final _extraLCtrl = TextEditingController();
+
+  // Nota per admin
   final _noteCtrl = TextEditingController();
 
   // Suggerimenti indirizzo (autocomplete)
   List<PlaceSuggestion> _addressSuggestions = [];
   bool _isAddressAutocompleteLoading = false;
-  String _addressQuery = '';
+  String _addressQuery = '';  
 
   bool _busy = false;
   bool _isGeocoding = false;
@@ -61,24 +62,88 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
   double? _lng;
   String? _addressError;
 
+  /// Helpers capacità
+
+  int _parseNonNegative(String? text) {
+    final t = (text ?? '').trim();
+    final n = int.tryParse(t);
+    if (n == null || n < 0) return 0;
+    return n;
+  }
+
+  /// 1 M = 2 S = 0.5 L
+  ({int baseS, int baseM, int baseL}) _computeBaseFromMedium() {
+    final m = _parseNonNegative(_baseMediumCtrl.text);
+    final baseS = m * 2;
+    final baseM = m;
+    final baseL = (m * 0.5).floor();
+    return (baseS: baseS, baseM: baseM, baseL: baseL);
+  }
+
+  /// Capacità finali (generale + extra) da salvare su DB
+  ({int capS, int capM, int capL, int total}) _computeFinalCapacities() {
+    final base = _computeBaseFromMedium();
+
+    // Se i campi generali sono vuoti → usiamo i suggeriti
+    final genS = _generalSCtrl.text.trim().isEmpty
+        ? base.baseS
+        : _parseNonNegative(_generalSCtrl.text);
+    final genM = _generalMCtrl.text.trim().isEmpty
+        ? base.baseM
+        : _parseNonNegative(_generalMCtrl.text);
+    final genL = _generalLCtrl.text.trim().isEmpty
+        ? base.baseL
+        : _parseNonNegative(_generalLCtrl.text);
+
+    // Extra dedicati
+    final extraS = _parseNonNegative(_extraSCtrl.text);
+    final extraM = _parseNonNegative(_extraMCtrl.text);
+    final extraL = _parseNonNegative(_extraLCtrl.text);
+
+    final capS = genS + extraS;
+    final capM = genM + extraM;
+    final capL = genL + extraL;
+    final total = capS + capM + capL;
+
+    return (capS: capS, capM: capM, capL: capL, total: total);
+  }
+
+  int get _totalCapacity => _computeFinalCapacities().total;
+
+
   @override
   void dispose() {
     _nameCtrl.dispose();
     _addressCtrl.dispose();
-    _capacitySCtrl.dispose();
-    _capacityMCtrl.dispose();
-    _capacityLCtrl.dispose();
-    _price2hCtrl.dispose();
-    _priceDayCtrl.dispose();
+
+    _baseMediumCtrl.dispose();
+    _generalSCtrl.dispose();
+    _generalMCtrl.dispose();
+    _generalLCtrl.dispose();
+    _extraSCtrl.dispose();
+    _extraMCtrl.dispose();
+    _extraLCtrl.dispose();
+
     _noteCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
-    // 1) Validazione base del form
+    // 1) Validazione finale del form
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    // 2) Se il geocoding è ancora in corso, chiedi di aspettare
+    // 2) Controllo capacità
+    if (_totalCapacity <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content:
+              Text('Imposta almeno 1 bagaglio complessivo tra S, M e L.'),
+        ),
+      );
+      return;
+    }
+
+    // 3) Controllo geocoding già fatto (lat/lng)
     if (_isGeocoding) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -91,7 +156,6 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
       return;
     }
 
-    // 3) Se non abbiamo ancora lat/lng, proviamo un geocoding automatico
     if (_lat == null || _lng == null) {
       await _geocodeAddress();
 
@@ -110,13 +174,13 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
       }
     }
 
-    // 4) OK, indirizzo valido → procediamo con l’invio
+    // 4) OK, inviamo
     FocusScope.of(context).unfocus();
     setState(() => _busy = true);
 
     final client = Supabase.instance.client;
 
-    // DEBUG: controlliamo lo stato auth
+    // DEBUG
     final session = client.auth.currentSession;
     final user = client.auth.currentUser;
     // ignore: avoid_print
@@ -138,17 +202,15 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
     }
 
     try {
-      // 🔹 Leggiamo capacità per taglia
-      final capS = int.tryParse(_capacitySCtrl.text.trim()) ?? 0;
-      final capM = int.tryParse(_capacityMCtrl.text.trim()) ?? 0;
-      final capL = int.tryParse(_capacityLCtrl.text.trim()) ?? 0;
+      // Calcolo capacità finali
+      final caps = _computeFinalCapacities();
+      final capS = caps.capS;
+      final capM = caps.capM;
+      final capL = caps.capL;
+      final totalCapacity = caps.total;
 
-      // capacità totale (ridondante, ma utile per compat/riassunto)
-      final totalCapacity = capS + capM + capL;
-
-      final price2h = double.tryParse(_price2hCtrl.text.trim());
-      final priceDay = double.tryParse(_priceDayCtrl.text.trim());
-      final note = _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim();
+      final note =
+          _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim();
 
       final repo = PartnerRepo(client);
 
@@ -156,9 +218,7 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
         userId: userId,
         name: _nameCtrl.text.trim(),
         address: _addressCtrl.text.trim(),
-        // compat: teniamo anche la capacità totale
         capacity: totalCapacity,
-        // 🔹 NUOVO: salviamo capacità per taglia
         capacityS: capS,
         capacityM: capM,
         capacityL: capL,
@@ -166,6 +226,7 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
         lat: _lat,
         lng: _lng,
       );
+
 
       if (!mounted) return;
 
@@ -199,6 +260,46 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
       if (!mounted) return;
       setState(() => _busy = false);
     }
+  }
+
+  /// STEP NAVIGATION
+  Future<void> _nextStep() async {
+    if (_busy) return;
+
+    if (_step == 0) {
+      // Validazione Nome attività
+      if (!(_formKey.currentState?.validate() ?? false)) return;
+      setState(() => _step = 1);
+    } else if (_step == 1) {
+      // Validazione Indirizzo + geocoding
+      if (!(_formKey.currentState?.validate() ?? false)) return;
+
+      if (_lat == null || _lng == null) {
+        await _geocodeAddress();
+        if (!mounted) return;
+        if (_lat == null || _lng == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Impossibile confermare l\'indirizzo. Controlla il testo o usa la lente.',
+              ),
+            ),
+          );
+          return;
+        }
+      }
+
+      setState(() => _step = 2);
+    } else if (_step == 2) {
+      // Step finale → submit
+      await _submit();
+    }
+  }
+
+  void _prevStep() {
+    if (_busy) return;
+    if (_step == 0) return;
+    setState(() => _step -= 1);
   }
 
   /// Usa la Google Geocoding API per tradurre l'indirizzo in lat/lng
@@ -280,7 +381,6 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
       _addressError = null;
     });
 
-    // Leggi API key: dart-define su Web, .env su mobile
     final apiKey = kIsWeb
         ? const String.fromEnvironment('GOOGLE_MAPS_API_KEY')
         : (dotenv.env['GOOGLE_MAPS_API_KEY'] ?? '');
@@ -404,17 +504,14 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
     final chosen = selected?.trim();
     if (chosen == null || chosen.isEmpty) return;
 
-    // 1) Aggiorniamo il campo indirizzo con il testo scelto
     setState(() {
       _addressCtrl.text = chosen;
     });
 
-    // 2) E facciamo il geocoding "classico" per lat/lng
     await _geocodeAddress();
   }
 
-  /// Chiamato mentre l'utente scrive nell'indirizzo.
-  /// (Al momento non è più collegato al TextField, ma lo lasciamo per evoluzioni future)
+  // Usato per possibili evoluzioni di autocomplete live
   Future<void> _onAddressChanged(String value) async {
     setState(() {
       _addressQuery = value;
@@ -459,226 +556,477 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
         foregroundColor: cs.onPrimary,
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
+        child: Padding(
           padding: const EdgeInsets.all(16),
           child: Form(
             key: _formKey,
             child: Column(
+              children: [
+                _buildStepHeader(),
+                const SizedBox(height: 16),
+                Expanded(child: _buildStepBody()),
+                const SizedBox(height: 16),
+                _buildBottomButtons(),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStepHeader() {
+    final cs = Theme.of(context).colorScheme;
+    final steps = ['Attività', 'Indirizzo', 'Capacità'];
+
+    return Row(
+      children: List.generate(steps.length, (index) {
+        final active = index == _step;
+        final done = index < _step;
+
+        Color fill;
+        if (active) {
+          fill = cs.primary;
+        } else if (done) {
+          fill = cs.primary.withOpacity(0.5);
+        } else {
+          fill = cs.surfaceVariant;
+        }
+
+        return Expanded(
+          child: Column(
+            children: [
+              CircleAvatar(
+                radius: 14,
+                backgroundColor: fill,
+                child: Text(
+                  '${index + 1}',
+                  style: TextStyle(
+                    color: active || done ? cs.onPrimary : cs.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                steps[index],
+                style: TextStyle(
+                  fontSize: 12,
+                  color: active
+                      ? cs.onSurface
+                      : cs.onSurface.withOpacity(done ? 0.8 : 0.6),
+                ),
+              ),
+            ],
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _buildStepBody() {
+    switch (_step) {
+      case 0:
+        return _buildStepActivity();
+      case 1:
+        return _buildStepAddress();
+      case 2:
+        return _buildStepCapacity();
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  Widget _buildStepActivity() {
+    return ListView(
+      children: [
+        Text(
+          'Dati della tua attività',
+          style: Theme.of(context)
+              .textTheme
+              .titleMedium
+              ?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _nameCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Nome attività',
+            hintText: 'Es. Bar Centrale',
+          ),
+          textInputAction: TextInputAction.next,
+          validator: (v) {
+            if ((v ?? '').trim().isEmpty) {
+              return 'Inserisci il nome dell’attività';
+            }
+            return null;
+          },
+          enabled: !_busy,
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Puoi aggiungere una breve nota per il team BagDrop (opzionale).',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: _noteCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Nota per l’admin (opzionale)',
+            hintText: 'Es. Siamo un nuovo bar in zona centro…',
+          ),
+          maxLines: 3,
+          textInputAction: TextInputAction.done,
+          enabled: !_busy,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStepAddress() {
+    return ListView(
+      children: [
+        Text(
+          'Indirizzo dell’attività',
+          style: Theme.of(context)
+              .textTheme
+              .titleMedium
+              ?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _addressCtrl,
+          readOnly: true,
+          decoration: InputDecoration(
+            labelText: 'Indirizzo',
+            hintText: 'Via / Piazza, numero civico, città',
+            suffixIcon: IconButton(
+              tooltip: 'Cerca sulla mappa',
+              icon: const Icon(Icons.search),
+              onPressed: _busy ? null : _openAddressSearch,
+            ),
+            errorText: _addressError,
+          ),
+          onTap: _busy ? null : _openAddressSearch,
+          validator: (v) {
+            final t = (v ?? '').trim();
+            if (t.isEmpty) return 'Inserisci un indirizzo';
+            return null;
+          },
+        ),
+        if (_addressError != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            _addressError!,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.error,
+            ),
+          ),
+        ],
+        if (_isAddressAutocompleteLoading)
+          const Padding(
+            padding: EdgeInsets.only(top: 4),
+            child: LinearProgressIndicator(),
+          ),
+        if (_addressSuggestions.isNotEmpty)
+          SizedBox(
+            height: 180,
+            child: ListView.builder(
+              itemCount: _addressSuggestions.length,
+              itemBuilder: (context, index) {
+                final s = _addressSuggestions[index];
+                return ListTile(
+                  leading: const Icon(Icons.location_on_outlined),
+                  title: Text(s.description),
+                  onTap: () async {
+                    setState(() {
+                      _addressCtrl.text = s.description;
+                      _addressSuggestions = [];
+                    });
+                    await _geocodeAddress();
+                  },
+                );
+              },
+            ),
+          ),
+        const SizedBox(height: 16),
+        Text(
+          'L’indirizzo verrà usato per mostrare il tuo locale sulla mappa e per calcolare le distanze.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStepCapacity() {
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+
+    final base = _computeBaseFromMedium();
+    final caps = _computeFinalCapacities();
+
+    return ListView(
+      children: [
+        Text(
+          'Capacità del magazzino bagagli',
+          style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Partiamo dallo SPAZIO GENERALE: indica quanti bagagli MEDIUM (M) '
+          'puoi ospitare contemporaneamente nello spazio principale.',
+          style: textTheme.bodySmall,
+        ),
+        const SizedBox(height: 16),
+
+        // 1) Input base M generale
+        TextFormField(
+          controller: _baseMediumCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Spazio generale (bagagli MEDIUM - M)',
+            hintText: 'Es. 10',
+          ),
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.next,
+          validator: (v) {
+            final n = _parseNonNegative(v);
+            if (n <= 0) {
+              return 'Inserisci almeno 1 bagaglio M nello spazio generale';
+            }
+            return null;
+          },
+          enabled: !_busy,
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 12),
+
+        // 2) Riepilogo equivalenze automatiche
+        Card(
+          color: theme.colorScheme.surfaceVariant.withOpacity(0.4),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Compila i dati della tua attività. '
-                  'Un admin BagDrop verificherà la richiesta.',
-                  style: Theme.of(context).textTheme.bodyLarge,
+                const Text(
+                  'Secondo i calcoli BagDrop, questo spazio generale equivale a:',
+                  style: TextStyle(fontWeight: FontWeight.w600),
                 ),
-                const SizedBox(height: 16),
-
-                // Nome attività
-                TextFormField(
-                  controller: _nameCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Nome attività',
-                    hintText: 'Es. Bar Centrale',
-                  ),
-                  textInputAction: TextInputAction.next,
-                  validator: (v) {
-                    if ((v ?? '').trim().isEmpty) {
-                      return 'Inserisci il nome dell’attività';
-                    }
-                    return null;
-                  },
-                  enabled: !_busy,
-                ),
-                const SizedBox(height: 12),
-
-                // Indirizzo
-                TextFormField(
-                  controller: _addressCtrl,
-                  readOnly: true,
-                  decoration: InputDecoration(
-                    labelText: 'Indirizzo',
-                    hintText: 'Via / Piazza, numero civico, città',
-                    suffixIcon: IconButton(
-                      tooltip: 'Cerca sulla mappa',
-                      icon: const Icon(Icons.search),
-                      onPressed: _openAddressSearch,
-                    ),
-                    errorText: _addressError,
-                  ),
-                  onTap: _openAddressSearch,
-                  validator: (v) {
-                    final t = (v ?? '').trim();
-                    if (t.isEmpty) return 'Inserisci un indirizzo';
-                    return null;
-                  },
-                ),
-
-                if (_addressError != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    _addressError!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ],
-                if (_isAddressAutocompleteLoading)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 4),
-                    child: LinearProgressIndicator(),
-                  ),
-                if (_addressSuggestions.isNotEmpty)
-                  SizedBox(
-                    height: 180,
-                    child: ListView.builder(
-                      itemCount: _addressSuggestions.length,
-                      itemBuilder: (context, index) {
-                        final s = _addressSuggestions[index];
-                        return ListTile(
-                          leading: const Icon(Icons.location_on_outlined),
-                          title: Text(s.description),
-                          onTap: () async {
-                            setState(() {
-                              _addressCtrl.text = s.description;
-                              _addressSuggestions = [];
-                            });
-                            await _geocodeAddress();
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                const SizedBox(height: 16),
-
-                // 🔹 NUOVO BLOCCO: capacità per taglia
-                Text(
-                  'Capacità massima per taglia bagagli',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
+                const SizedBox(height: 6),
+                Text('• ${base.baseS} bagagli SMALL (S)'),
+                Text('• ${base.baseM} bagagli MEDIUM (M)'),
+                Text('• ${base.baseL} bagagli LARGE (L)'),
                 const SizedBox(height: 8),
-
-                TextFormField(
-                  controller: _capacitySCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Bagagli SMALL (S)',
-                    hintText: 'Es. 10',
-                  ),
-                  keyboardType: TextInputType.number,
-                  textInputAction: TextInputAction.next,
-                  validator: (v) {
-                    final t = (v ?? '').trim();
-                    final n = int.tryParse(t);
-                    if (n == null || n < 0) {
-                      return 'Inserisci un numero valido (≥ 0)';
-                    }
-                    return null;
-                  },
-                  enabled: !_busy,
-                ),
-                const SizedBox(height: 12),
-
-                TextFormField(
-                  controller: _capacityMCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Bagagli MEDIUM (M)',
-                    hintText: 'Es. 10',
-                  ),
-                  keyboardType: TextInputType.number,
-                  textInputAction: TextInputAction.next,
-                  validator: (v) {
-                    final t = (v ?? '').trim();
-                    final n = int.tryParse(t);
-                    if (n == null || n < 0) {
-                      return 'Inserisci un numero valido (≥ 0)';
-                    }
-                    return null;
-                  },
-                  enabled: !_busy,
-                ),
-                const SizedBox(height: 12),
-
-                TextFormField(
-                  controller: _capacityLCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Bagagli LARGE (L)',
-                    hintText: 'Es. 10',
-                  ),
-                  keyboardType: TextInputType.number,
-                  textInputAction: TextInputAction.next,
-                  validator: (v) {
-                    final t = (v ?? '').trim();
-                    final n = int.tryParse(t);
-                    if (n == null || n < 0) {
-                      return 'Inserisci un numero valido (≥ 0)';
-                    }
-                    return null;
-                  },
-                  enabled: !_busy,
-                ),
-                const SizedBox(height: 16),
-
-                // Prezzo 2h
-                TextFormField(
-                  controller: _price2hCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Prezzo per 2 ore (opzionale)',
-                    hintText: 'Es. 4.50',
-                  ),
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  textInputAction: TextInputAction.next,
-                  enabled: !_busy,
-                ),
-                const SizedBox(height: 12),
-
-                // Prezzo giorno
-                TextFormField(
-                  controller: _priceDayCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Prezzo per giorno (opzionale)',
-                    hintText: 'Es. 10.00',
-                  ),
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  textInputAction: TextInputAction.next,
-                  enabled: !_busy,
-                ),
-                const SizedBox(height: 12),
-
-                // Nota per l’admin
-                TextFormField(
-                  controller: _noteCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Nota per l’admin (opzionale)',
-                    hintText: 'Es. Siamo un nuovo bar in zona centro…',
-                  ),
-                  maxLines: 3,
-                  textInputAction: TextInputAction.done,
-                  enabled: !_busy,
-                  onFieldSubmitted: (_) => _submit(),
-                ),
-                const SizedBox(height: 24),
-
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _busy ? null : _submit,
-                    child: _busy
-                        ? const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Invia domanda'),
+                Text(
+                  'Puoi partire da questi valori e ridurli per singola taglia.\n'
+                  'Es: se non vuoi bagagli LARGE nello spazio generale → imposta 0.',
+                  style: textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.outline,
                   ),
                 ),
               ],
             ),
           ),
         ),
-      ),
+        const SizedBox(height: 16),
+
+        // 3) Capacità GENERALE che vuoi accettare per taglia
+        Text(
+          'Capacità GENERALE che vuoi effettivamente accettare',
+          style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+
+        TextFormField(
+          controller: _generalSCtrl,
+          decoration: InputDecoration(
+            labelText: 'Small (S) – spazio generale',
+            hintText: base.baseS.toString(),
+            helperText:
+                'Suggerito: ${base.baseS}. Metti 0 per non accettare S nello spazio generale.',
+          ),
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.next,
+          validator: (v) {
+            final n = _parseNonNegative(v);
+            if (n > base.baseS) {
+              return 'Non puoi superare il valore suggerito (${base.baseS})';
+            }
+            return null;
+          },
+          enabled: !_busy,
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 12),
+
+        TextFormField(
+          controller: _generalMCtrl,
+          decoration: InputDecoration(
+            labelText: 'Medium (M) – spazio generale',
+            hintText: base.baseM.toString(),
+            helperText:
+                'Suggerito: ${base.baseM}. Metti 0 per non accettare M nello spazio generale.',
+          ),
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.next,
+          validator: (v) {
+            final n = _parseNonNegative(v);
+            if (n > base.baseM) {
+              return 'Non puoi superare il valore suggerito (${base.baseM})';
+            }
+            return null;
+          },
+          enabled: !_busy,
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 12),
+
+        TextFormField(
+          controller: _generalLCtrl,
+          decoration: InputDecoration(
+            labelText: 'Large (L) – spazio generale',
+            hintText: base.baseL.toString(),
+            helperText:
+                'Suggerito: ${base.baseL}. Metti 0 per non accettare L nello spazio generale.',
+          ),
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.next,
+          validator: (v) {
+            final n = _parseNonNegative(v);
+            if (n > base.baseL) {
+              return 'Non puoi superare il valore suggerito (${base.baseL})';
+            }
+            return null;
+          },
+          enabled: !_busy,
+          onChanged: (_) => setState(() {}),
+        ),
+
+        const SizedBox(height: 20),
+
+        // 4) Spazio EXTRA dedicato
+        Text(
+          'Spazio EXTRA dedicato solo a una taglia\n(es. armadietti solo per S)',
+          style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+
+        TextFormField(
+          controller: _extraSCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Extra SMALL (S)',
+            hintText: 'Es. 5',
+            helperText:
+                'Questi posti sono riservati solo a S e non riducono lo spazio di M o L.',
+          ),
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.next,
+          validator: (v) {
+            final n = _parseNonNegative(v);
+            if (n < 0) return 'Valore non valido';
+            return null;
+          },
+          enabled: !_busy,
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 12),
+
+        TextFormField(
+          controller: _extraMCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Extra MEDIUM (M)',
+            hintText: 'Es. 0',
+          ),
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.next,
+          validator: (v) {
+            final n = _parseNonNegative(v);
+            if (n < 0) return 'Valore non valido';
+            return null;
+          },
+          enabled: !_busy,
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 12),
+
+        TextFormField(
+          controller: _extraLCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Extra LARGE (L)',
+            hintText: 'Es. 0',
+          ),
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.done,
+          validator: (v) {
+            final n = _parseNonNegative(v);
+            if (n < 0) return 'Valore non valido';
+            return null;
+          },
+          enabled: !_busy,
+          onChanged: (_) => setState(() {}),
+        ),
+
+        const SizedBox(height: 16),
+
+        // 5) Riepilogo capacità totale
+        Card(
+          color: theme.colorScheme.surfaceVariant.withOpacity(0.4),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Riepilogo capacità totale',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 6),
+                Text('Small (S): ${caps.capS}'),
+                Text('Medium (M): ${caps.capM}'),
+                Text('Large (L): ${caps.capL}'),
+                const SizedBox(height: 4),
+                Text(
+                  'Totale: ${caps.total} bagagli',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Il sistema userà questi numeri per bloccare le prenotazioni '
+          'quando lo spazio è pieno.',
+          style: textTheme.bodySmall,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBottomButtons() {
+    return Row(
+      children: [
+        if (_step > 0)
+          Expanded(
+            child: OutlinedButton(
+              onPressed: _busy ? null : _prevStep,
+              child: const Text('Indietro'),
+            ),
+          ),
+        if (_step > 0) const SizedBox(width: 12),
+        Expanded(
+          child: ElevatedButton(
+            onPressed: _busy ? null : _nextStep,
+            child: _busy
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Text(_step < 2 ? 'Avanti' : 'Invia domanda'),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -24,6 +24,9 @@ class BookingRecapScreen extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final totalBags = booking.bagsS + booking.bagsM + booking.bagsL;
 
+    final dropoff = booking.plannedDropoffLocal;
+    final pickup = booking.plannedPickupLocal;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Riepilogo prenotazione'),
@@ -58,13 +61,35 @@ class BookingRecapScreen extends StatelessWidget {
                     ),
                   ],
                   const SizedBox(height: 8),
-                  Text(
-                    'Prenotazione creata il ${_formatDateTime(booking.createdAt)}',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: cs.onSurface.withOpacity(0.7),
-                    ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Consegna prevista: ${_formatDateTime(dropoff)}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: cs.onSurface.withOpacity(0.7),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Ritiro previsto: ${_formatDateTime(pickup)}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: cs.onSurface.withOpacity(0.7),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Prenotazione creata il ${_formatDateTime(booking.createdAt)}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: cs.onSurface.withOpacity(0.5),
+                        ),
+                      ),
+                    ],
                   ),
+
                 ],
               ),
             ),

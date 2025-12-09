@@ -19,6 +19,12 @@ class PartnerSignUpScreen extends StatefulWidget {
 class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
   final _formKey = GlobalKey<FormState>();
 
+  // Step corrente:
+  // 0 = Dati account
+  // 1 = Dati attività + indirizzo
+  // 2 = Capacità + nota + privacy + invio
+  int _step = 0;
+
   // Credenziali account
   final _emailCtrl = TextEditingController();
   final _pwdCtrl = TextEditingController();
@@ -28,31 +34,70 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
   final _nameCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
 
-  // Capacità per taglia
-  final _capacitySCtrl = TextEditingController();
-  final _capacityMCtrl = TextEditingController();
-  final _capacityLCtrl = TextEditingController();
+  // Capacità – nuova logica
 
-  // (puoi anche eliminare questo se non ti serve più)
-  final _capacityCtrl = TextEditingController();
+  /// Quanti bagagli MEDIUM (M) stanno nello spazio GENERALE
+  final _baseMediumCtrl = TextEditingController();
 
+  /// Capacità GENERALE accettata per taglia
+  final _generalSCtrl = TextEditingController();
+  final _generalMCtrl = TextEditingController();
+  final _generalLCtrl = TextEditingController();
+
+  /// Capacità EXTRA dedicata solo a quella taglia
+  final _extraSCtrl = TextEditingController();
+  final _extraMCtrl = TextEditingController();
+  final _extraLCtrl = TextEditingController();
+
+  // Messaggio al team
   final _messageCtrl = TextEditingController();
 
-  int _parseCap(TextEditingController c) {
-    final t = c.text.trim();
+  int _parseNonNegative(String? text) {
+    final t = (text ?? '').trim();
     final n = int.tryParse(t);
-    return n == null || n < 0 ? 0 : n;
+    if (n == null || n < 0) return 0;
+    return n;
   }
 
-  int get _totalCapacity =>
-      _parseCap(_capacitySCtrl) +
-      _parseCap(_capacityMCtrl) +
-      _parseCap(_capacityLCtrl);
+  ({int baseS, int baseM, int baseL}) _computeBaseFromMedium() {
+    final m = _parseNonNegative(_baseMediumCtrl.text);
+    final baseS = m * 2;
+    final baseM = m;
+    final baseL = (m * 0.5).floor();
+    return (baseS: baseS, baseM: baseM, baseL: baseL);
+  }
+
+  ({int capS, int capM, int capL, int total}) _computeFinalCapacities() {
+    final base = _computeBaseFromMedium();
+
+    final genS = _generalSCtrl.text.trim().isEmpty
+        ? base.baseS
+        : _parseNonNegative(_generalSCtrl.text);
+    final genM = _generalMCtrl.text.trim().isEmpty
+        ? base.baseM
+        : _parseNonNegative(_generalMCtrl.text);
+    final genL = _generalLCtrl.text.trim().isEmpty
+        ? base.baseL
+        : _parseNonNegative(_generalLCtrl.text);
+
+    final extraS = _parseNonNegative(_extraSCtrl.text);
+    final extraM = _parseNonNegative(_extraMCtrl.text);
+    final extraL = _parseNonNegative(_extraLCtrl.text);
+
+    final capS = genS + extraS;
+    final capM = genM + extraM;
+    final capL = genL + extraL;
+    final total = capS + capM + capL;
+
+    return (capS: capS, capM: capM, capL: capL, total: total);
+  }
+
+  int get _totalCapacity => _computeFinalCapacities().total;
+
 
   // Suggerimenti indirizzo (autocomplete)
   List<PlaceSuggestion> _addressSuggestions = [];
   bool _isAddressAutocompleteLoading = false;
-  // ignore: unused_field
   String _addressQuery = '';
 
   bool _busy = false;
@@ -72,16 +117,22 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
     _pwd2Ctrl.dispose();
     _nameCtrl.dispose();
     _addressCtrl.dispose();
-    _capacitySCtrl.dispose();
-    _capacityMCtrl.dispose();
-    _capacityLCtrl.dispose();
-    _capacityCtrl.dispose();
+
+    _baseMediumCtrl.dispose();
+    _generalSCtrl.dispose();
+    _generalMCtrl.dispose();
+    _generalLCtrl.dispose();
+    _extraSCtrl.dispose();
+    _extraMCtrl.dispose();
+    _extraLCtrl.dispose();
+
     _messageCtrl.dispose();
     super.dispose();
   }
 
+
   Future<void> _submit() async {
-    // 1) Validazione form
+    // Validazione finale
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     if (!_acceptDocs) {
@@ -95,7 +146,17 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       return;
     }
 
-    // 2) Controllo geocoding (con retry automatico)
+    if (_totalCapacity <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content:
+              Text('Imposta almeno 1 bagaglio complessivo tra S, M e L.'),
+        ),
+      );
+      return;
+    }
+
+    // Controllo geocoding (con retry automatico)
     if (_isGeocoding) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -133,34 +194,34 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       final email = _emailCtrl.text.trim();
       final pwd = _pwdCtrl.text;
 
-      // per creare la richiesta partner
-      final capS = _parseCap(_capacitySCtrl);
-      final capM = _parseCap(_capacityMCtrl);
-      final capL = _parseCap(_capacityLCtrl);
-      final capacity = capS + capM + capL;
+      final caps = _computeFinalCapacities();
+      final capS = caps.capS;
+      final capM = caps.capM;
+      final capL = caps.capL;
+      final capacity = caps.total;
 
       if (capacity <= 0) {
-        throw AuthException('Inserisci almeno 1 bagaglio tra S, M e L.');
+        throw AuthException(
+          'Inserisci almeno 1 posto tra S, M e L (spazio generale + extra).',
+        );
       }
 
-      // Messaggio facoltativo del partner (es. "siamo al primo piano").
       final message = _messageCtrl.text.trim().isEmpty
           ? null
           : _messageCtrl.text.trim();
 
-      // 3) Crea account auth per il partner
+      // Crea account auth per il partner
       await supabase.auth.signUp(
         email: email,
         password: pwd,
         data: {
           'source': 'bagdrop-partner-signup',
-          'otp_verified': false, // parte sempre non verificato
-          // *** NUOVI CAMPI IMPORTANTI ***
-          'signup_flow': 'partner', // ci dice che questo è un sign-up partner
+          'otp_verified': false,
+          'signup_flow': 'partner',
           'partner_signup': {
             'name': _nameCtrl.text.trim(),
             'address': _addressCtrl.text.trim(),
-            'capacity': capacity, // totale
+            'capacity': capacity,
             'capacity_s': capS,
             'capacity_m': capM,
             'capacity_l': capL,
@@ -171,13 +232,6 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
         },
       );
 
-      // 4) Se non ha creato sessione subito, fai login esplicito
-      /* if (supabase.auth.currentSession == null) {
-        await supabase.auth.signInWithPassword(email: email, password: pwd);
-      }  */
-      //mando otp
-      //await supabase.auth.signInWithOtp(email: email);
-
       final currentUser = supabase.auth.currentUser;
       if (currentUser == null) {
         throw AuthException(
@@ -185,13 +239,11 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
         );
       }
 
-      // DEBUG
       // ignore: avoid_print
       print('[PartnerSignup] userId (currentUser.id) = ${currentUser.id}');
 
       if (!mounted) return;
 
-      // 5) Avvisa che deve completare la verifica
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -200,7 +252,6 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
         ),
       );
 
-      // 6) Vai alla schermata di verifica OTP, passando i dati partner
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => SchermataVerifyOtp(
@@ -211,7 +262,7 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
             partnerAddress: _addressCtrl.text.trim(),
             partnerCapacity: capacity,
             partnerMessage: message,
-            partnerLat: _lat!, // safe: li abbiamo controllati sopra
+            partnerLat: _lat!,
             partnerLng: _lng!,
           ),
         ),
@@ -229,6 +280,46 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Gestione dei NEXT per step
+  Future<void> _nextStep() async {
+    if (_busy) return;
+
+    if (_step == 0) {
+      // Validazione campi account
+      if (!(_formKey.currentState?.validate() ?? false)) return;
+      setState(() => _step = 1);
+    } else if (_step == 1) {
+      // Validazione nome + indirizzo + geocoding
+      if (!(_formKey.currentState?.validate() ?? false)) return;
+
+      if (_lat == null || _lng == null) {
+        await _geocodeAddress();
+        if (!mounted) return;
+        if (_lat == null || _lng == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Impossibile confermare l\'indirizzo. Controlla il testo o usa la lente.',
+              ),
+            ),
+          );
+          return;
+        }
+      }
+
+      setState(() => _step = 2);
+    } else if (_step == 2) {
+      // Step finale → submit
+      await _submit();
+    }
+  }
+
+  void _prevStep() {
+    if (_busy) return;
+    if (_step == 0) return;
+    setState(() => _step -= 1);
   }
 
   /// Usa la Google Geocoding API per convertire l'indirizzo in lat/lng
@@ -313,7 +404,6 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       _addressError = null;
     });
 
-    // Leggi API key: dart-define su Web, .env su mobile
     final apiKey = kIsWeb
         ? const String.fromEnvironment('GOOGLE_MAPS_API_KEY')
         : (dotenv.env['GOOGLE_MAPS_API_KEY'] ?? '');
@@ -437,18 +527,14 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
     final chosen = selected?.trim();
     if (chosen == null || chosen.isEmpty) return;
 
-    // 1) Aggiorniamo il campo indirizzo con il testo scelto
     setState(() {
       _addressCtrl.text = chosen;
     });
 
-    // 2) E facciamo il geocoding "classico" per lat/lng
     await _geocodeAddress();
   }
 
-  /// Chiamato mentre l'utente scrive nell'indirizzo.
-  /// Usa PlacesAutocompleteService per mostrare i suggerimenti live.
-  // ignore: unused_element
+  /// Autocomplete live (non usato direttamente nel flow attuale, ma pronto)
   Future<void> _onAddressChanged(String value) async {
     setState(() {
       _addressQuery = value;
@@ -493,318 +579,525 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
         foregroundColor: cs.onPrimary,
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
+        child: Padding(
           padding: const EdgeInsets.all(16),
           child: Form(
             key: _formKey,
-            child: AutofillGroup(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Crea il tuo account BagDrop come partner e invia la richiesta '
-                    'per attivare la tua attività nel network.',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 16),
-
-                  // --- SEZIONE ACCOUNT ---
-                  const Text(
-                    'Dati account',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 8),
-
-                  TextFormField(
-                    controller: _emailCtrl,
-                    autofillHints: const [
-                      AutofillHints.username,
-                      AutofillHints.email,
-                    ],
-                    keyboardType: TextInputType.emailAddress,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'E-mail',
-                      hintText: 'nome@attivita.com',
-                    ),
-                    validator: (v) {
-                      final t = (v ?? '').trim();
-                      if (t.isEmpty) return 'Inserisci un’e-mail';
-                      if (!t.contains('@')) return 'E-mail non valida';
-                      return null;
-                    },
-                    enabled: !_busy,
-                  ),
-                  const SizedBox(height: 12),
-
-                  TextFormField(
-                    controller: _pwdCtrl,
-                    obscureText: !_showPwd,
-                    autofillHints: const [AutofillHints.newPassword],
-                    decoration: InputDecoration(
-                      labelText: 'Password',
-                      suffixIcon: IconButton(
-                        onPressed: _busy
-                            ? null
-                            : () => setState(() => _showPwd = !_showPwd),
-                        icon: Icon(
-                          _showPwd ? Icons.visibility_off : Icons.visibility,
-                        ),
-                      ),
-                    ),
-                    validator: (v) {
-                      final t = (v ?? '').trim();
-                      if (t.length < 6) {
-                        return 'Minimo 6 caratteri';
-                      }
-                      return null;
-                    },
-                    enabled: !_busy,
-                    textInputAction: TextInputAction.next,
-                  ),
-                  const SizedBox(height: 12),
-
-                  TextFormField(
-                    controller: _pwd2Ctrl,
-                    obscureText: !_showPwd2,
-                    autofillHints: const [AutofillHints.newPassword],
-                    decoration: InputDecoration(
-                      labelText: 'Conferma password',
-                      suffixIcon: IconButton(
-                        onPressed: _busy
-                            ? null
-                            : () => setState(() => _showPwd2 = !_showPwd2),
-                        icon: Icon(
-                          _showPwd2 ? Icons.visibility_off : Icons.visibility,
-                        ),
-                      ),
-                    ),
-                    validator: (v) {
-                      if (v != _pwdCtrl.text) {
-                        return 'Le password non coincidono';
-                      }
-                      return null;
-                    },
-                    enabled: !_busy,
-                    textInputAction: TextInputAction.next,
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // --- SEZIONE ATTIVITÀ ---
-                  const Text(
-                    'Dati attività',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 8),
-
-                  TextFormField(
-                    controller: _nameCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Nome attività',
-                      hintText: 'Es: Bar Duomo',
-                    ),
-                    validator: (v) {
-                      final t = (v ?? '').trim();
-                      if (t.isEmpty) return 'Inserisci il nome dell’attività';
-                      return null;
-                    },
-                    enabled: !_busy,
-                  ),
-                  const SizedBox(height: 12),
-
-                  TextFormField(
-                    controller: _addressCtrl,
-                    readOnly: true,
-                    decoration: InputDecoration(
-                      labelText: 'Indirizzo',
-                      hintText: 'Via / Piazza, numero civico, città',
-                      suffixIcon: IconButton(
-                        tooltip: 'Cerca sulla mappa',
-                        icon: const Icon(Icons.search),
-                        onPressed: _openAddressSearch,
-                      ),
-                      errorText: _addressError,
-                    ),
-                    onTap: _openAddressSearch,
-                    validator: (v) {
-                      final t = (v ?? '').trim();
-                      if (t.isEmpty) return 'Inserisci un indirizzo';
-                      return null;
-                    },
-                  ),
-
-                  if (_addressError != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      _addressError!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ],
-                  if (_isAddressAutocompleteLoading)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 4),
-                      child: LinearProgressIndicator(),
-                    ),
-                  if (_addressSuggestions.isNotEmpty)
-                    SizedBox(
-                      height: 180,
-                      child: ListView.builder(
-                        itemCount: _addressSuggestions.length,
-                        itemBuilder: (context, index) {
-                          final s = _addressSuggestions[index];
-                          return ListTile(
-                            leading: const Icon(Icons.location_on_outlined),
-                            title: Text(s.description),
-                            onTap: () async {
-                              // 1) Mettiamo il testo scelto nel campo
-                              setState(() {
-                                _addressCtrl.text = s.description;
-                                _addressSuggestions = [];
-                              });
-                              // 2) Facciamo il geocoding per riempire _lat / _lng
-                              await _geocodeAddress();
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                  const SizedBox(height: 12),
-
-                  Text(
-                    'Capacità massima per taglia bagagli',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 8),
-
-                  TextFormField(
-                    controller: _capacitySCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Bagagli SMALL (S)',
-                      hintText: 'Es: 10',
-                    ),
-                    keyboardType: TextInputType.number,
-                    validator: (v) {
-                      final t = (v ?? '').trim();
-                      if (t.isEmpty) return null; // può essere 0
-                      final n = int.tryParse(t);
-                      if (n == null || n < 0) {
-                        return 'Inserisci un numero valido (≥ 0)';
-                      }
-                      return null;
-                    },
-                    enabled: !_busy,
-                    onChanged: (_) => setState(() {}),
-                  ),
-                  const SizedBox(height: 12),
-
-                  TextFormField(
-                    controller: _capacityMCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Bagagli MEDIUM (M)',
-                      hintText: 'Es: 10',
-                    ),
-                    keyboardType: TextInputType.number,
-                    validator: (v) {
-                      final t = (v ?? '').trim();
-                      if (t.isEmpty) return null;
-                      final n = int.tryParse(t);
-                      if (n == null || n < 0) {
-                        return 'Inserisci un numero valido (≥ 0)';
-                      }
-                      return null;
-                    },
-                    enabled: !_busy,
-                    onChanged: (_) => setState(() {}),
-                  ),
-                  const SizedBox(height: 12),
-
-                  TextFormField(
-                    controller: _capacityLCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Bagagli LARGE (L)',
-                      hintText: 'Es: 10',
-                    ),
-                    keyboardType: TextInputType.number,
-                    validator: (v) {
-                      final t = (v ?? '').trim();
-                      if (t.isEmpty) return null;
-                      final n = int.tryParse(t);
-                      if (n == null || n < 0) {
-                        return 'Inserisci un numero valido (≥ 0)';
-                      }
-                      return null;
-                    },
-                    enabled: !_busy,
-                    onChanged: (_) => setState(() {}),
-                  ),
-                  const SizedBox(height: 8),
-
-                  Text(
-                    'Capacità totale: $_totalCapacity bagagli',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-
-                  const SizedBox(height: 12),
-
-                  const SizedBox(height: 12),
-                  Text(
-                    'Le tariffe di deposito sono definite da BagDrop e sono uguali per tutti i locali. ',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _messageCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Messaggio al team (opzionale)',
-                      hintText: 'Es: info aggiuntive sulla tua attività...',
-                    ),
-                    maxLines: 3,
-                    enabled: !_busy,
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  Row(
-                    children: [
-                      Checkbox(
-                        value: _acceptDocs,
-                        onChanged: _busy
-                            ? null
-                            : (v) => setState(() => _acceptDocs = v ?? false),
-                      ),
-                      const Expanded(
-                        child: Text(
-                          'Ho letto e accetto i Documenti contrattuali & Privacy.',
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _busy ? null : _submit,
-                      icon: _busy
-                          ? const SizedBox(
-                              width: 22,
-                              height: 22,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.send),
-                      label: const Text('Invia richiesta come partner'),
-                    ),
-                  ),
-                ],
-              ),
+            child: Column(
+              children: [
+                _buildStepHeader(),
+                const SizedBox(height: 16),
+                Expanded(child: _buildStepBody()),
+                const SizedBox(height: 16),
+                _buildBottomButtons(),
+              ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildStepHeader() {
+    final cs = Theme.of(context).colorScheme;
+    final steps = ['Account', 'Attività', 'Capacità'];
+
+    return Row(
+      children: List.generate(steps.length, (index) {
+        final active = index == _step;
+        final done = index < _step;
+
+        Color fill;
+        if (active) {
+          fill = cs.primary;
+        } else if (done) {
+          fill = cs.primary.withOpacity(0.5);
+        } else {
+          fill = cs.surfaceVariant;
+        }
+
+        return Expanded(
+          child: Column(
+            children: [
+              CircleAvatar(
+                radius: 14,
+                backgroundColor: fill,
+                child: Text(
+                  '${index + 1}',
+                  style: TextStyle(
+                    color: active || done ? cs.onPrimary : cs.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                steps[index],
+                style: TextStyle(
+                  fontSize: 12,
+                  color: active
+                      ? cs.onSurface
+                      : cs.onSurface.withOpacity(done ? 0.8 : 0.6),
+                ),
+              ),
+            ],
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _buildStepBody() {
+    switch (_step) {
+      case 0:
+        return _buildStepAccount();
+      case 1:
+        return _buildStepBusiness();
+      case 2:
+        return _buildStepCapacity();
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  Widget _buildStepAccount() {
+    return ListView(
+      children: [
+        Text(
+          'Dati account',
+          style: Theme.of(context)
+              .textTheme
+              .titleMedium
+              ?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Crea l’account con cui accederai all’area partner BagDrop.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          controller: _emailCtrl,
+          autofillHints: const [
+            AutofillHints.username,
+            AutofillHints.email,
+          ],
+          keyboardType: TextInputType.emailAddress,
+          textInputAction: TextInputAction.next,
+          decoration: const InputDecoration(
+            labelText: 'E-mail',
+            hintText: 'nome@attivita.com',
+          ),
+          validator: (v) {
+            final t = (v ?? '').trim();
+            if (t.isEmpty) return 'Inserisci un’e-mail';
+            if (!t.contains('@')) return 'E-mail non valida';
+            return null;
+          },
+          enabled: !_busy,
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _pwdCtrl,
+          obscureText: !_showPwd,
+          autofillHints: const [AutofillHints.newPassword],
+          decoration: InputDecoration(
+            labelText: 'Password',
+            suffixIcon: IconButton(
+              onPressed:
+                  _busy ? null : () => setState(() => _showPwd = !_showPwd),
+              icon: Icon(
+                _showPwd ? Icons.visibility_off : Icons.visibility,
+              ),
+            ),
+          ),
+          validator: (v) {
+            final t = (v ?? '').trim();
+            if (t.length < 6) {
+              return 'Minimo 6 caratteri';
+            }
+            return null;
+          },
+          enabled: !_busy,
+          textInputAction: TextInputAction.next,
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _pwd2Ctrl,
+          obscureText: !_showPwd2,
+          autofillHints: const [AutofillHints.newPassword],
+          decoration: InputDecoration(
+            labelText: 'Conferma password',
+            suffixIcon: IconButton(
+              onPressed:
+                  _busy ? null : () => setState(() => _showPwd2 = !_showPwd2),
+              icon: Icon(
+                _showPwd2 ? Icons.visibility_off : Icons.visibility,
+              ),
+            ),
+          ),
+          validator: (v) {
+            if (v != _pwdCtrl.text) {
+              return 'Le password non coincidono';
+            }
+            return null;
+          },
+          enabled: !_busy,
+          textInputAction: TextInputAction.done,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStepBusiness() {
+    return ListView(
+      children: [
+        Text(
+          'Dati attività',
+          style: Theme.of(context)
+              .textTheme
+              .titleMedium
+              ?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Queste informazioni saranno visibili nella scheda del tuo locale.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          controller: _nameCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Nome attività',
+            hintText: 'Es: Bar Duomo',
+          ),
+          validator: (v) {
+            final t = (v ?? '').trim();
+            if (t.isEmpty) return 'Inserisci il nome dell’attività';
+            return null;
+          },
+          enabled: !_busy,
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _addressCtrl,
+          readOnly: true,
+          decoration: InputDecoration(
+            labelText: 'Indirizzo',
+            hintText: 'Via / Piazza, numero civico, città',
+            suffixIcon: IconButton(
+              tooltip: 'Cerca sulla mappa',
+              icon: const Icon(Icons.search),
+              onPressed: _busy ? null : _openAddressSearch,
+            ),
+            errorText: _addressError,
+          ),
+          onTap: _busy ? null : _openAddressSearch,
+          validator: (v) {
+            final t = (v ?? '').trim();
+            if (t.isEmpty) return 'Inserisci un indirizzo';
+            return null;
+          },
+        ),
+        if (_addressError != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            _addressError!,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.error,
+            ),
+          ),
+        ],
+        if (_isAddressAutocompleteLoading)
+          const Padding(
+            padding: EdgeInsets.only(top: 4),
+            child: LinearProgressIndicator(),
+          ),
+        if (_addressSuggestions.isNotEmpty)
+          SizedBox(
+            height: 180,
+            child: ListView.builder(
+              itemCount: _addressSuggestions.length,
+              itemBuilder: (context, index) {
+                final s = _addressSuggestions[index];
+                return ListTile(
+                  leading: const Icon(Icons.location_on_outlined),
+                  title: Text(s.description),
+                  onTap: () async {
+                    setState(() {
+                      _addressCtrl.text = s.description;
+                      _addressSuggestions = [];
+                    });
+                    await _geocodeAddress();
+                  },
+                );
+              },
+            ),
+          ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _messageCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Messaggio al team (opzionale)',
+            hintText: 'Es: info aggiuntive sulla tua attività...',
+          ),
+          maxLines: 3,
+          enabled: !_busy,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'L’indirizzo verrà usato per mostrare il tuo locale sulla mappa e nelle ricerche.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStepCapacity() {
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+
+    final base = _computeBaseFromMedium();
+    final caps = _computeFinalCapacities();
+
+    return ListView(
+      children: [
+        Text(
+          'Capacità magazzino bagagli',
+          style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Indica prima quanti bagagli MEDIUM (M) possono stare nello SPAZIO GENERALE. '
+          'Da lì stimiamo lo spazio equivalente per S e L.',
+          style: textTheme.bodySmall,
+        ),
+        const SizedBox(height: 16),
+
+        // 1) Base M
+        TextFormField(
+          controller: _baseMediumCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Spazio generale (bagagli MEDIUM - M)',
+            hintText: 'Es: 10',
+          ),
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.next,
+          validator: (v) {
+            final n = _parseNonNegative(v);
+            if (n <= 0) {
+              return 'Inserisci almeno 1 bagaglio M nello spazio generale';
+            }
+            return null;
+          },
+          enabled: !_busy,
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 12),
+
+        Card(
+          color: theme.colorScheme.surfaceVariant.withOpacity(0.4),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Spazio generale equivalente:',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                Text('• ${base.baseS} Small (S)'),
+                Text('• ${base.baseM} Medium (M)'),
+                Text('• ${base.baseL} Large (L)'),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        Text(
+          'Capacità GENERALE che vuoi accettare',
+          style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+
+        TextFormField(
+          controller: _generalSCtrl,
+          decoration: InputDecoration(
+            labelText: 'Small (S) – generale',
+            hintText: base.baseS.toString(),
+          ),
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.next,
+          validator: (v) {
+            final n = _parseNonNegative(v);
+            if (n > base.baseS) {
+              return 'Non puoi superare il suggerito (${base.baseS})';
+            }
+            return null;
+          },
+          enabled: !_busy,
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 12),
+
+        TextFormField(
+          controller: _generalMCtrl,
+          decoration: InputDecoration(
+            labelText: 'Medium (M) – generale',
+            hintText: base.baseM.toString(),
+          ),
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.next,
+          validator: (v) {
+            final n = _parseNonNegative(v);
+            if (n > base.baseM) {
+              return 'Non puoi superare il suggerito (${base.baseM})';
+            }
+            return null;
+          },
+          enabled: !_busy,
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 12),
+
+        TextFormField(
+          controller: _generalLCtrl,
+          decoration: InputDecoration(
+            labelText: 'Large (L) – generale',
+            hintText: base.baseL.toString(),
+          ),
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.next,
+          validator: (v) {
+            final n = _parseNonNegative(v);
+            if (n > base.baseL) {
+              return 'Non puoi superare il suggerito (${base.baseL})';
+            }
+            return null;
+          },
+          enabled: !_busy,
+          onChanged: (_) => setState(() {}),
+        ),
+
+        const SizedBox(height: 20),
+
+        Text(
+          'Spazio EXTRA dedicato (solo S / solo M / solo L)',
+          style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+
+        TextFormField(
+          controller: _extraSCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Extra SMALL (S)',
+            hintText: 'Es: 5',
+          ),
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.next,
+          validator: (v) {
+            final n = _parseNonNegative(v);
+            if (n < 0) return 'Valore non valido';
+            return null;
+          },
+          enabled: !_busy,
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 12),
+
+        TextFormField(
+          controller: _extraMCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Extra MEDIUM (M)',
+            hintText: 'Es: 0',
+          ),
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.next,
+          validator: (v) {
+            final n = _parseNonNegative(v);
+            if (n < 0) return 'Valore non valido';
+            return null;
+          },
+          enabled: !_busy,
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 12),
+
+        TextFormField(
+          controller: _extraLCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Extra LARGE (L)',
+            hintText: 'Es: 0',
+          ),
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.done,
+          validator: (v) {
+            final n = _parseNonNegative(v);
+            if (n < 0) return 'Valore non valido';
+            return null;
+          },
+          enabled: !_busy,
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 12),
+
+        Text(
+          'Capacità totale: $_totalCapacity bagagli',
+          style: textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Questi valori saranno usati da BagDrop per evitare overbooking.',
+          style: textTheme.bodySmall,
+        ),
+        const SizedBox(height: 16),
+
+        Row(
+          children: [
+            Checkbox(
+              value: _acceptDocs,
+              onChanged: _busy
+                  ? null
+                  : (v) => setState(() => _acceptDocs = v ?? false),
+            ),
+            const Expanded(
+              child: Text(
+                'Ho letto e accetto i Documenti contrattuali & Privacy.',
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBottomButtons() {
+    return Row(
+      children: [
+        if (_step > 0)
+          Expanded(
+            child: OutlinedButton(
+              onPressed: _busy ? null : _prevStep,
+              child: const Text('Indietro'),
+            ),
+          ),
+        if (_step > 0) const SizedBox(width: 12),
+        Expanded(
+          child: ElevatedButton.icon(
+            onPressed: _busy ? null : _nextStep,
+            icon: _busy
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(_step < 2 ? Icons.arrow_forward : Icons.send),
+            label: Text(_step < 2 ? 'Avanti' : 'Invia richiesta'),
+          ),
+        ),
+      ],
     );
   }
 }

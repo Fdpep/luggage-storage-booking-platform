@@ -140,14 +140,12 @@ class _BookingCard extends StatelessWidget {
         (booking.bagsM ?? 0) +
         (booking.bagsL ?? 0);
 
-    // Format semplice della data (se esiste createdAt nel modello)
-    String createdAtStr = '';
-    if (booking.createdAt != null) {
-      final d = booking.createdAt!;
-      createdAtStr =
-          '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')} '
-          '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
-    }
+    // Data/ora di CONSEGNA prevista (usiamo i nuovi campi)
+    final d = booking.plannedDropoffLocal;
+    final createdAtStr =
+        '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')} '
+        '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+
 
     final status = (booking.status ?? 'confirmed').toLowerCase();
     Color chipColor;
@@ -192,7 +190,7 @@ class _BookingCard extends StatelessWidget {
                 if (createdAtStr.isNotEmpty) ...[
                   const SizedBox(width: 8),
                   Text(
-                    createdAtStr,
+                    'Consegna: $createdAtStr',
                     style: tt.bodySmall?.copyWith(
                       color: tt.bodySmall?.color?.withOpacity(0.7),
                     ),

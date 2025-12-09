@@ -34,17 +34,18 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   final _notesCtrl = TextEditingController();
 
   // DATA / ORARIO
+  /// Giorno di consegna bagagli
   DateTime? _selectedDate;
+
+  /// Giorno di ritiro bagagli
   DateTime? _endDate;
 
-  /// true  = prenotazione per tutto il giorno (dall’apertura alla chiusura)
-  /// false = prenotazione con fascia di 3 ore
-  bool _fullDay = true;
-
-  /// Orario di inizio selezionato dall’utente (solo se _fullDay == false).
-  /// Di default lo inizializziamo all’orario attuale (utente può modificarlo).
+  /// Orario di consegna
   TimeOfDay? _startTime;
+
+  /// Orario di ritiro
   TimeOfDay? _endTime;
+
 
   /// Orari di apertura settimanali normalizzati.
   /// Per ogni giorno (mon..sun) abbiamo una lista di intervalli {open, close} "HH:MM".
@@ -112,13 +113,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   /// Converte un TimeOfDay in minuti da mezzanotte (utile per confronti).
   int _timeOfDayToMinutes(TimeOfDay t) => t.hour * 60 + t.minute;
 
-  /// Converte minuti da mezzanotte in TimeOfDay (mod 24h).
-  TimeOfDay _minutesToTimeOfDay(int m) {
-    m = m % (24 * 60);
-    final h = m ~/ 60;
-    final min = m % 60;
-    return TimeOfDay(hour: h, minute: min);
-  }
 
   /// Prima apertura del giorno corrente (_selectedDate) in base a weekly + eccezioni.
   /// - se la data è chiusa (weekly vuoto + non forced_open, oppure closed_dates) → null
@@ -194,86 +188,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     return best;
   }
 
-  /// Orario di fine per prenotazione "3 ore" a partire da _startTime.
-  TimeOfDay? get _threeHoursEndTime {
-    if (_startTime == null) return null;
-    final m = _timeOfDayToMinutes(_startTime!) + 180; // +3h
-    return _minutesToTimeOfDay(m);
-  }
-
-  /// Orario di inizio effettivo da salvare su Supabase.
-  /// - full day → prima apertura
-  /// - 3 ore → _startTime scelto dall’utente
-  TimeOfDay? get _effectiveStartTime {
-    if (_fullDay) {
-      return _firstOpenTime;
-    }
-    return _startTime;
-  }
-
-  /// Orario di fine effettivo da salvare su Supabase.
-  /// - full day → ultima chiusura
-  /// - 3 ore → _startTime + 3h
-  TimeOfDay? get _effectiveEndTime {
-    if (_fullDay) {
-      return _lastCloseTime;
-    }
-    return _threeHoursEndTime;
-  }
-
-  /// Ritorna true se l’orario di inizio è dentro l’arco "giorno lavorativo"
-  /// (tra prima apertura e ultima chiusura).
-  bool _isStartInsideWorkingDay(TimeOfDay start) {
-    final firstOpen = _firstOpenTime;
-    final lastClose = _lastCloseTime;
-    if (firstOpen == null || lastClose == null) {
-      // In teoria non succede (abbiamo fallback), ma non blocchiamo.
-      return true;
-    }
-    final s = _timeOfDayToMinutes(start);
-    final o = _timeOfDayToMinutes(firstOpen);
-    final c = _timeOfDayToMinutes(lastClose);
-    return s >= o && s < c;
-  }
-
-  /// Se l’intervallo di prenotazione supera l’orario di chiusura,
-  /// ritorna un messaggio di avviso (soft) da mostrare all’utente.
-  /// Altrimenti ritorna null (nessun avviso).
-  String? _warningIfEndAfterClose(TimeOfDay start, TimeOfDay end) {
-    final lastClose = _lastCloseTime;
-    if (lastClose == null) return null;
-
-    final endMin = _timeOfDayToMinutes(end);
-    final closeMin = _timeOfDayToMinutes(lastClose);
-    if (endMin <= closeMin) {
-      // L’intervallo termina prima della chiusura → nessun warning.
-      return null;
-    }
-
-    // Calcoliamo "quanta parte" dell’intervallo cade prima della chiusura,
-    // per poter scrivere un messaggio tipo: "avrai circa X ore e Y minuti".
-    final startMin = _timeOfDayToMinutes(start);
-    final minutiResidui = closeMin - startMin;
-    final chiusuraStr = _formatTimeDisplay(lastClose);
-
-    if (minutiResidui <= 0) {
-      // In pratica l’acquirente seleziona un orario praticamente a chiusura
-      // (o addirittura dopo). Avviso più generico.
-      return 'Il locale risulta quasi chiuso nell\'orario selezionato.\n'
-          'Chiude alle $chiusuraStr.';
-    }
-
-    final ore = minutiResidui ~/ 60;
-    final min = minutiResidui % 60;
-    final durataStr = ore > 0
-        ? (min > 0 ? '$ore h e $min min' : '$ore h')
-        : '$min min';
-
-    return 'Il locale chiude alle $chiusuraStr.\n'
-        'Con l\'orario scelto avrai meno di 3 ore complete di deposito '
-        '(circa $durataStr).';
-  }
-
   /// Ritorna true se per quella data, in base a weekly_v1 + eccezioni,
   /// il locale è chiuso (nessun intervallo per quel giorno).
   bool _isClosedDay(DateTime date) {
@@ -294,6 +208,129 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
     return list.isEmpty;
   }
+
+  /// Ritorna true se l'orario [time] per la data [date]
+  /// rientra in almeno uno degli intervalli di apertura del locale.
+  ///
+  /// - tiene conto di weekly_v1
+  /// - tiene conto di eccezioni (closed_dates / forced_open_dates)
+  bool _isTimeWithinOpeningHours(DateTime date, TimeOfDay time) {
+    final dateKey = _dateKey(date);
+
+    // Se la data è marcata come chiusa → sempre false
+    if (_closedDateKeys.contains(dateKey)) {
+      return false;
+    }
+
+    final dayKey = _weekdayKey(date.weekday);
+    final list = _weeklyHours[dayKey] ?? const <Map<String, dynamic>>[];
+
+    // Giorno normalmente chiuso ma apertura straordinaria → consideriamo aperto tutto il giorno
+    if (list.isEmpty && _forcedOpenDateKeys.contains(dateKey)) {
+      return true; // qualsiasi orario è ok quel giorno
+    }
+
+    // Giorno chiuso (nessun intervallo e nessuna apertura straordinaria)
+    if (list.isEmpty) {
+      return false;
+    }
+
+    final minutes = _timeOfDayToMinutes(time);
+
+    for (final m in list) {
+      final openT = _parseTimeOfDay(m['open'] as String?);
+      final closeT = _parseTimeOfDay(m['close'] as String?);
+      if (openT == null || closeT == null) continue;
+
+      final openMin = _timeOfDayToMinutes(openT);
+      final closeMin = _timeOfDayToMinutes(closeT);
+
+      // Intervallo chiuso [open, close]
+      if (minutes >= openMin && minutes <= closeMin) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /// Valida la combinazione data/orario di consegna e ritiro.
+  ///
+  /// Ritorna:
+  /// - null  → tutto ok
+  /// - testo → messaggio di errore da mostrare
+  String? _validateDateTimeSelection() {
+    if (_selectedDate == null ||
+        _startTime == null ||
+        _endDate == null ||
+        _endTime == null) {
+      return 'Seleziona giorno e orario di consegna e di ritiro.';
+    }
+
+    final startDt = _startDateTime;
+    final endDt = _endDateTime;
+
+    if (startDt == null || endDt == null) {
+      return 'Seleziona giorno e orario di consegna e di ritiro.';
+    }
+
+    // Date solo "calendar" (senza orario)
+    final startDateOnly =
+        DateTime(startDt.year, startDt.month, startDt.day);
+    final endDateOnly = DateTime(endDt.year, endDt.month, endDt.day);
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final in7Days = today.add(const Duration(days: 7));
+
+    // ❌ Niente date nel passato (giorno di consegna)
+    if (startDateOnly.isBefore(today)) {
+      return 'La data di consegna è nel passato.';
+    }
+
+    // ❌ Niente consegne oltre 7 giorni
+    if (startDateOnly.isAfter(in7Days)) {
+      return 'Puoi prenotare al massimo entro 7 giorni da oggi.';
+    }
+
+    // ❌ Orario di consegna nel passato (se consegni oggi)
+    if (startDateOnly.isAtSameMomentAs(today) && startDt.isBefore(now)) {
+      return 'L\'orario di consegna non può essere nel passato.';
+    }
+
+    // ❌ Orario ritiro dopo orario consegna
+    if (!startDt.isBefore(endDt)) {
+      return 'L\'orario di ritiro deve essere successivo a quello di consegna.';
+    }
+
+    // ❌ Giorni chiusi (weekly + eccezioni)
+    if (_isClosedDay(startDateOnly)) {
+      return 'Nel giorno di consegna il locale è chiuso. Scegli un\'altra data.';
+    }
+    if (_isClosedDay(endDateOnly)) {
+      return 'Nel giorno di ritiro il locale è chiuso. Scegli un\'altra data.';
+    }
+
+    // ❌ Orario fuori dagli orari di apertura (consegna)
+    if (!_isTimeWithinOpeningHours(startDateOnly, _startTime!)) {
+      return 'L\'orario di consegna è fuori dagli orari di apertura del locale.';
+    }
+
+    // ❌ Orario fuori dagli orari di apertura (ritiro)
+    if (!_isTimeWithinOpeningHours(endDateOnly, _endTime!)) {
+      return 'L\'orario di ritiro è fuori dagli orari di apertura del locale.';
+    }
+
+    // Limite di durata "sanità mentale" lato business (per ora 3 giorni max)
+    final durationHours =
+        endDt.difference(startDt).inMinutes / 60.0;
+    if (durationHours > 72.0) {
+      return 'Per ora puoi prenotare al massimo per 3 giorni. Riduci l\'intervallo tra consegna e ritiro.';
+    }
+
+    return null; // ✅ tutto ok
+  }
+
 
   /// Normalizza opening_hours in formato settimanale:
   /// - se è null → 08:00-20:00 tutti i giorni
@@ -420,92 +457,13 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       setState(() => _step = 1);
     } else if (_step == 1) {
       // Step 1 → 2: data + orario
-      if (_selectedDate == null) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Seleziona un giorno.')));
-        return;
-      }
 
-      final selDate = _selectedDate!;
-
-      // 1) Se il giorno è chiuso (weekly + eccezioni), blocchiamo subito
-      if (_isClosedDay(selDate)) {
+      final error = _validateDateTimeSelection();
+      if (error != null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'In questo giorno il locale è chiuso. Scegli un\'altra data.',
-            ),
-          ),
+          SnackBar(content: Text(error)),
         );
         return;
-      }
-
-      // 2) Se è prenotazione 3 ore, l’utente deve aver scelto l’orario di inizio.
-      if (!_fullDay && _startTime == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Seleziona un orario di inizio per la fascia di 3 ore.',
-            ),
-          ),
-        );
-        return;
-      }
-
-      // 3) Calcoliamo orario di inizio/fine effettivi in base alla durata scelta.
-      final startTime = _effectiveStartTime;
-      final endTime = _effectiveEndTime;
-
-      if (startTime == null || endTime == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Orari di apertura del locale non configurati correttamente.',
-            ),
-          ),
-        );
-        return;
-      }
-
-      // Controllo "hard": l’orario di inizio deve essere dentro il giorno lavorativo.
-      if (!_isStartInsideWorkingDay(startTime)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Seleziona un orario in cui il locale è aperto.'),
-          ),
-        );
-        return;
-      }
-
-      // Controllo "soft": se l’intervallo supera la chiusura, chiediamo conferma.
-      final warning = !_fullDay
-          ? _warningIfEndAfterClose(startTime, endTime)
-          : null;
-      if (warning != null) {
-        final proceed = await showDialog<bool>(
-          context: context,
-          builder: (ctx) {
-            return AlertDialog(
-              title: const Text('Attenzione orario di chiusura'),
-              content: Text(warning),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(false),
-                  child: const Text('Annulla'),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(true),
-                  child: const Text('Continua'),
-                ),
-              ],
-            );
-          },
-        );
-        if (proceed != true) {
-          // L’utente ha annullato dopo il warning → rimaniamo nello step 1.
-          return;
-        }
       }
 
       // Se tutto ok, carichiamo la disponibilità per data + orario scelti.
@@ -517,6 +475,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       }
 
       setState(() => _step = 2);
+
     } else if (_step == 2) {
       // Step 2 → 3: bagagli
       if (_bagsS + _bagsM + _bagsL <= 0) {
@@ -556,10 +515,12 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   }
 
   Future<void> _loadAvailabilityForSelection() async {
-    if (_selectedDate == null) return;
+    if (_selectedDate == null || _endDate == null || _startTime == null || _endTime == null) {
+      return;
+    }
 
-    final startStr = _selectedStartTimeString;
-    final endStr = _selectedEndTimeString;
+    final startStr = _formatTimeForApi(_startTime!);
+    final endStr = _formatTimeForApi(_endTime!);
 
     setState(() {
       _loadingAvailability = true;
@@ -570,19 +531,12 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     final repo = PartnerBookingRepo(client);
 
     final bookingStartDate = _selectedDate!;
-    final bookingEndDate = _endDate ?? _selectedDate!; // 3h = stesso giorno
-   /* final startTimeStr = _effectiveStartTime != null
-        ? _formatTimeToDb(_effectiveStartTime!)
-        : '00:00';
-
-    final endTimeStr = _effectiveEndTime != null
-        ? _formatTimeToDb(_effectiveEndTime!)
-        : '23:59';*/
+    final bookingEndDate = _endDate!;
 
     try {
       final av = await repo.getPartnerAvailabilityForInterval(
         partnerId: widget.partner.id,
-        bookingDate: _selectedDate!,
+        bookingDate: bookingStartDate,
         startDate: bookingStartDate,
         endDate: bookingEndDate,
         startTime: startStr,
@@ -609,20 +563,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         ),
       );
     }
-  }
-
-  /// Orario di inizio nel formato "HH:MM" da mandare al backend.
-  String get _selectedStartTimeString {
-    final t = _effectiveStartTime;
-    if (t == null) return '00:00';
-    return _formatTimeForApi(t);
-  }
-
-  /// Orario di fine nel formato "HH:MM" da mandare al backend.
-  String get _selectedEndTimeString {
-    final t = _effectiveEndTime;
-    if (t == null) return '23:59';
-    return _formatTimeForApi(t);
   }
 
   String _formatTimeForApi(TimeOfDay t) {
@@ -659,52 +599,62 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     final client = Supabase.instance.client;
     final repo = PartnerBookingRepo(client);
 
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final in7Days = today.add(const Duration(days: 7));
-
-    final sel = _selectedDate!;
-    final selDateOnly = DateTime(sel.year, sel.month, sel.day);
-
-    // Vietato nel passato
-    if (selDateOnly.isBefore(today)) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('La data selezionata è nel passato.')),
-      );
-      setState(() => _busy = false);
-      return;
-    }
-
-    // Vietato oltre 7 giorni
-    if (selDateOnly.isAfter(in7Days)) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Puoi prenotare al massimo entro 7 giorni.'),
-        ),
-      );
-      setState(() => _busy = false);
-      return;
-    }
-
-    // Vietato prenotare in un giorno chiuso (weekly + eccezioni)
-    if (_isClosedDay(selDateOnly)) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'In questo giorno il locale è chiuso. Scegli un\'altra data.',
-          ),
-        ),
-      );
-      setState(() => _busy = false);
-      return;
-    }
-
     try {
-      // 0) Controllo che il partner sia prenotabile
-      if (!(widget.partner.isApproved)) {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final in7Days = today.add(const Duration(days: 7));
+      // Validazione unica data/orario (stessi controlli dello step 1)
+      final dtError = _validateDateTimeSelection();
+      if (dtError != null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(dtError)),
+        );
+        setState(() => _busy = false);
+        return;
+      }
+
+      final sel = _selectedDate!;
+      final selDateOnly = DateTime(sel.year, sel.month, sel.day);
+
+      // Vietato nel passato
+      if (selDateOnly.isBefore(today)) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('La data selezionata è nel passato.')),
+        );
+        setState(() => _busy = false);
+        return;
+      }
+
+      // Vietato oltre 7 giorni
+      if (selDateOnly.isAfter(in7Days)) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Puoi prenotare al massimo entro 7 giorni.'),
+          ),
+        );
+        setState(() => _busy = false);
+        return;
+      }
+
+      // Vietato prenotare in un giorno chiuso (weekly + eccezioni) per la consegna
+      if (_isClosedDay(selDateOnly)) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'In questo giorno il locale è chiuso. Scegli un\'altra data.',
+            ),
+          ),
+        );
+        setState(() => _busy = false);
+        return;
+      }
+
+      // Partner deve essere prenotabile
+      if (!widget.partner.isApproved) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -717,25 +667,28 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         return;
       }
 
-      // 1) Safety: data + orario ancora validi?
-      if (_selectedDate == null) {
+      // Recuperiamo data+ora effettive da quello che ha scelto l'utente
+      final startDt = _startDateTime;
+      final endDt = _endDateTime;
+
+      if (startDt == null || endDt == null) {
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Seleziona una data.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Seleziona giorno e orario di consegna e di ritiro.'),
+          ),
+        );
         setState(() => _busy = false);
         return;
       }
 
-      final startTime = _effectiveStartTime;
-      final endTime = _effectiveEndTime;
-
-      if (startTime == null || endTime == null) {
+      if (!startDt.isBefore(endDt)) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Orari di apertura del locale non disponibili. Riprova più tardi.',
+              'L\'orario di ritiro deve essere dopo quello di consegna.',
             ),
           ),
         );
@@ -743,20 +696,34 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         return;
       }
 
-      final startStr = _formatTimeForApi(startTime);
-      final endStr = _formatTimeForApi(endTime);
+      final bookingStartDate =
+          DateTime(startDt.year, startDt.month, startDt.day);
+      final bookingEndDate = DateTime(endDt.year, endDt.month, endDt.day);
 
-      final bookingStartDate = _selectedDate!;
-      final bookingEndDate = _endDate ?? _selectedDate!; // 3h = stesso giorno
+      // 🔹 Formato "HH:MM" per la logica di disponibilità
+      final startStrForAvailability = _formatTimeForApi(
+        TimeOfDay(hour: startDt.hour, minute: startDt.minute),
+      );
+      final endStrForAvailability = _formatTimeForApi(
+        TimeOfDay(hour: endDt.hour, minute: endDt.minute),
+      );
 
-      // 2) Controllo disponibilità per intervallo specifico
+      // 🔹 Formato "HH:MM:SS" per il DB
+      final startTimeStr = _formatTimeToDb(
+        TimeOfDay(hour: startDt.hour, minute: startDt.minute),
+      );
+      final endTimeStr = _formatTimeToDb(
+        TimeOfDay(hour: endDt.hour, minute: endDt.minute),
+      );
+
+      // 2) Controllo disponibilità per questo intervallo
       final availability = await repo.getPartnerAvailabilityForInterval(
         partnerId: widget.partner.id,
-        bookingDate: _selectedDate!,
+        bookingDate: bookingStartDate,
         startDate: bookingStartDate,
         endDate: bookingEndDate,
-        startTime: startStr,
-        endTime: endStr,
+        startTime: startStrForAvailability,
+        endTime: endStrForAvailability,
       );
 
       final totalRequested = _bagsS + _bagsM + _bagsL;
@@ -764,9 +731,9 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
       final bool hasPerSizeCapacity =
           (availability.capacityS +
-              availability.capacityM +
-              availability.capacityL) >
-          0;
+                  availability.capacityM +
+                  availability.capacityL) >
+              0;
 
       if (hasPerSizeCapacity) {
         if (_bagsS > 0 && _bagsS > availability.availableS) {
@@ -826,38 +793,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         return;
       }
 
-      //  Recuperiamo data+ora effettive da quello che ha scelto l'utente
-      final startDt = _startDateTime;
-      final endDt = _endDateTime;
-
-      if (startDt == null || endDt == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Seleziona giorno e orario di consegna e di ritiro.'),
-          ),
-        );
-        return;
-      }
-
-      if (!startDt.isBefore(endDt)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'L\'orario di ritiro deve essere dopo quello di consegna.',
-            ),
-          ),
-        );
-        return;
-      }
-
-      // Orari "HH:MM:SS"
-      final startTimeStr = _formatTimeToDb(
-        TimeOfDay(hour: startDt.hour, minute: startDt.minute),
-      );
-      final endTimeStr = _formatTimeToDb(
-        TimeOfDay(hour: endDt.hour, minute: endDt.minute),
-      );
-
       // 3) Se tutto ok → creiamo la prenotazione
       await repo.createBooking(
         partnerId: widget.partner.id,
@@ -869,7 +804,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         bagsM: _bagsM,
         bagsL: _bagsL,
         notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
-        bookingDate: _selectedDate!,
+        bookingDate: bookingStartDate,
         startTime: startTimeStr,
         endTime: endTimeStr,
         endDate: bookingEndDate,
@@ -933,86 +868,16 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   /// - 2 giorni
   /// - 3 giorni
   BagDropDuration _currentDuration() {
-    final DateTime? startDate = _selectedDate;
-    final TimeOfDay? startTime = _effectiveStartTime; // già usato nel riepilogo
-    final DateTime? endDate = _endDate;
-    final TimeOfDay? endTime = _endTime;
+    final start = _startDateTime;
+    final end = _endDateTime;
 
-    if (startDate != null &&
-        startTime != null &&
-        endDate != null &&
-        endTime != null) {
-      final start = DateTime(
-        startDate.year,
-        startDate.month,
-        startDate.day,
-        startTime.hour,
-        startTime.minute,
-      );
-      final end = DateTime(
-        endDate.year,
-        endDate.month,
-        endDate.day,
-        endTime.hour,
-        endTime.minute,
-      );
-      return _inferDurationFromStartEnd(start, end);
-    }
-
-    // Fallback: comportamento vecchio (solo 3h / 1 giorno)
-    return _fullDay ? BagDropDuration.oneDay : BagDropDuration.threeHours;
-  }
-
-  /// Calcola la durata tariffaria a partire da start/end reali.
-  ///
-  /// Logica:
-  /// - se end <= start → 3 ore (fallback di sicurezza)
-  /// - se durata <= 3h → 3 ore
-  /// - se inizio e fine sono lo stesso giorno → 1 giorno
-  /// - se il ritiro è il giorno dopo e entro le 13:00 → 1 giorno e mezzo
-  /// - se durata <= 48h → 2 giorni
-  /// - altrimenti → 3 giorni
-  BagDropDuration _inferDurationFromStartEnd(DateTime start, DateTime end) {
-    if (!end.isAfter(start)) {
+    if (start == null || end == null) {
+      // Se mancano dati, consideriamo 3h come fallback neutro.
       return BagDropDuration.threeHours;
     }
 
-    final diff = end.difference(start);
-    final hours = diff.inMinutes / 60.0;
-
-    // Fino a 3 ore → tariffa 3h
-    if (hours <= 3.0) {
-      return BagDropDuration.threeHours;
-    }
-
-    // Stesso giorno → 1 giorno
-    if (_isSameCalendarDay(start, end)) {
-      return BagDropDuration.oneDay;
-    }
-
-    // Giorno successivo → possibile 1 giorno e mezzo
-    final nextDay = start.add(const Duration(days: 1));
-    final bool isNextDay = _isSameCalendarDay(nextDay, end);
-
-    if (isNextDay) {
-      // Soglia "pranzo": 13:00 del giorno dopo
-      final cutoff = DateTime(end.year, end.month, end.day, 13, 0);
-      if (!end.isAfter(cutoff)) {
-        return BagDropDuration.oneAndHalfDay;
-      }
-    }
-
-    // Fino a 48h → 2 giorni
-    if (hours <= 48.0) {
-      return BagDropDuration.twoDays;
-    }
-
-    // Oltre → 3 giorni (per ora limitiamoci qui)
-    return BagDropDuration.threeDays;
-  }
-
-  bool _isSameCalendarDay(DateTime a, DateTime b) {
-    return a.year == b.year && a.month == b.month && a.day == b.day;
+    // Usa la logica centralizzata nel listino
+    return BagDropPricing.inferDuration(start: start, end: end);
   }
 
   /// Testo leggibile per la durata, usato nel riepilogo.
@@ -1244,56 +1109,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           '${d.year}';
     }
 
-    /// Mantiene allineati giorno/ora di fine quando siamo in modalità "3 ore".
-    void _syncThreeHoursEnd() {
-      // Modalità rapida: 3 ore sulla stessa data
-      if (!_fullDay) {
-        // Se non c'è ancora una data, imposto oggi
-        if (_selectedDate == null) {
-          final now = DateTime.now();
-          _selectedDate = DateTime(now.year, now.month, now.day);
-        }
-
-        // Orario di inizio: se manca, uso prima apertura o 9:00
-        _startTime ??= _firstOpenTime ?? const TimeOfDay(hour: 9, minute: 0);
-
-        // Giorno di ritiro = stesso giorno
-        _endDate = _selectedDate;
-
-        // Orario di fine = 3 ore dopo (o logica custom se hai _threeHoursEndTime)
-        final predefinedEnd = _threeHoursEndTime;
-        if (predefinedEnd != null) {
-          _endTime = predefinedEnd;
-        } else {
-          final start = _startTime!;
-          _endTime = TimeOfDay(
-            hour: (start.hour + 3) % 24,
-            minute: start.minute,
-          );
-        }
-      }
-    }
-
-    final bool isQuickThreeHours = !_fullDay; // opzione rapida
-    final bool isCustomDuration = _fullDay; // durata libera
-
-    // Label per la tile della fascia 3 ore
-    String threeHoursTimeLabel;
-    if (isQuickThreeHours) {
-      final start = _startTime;
-      final end = _endTime;
-      if (start != null && end != null) {
-        threeHoursTimeLabel =
-            '${_formatTimeDisplay(start)} - ${_formatTimeDisplay(end)} (3 ore)';
-      } else {
-        threeHoursTimeLabel =
-            'Scegli l\'orario di inizio (ti teniamo il bagaglio per 3 ore)';
-      }
-    } else {
-      threeHoursTimeLabel = '';
-    }
-
-    // Riepilogo sintetico (per la card in basso)
     String startSummary;
     if (_selectedDate == null || _startTime == null) {
       startSummary = 'Non ancora impostato';
@@ -1304,14 +1119,18 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
     String endSummary;
     if (_endDate == null || _endTime == null) {
-      if (isQuickThreeHours) {
-        endSummary = 'Verrà impostato automaticamente 3 ore dopo l\'inizio';
-      } else {
-        endSummary = 'Non ancora impostato';
-      }
+      endSummary = 'Non ancora impostato';
     } else {
       endSummary =
           '${_formatDate(_endDate, '')} · ${_formatTimeDisplay(_endTime!)}';
+    }
+
+    String durationSummary;
+    if (_startDateTime == null || _endDateTime == null) {
+      durationSummary =
+          'Seleziona orari di consegna e ritiro per vedere la durata stimata.';
+    } else {
+      durationSummary = 'Durata tariffaria stimata: ${_durationLabel()}';
     }
 
     return ListView(
@@ -1324,286 +1143,144 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         const SizedBox(height: 16),
 
         // =========================
-        // 1. TIPO DI DURATA
+        // 1. CONSEGNA
         // =========================
         Text(
-          '1. Scegli la modalità',
+          '1. Consegna dei bagagli',
           style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 8),
 
-        Row(
-          children: [
-            // Prima opzione: 3 ore veloci (scelta rapida)
-            ChoiceChip(
-              label: const Text('3 ore'),
-              selected: isQuickThreeHours,
-              onSelected: (v) {
-                if (!v) return;
-                setState(() {
-                  _fullDay = false; // false = modalità 3 ore
-                  _syncThreeHoursEnd();
-                });
-              },
-            ),
-            const SizedBox(width: 8),
-            // Seconda opzione: durata personalizzata
-            ChoiceChip(
-              label: const Text('Durata personalizzata'),
-              selected: isCustomDuration,
-              onSelected: (v) {
-                if (!v) return;
-                setState(() {
-                  _fullDay = true; // true = durata libera
-                  // In modalità personalizzata non tocchiamo automaticamente
-                  // _endDate / _endTime: li imposta l’utente.
-                });
-              },
-            ),
-          ],
+        // Giorno di consegna
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Giorno di consegna'),
+          subtitle: Text(
+            _formatDate(_selectedDate, 'Seleziona il giorno di consegna'),
+          ),
+          trailing: const Icon(Icons.calendar_today),
+          onTap: () async {
+            final now = DateTime.now();
+            final today = DateTime(now.year, now.month, now.day);
+            final in7Days = today.add(const Duration(days: 7));
+
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: _selectedDate ?? today,
+              firstDate: today,
+              lastDate: in7Days,
+            );
+            if (picked != null) {
+              setState(() {
+                _selectedDate = DateTime(picked.year, picked.month, picked.day);
+
+                // Se non hai ancora una data di ritiro, inizializzala uguale alla consegna
+                if (_endDate == null || _endDate!.isBefore(_selectedDate!)) {
+                  _endDate = _selectedDate;
+                }
+              });
+            }
+          },
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
 
-        if (isQuickThreeHours) ...[
-          // =========================
-          // MODALITÀ 3 ORE VELOCI
-          // =========================
-          Text(
-            'Lascia al volo il tuo bagaglio e riprendilo in giornata.',
-            style: textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.outline,
-            ),
+        // Orario di consegna
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Orario di consegna'),
+          subtitle: Text(
+            _startTime == null
+                ? 'Seleziona l\'orario di consegna'
+                : _formatTimeDisplay(_startTime!),
           ),
-          const SizedBox(height: 12),
+          trailing: const Icon(Icons.access_time),
+          onTap: () async {
+            final initial =
+                _startTime ?? const TimeOfDay(hour: 10, minute: 0);
+            final picked = await showTimePicker(
+              context: context,
+              initialTime: initial,
+            );
+            if (picked != null) {
+              setState(() {
+                _startTime = picked;
+              });
+            }
+          },
+        ),
 
-          Text(
-            '2. Quando inizi le 3 ore?',
-            style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+        const SizedBox(height: 24),
+
+        // =========================
+        // 2. RITIRO
+        // =========================
+        Text(
+          '2. Ritiro dei bagagli',
+          style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+
+        // Giorno di ritiro
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Giorno di ritiro'),
+          subtitle: Text(
+            _formatDate(_endDate, 'Seleziona il giorno di ritiro'),
           ),
+          trailing: const Icon(Icons.calendar_today),
+          onTap: () async {
+            final now = DateTime.now();
+            final today = DateTime(now.year, now.month, now.day);
 
-          const SizedBox(height: 8),
+            final baseStartDate = _selectedDate ?? today;
+            final firstDate = baseStartDate;
+            final lastDate = baseStartDate.add(const Duration(days: 7));
+            final initial = _endDate ?? baseStartDate;
 
-          // Giorno (per default oggi, ma l’utente può cambiare)
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Giorno'),
-            subtitle: Text(
-              _formatDate(_selectedDate, 'Oggi (puoi cambiare il giorno)'),
-            ),
-            trailing: const Icon(Icons.calendar_today),
-            onTap: () async {
-              final now = DateTime.now();
-              final today = DateTime(now.year, now.month, now.day);
-              final in7Days = today.add(const Duration(days: 7));
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: initial,
+              firstDate: firstDate,
+              lastDate: lastDate,
+            );
+            if (picked != null) {
+              setState(() {
+                _endDate = DateTime(picked.year, picked.month, picked.day);
+              });
+            }
+          },
+        ),
+        const SizedBox(height: 8),
 
-              final picked = await showDatePicker(
-                context: context,
-                initialDate: _selectedDate ?? today,
-                firstDate: today,
-                lastDate: in7Days,
-              );
-              if (picked != null) {
-                setState(() {
-                  _selectedDate = DateTime(
-                    picked.year,
-                    picked.month,
-                    picked.day,
-                  );
-                  _syncThreeHoursEnd();
-                });
-              }
-            },
+        // Orario di ritiro
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Orario di ritiro'),
+          subtitle: Text(
+            _endTime == null
+                ? 'Seleziona l\'orario di ritiro'
+                : _formatTimeDisplay(_endTime!),
           ),
-          const SizedBox(height: 8),
-
-          // Orario di inizio (fine auto-calcolata)
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Orario di inizio (3 ore)'),
-            subtitle: Text(threeHoursTimeLabel),
-            trailing: const Icon(Icons.access_time),
-            onTap: () async {
-              final initial =
-                  _startTime ??
-                  _firstOpenTime ??
-                  const TimeOfDay(hour: 9, minute: 0);
-
-              final picked = await showTimePicker(
-                context: context,
-                initialTime: initial,
-              );
-              if (picked != null) {
-                setState(() {
-                  _startTime = picked;
-                  _syncThreeHoursEnd();
-                });
-              }
-            },
-          ),
-
-          const SizedBox(height: 12),
-
-          // Spiegazione breve per le 3 ore
-          Text(
-            'Per la modalità "3 ore " il ritiro è previsto lo stesso giorno, '
-            '3 ore dopo l\'orario di inizio che scegli.',
-            style: textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.outline,
-            ),
-          ),
-        ] else ...[
-          // =========================
-          // MODALITÀ DURATA PERSONALIZZATA
-          // =========================
-          Text(
-            '2. Quando consegni i bagagli?',
-            style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 8),
-
-          // Giorno di consegna
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Giorno di consegna'),
-            subtitle: Text(
-              _formatDate(_selectedDate, 'Seleziona il giorno di consegna'),
-            ),
-            trailing: const Icon(Icons.calendar_today),
-            onTap: () async {
-              final now = DateTime.now();
-              final today = DateTime(now.year, now.month, now.day);
-              final in7Days = today.add(const Duration(days: 7));
-
-              final picked = await showDatePicker(
-                context: context,
-                initialDate: _selectedDate ?? today,
-                firstDate: today,
-                lastDate: in7Days,
-              );
-              if (picked != null) {
-                setState(() {
-                  _selectedDate = DateTime(
-                    picked.year,
-                    picked.month,
-                    picked.day,
-                  );
-
-                  // Se il ritiro è prima della consegna, riallineo la data di ritiro.
-                  if (_endDate != null && _endDate!.isBefore(_selectedDate!)) {
-                    _endDate = _selectedDate;
-                  }
-                });
-              }
-            },
-          ),
-          const SizedBox(height: 8),
-
-          // Orario di consegna
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Orario di consegna'),
-            subtitle: Text(
-              _startTime == null
-                  ? 'Seleziona l\'orario di consegna'
-                  : _formatTimeDisplay(_startTime!),
-            ),
-            trailing: const Icon(Icons.access_time),
-            onTap: () async {
-              final initial =
-                  _startTime ?? const TimeOfDay(hour: 10, minute: 0);
-              final picked = await showTimePicker(
-                context: context,
-                initialTime: initial,
-              );
-              if (picked != null) {
-                setState(() {
-                  _startTime = picked;
-                });
-              }
-            },
-          ),
-
-          const SizedBox(height: 16),
-
-          Text(
-            '3. Quando li ritiri?',
-            style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 8),
-
-          // Giorno di ritiro
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Giorno di ritiro'),
-            subtitle: Text(
-              _formatDate(_endDate, 'Seleziona il giorno di ritiro'),
-            ),
-            trailing: const Icon(Icons.calendar_today),
-            onTap: () async {
-              final now = DateTime.now();
-              final today = DateTime(now.year, now.month, now.day);
-
-              final baseStartDate = _selectedDate ?? today;
-              final firstDate = baseStartDate;
-              final lastDate = baseStartDate.add(const Duration(days: 7));
-              final initial = _endDate ?? baseStartDate;
-
-              final picked = await showDatePicker(
-                context: context,
-                initialDate: initial,
-                firstDate: firstDate,
-                lastDate: lastDate,
-              );
-              if (picked != null) {
-                setState(() {
-                  _endDate = DateTime(picked.year, picked.month, picked.day);
-                });
-              }
-            },
-          ),
-          const SizedBox(height: 8),
-
-          // Orario di ritiro
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Orario di ritiro'),
-            subtitle: Text(
-              _endTime == null
-                  ? 'Seleziona l\'orario di ritiro'
-                  : _formatTimeDisplay(_endTime!),
-            ),
-            trailing: const Icon(Icons.access_time),
-            onTap: () async {
-              final initialTime =
-                  _endTime ??
-                  _startTime ??
-                  const TimeOfDay(hour: 18, minute: 0);
-              final picked = await showTimePicker(
-                context: context,
-                initialTime: initialTime,
-              );
-              if (picked != null) {
-                setState(() {
-                  _endTime = picked;
-                });
-              }
-            },
-          ),
-
-          const SizedBox(height: 8),
-          Text(
-            'In modalità "durata personalizzata" puoi scegliere liberamente giorno e orario di consegna e di ritiro, '
-            'entro i limiti di prenotazione del locale.',
-            style: textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.outline,
-            ),
-          ),
-        ],
+          trailing: const Icon(Icons.access_time),
+          onTap: () async {
+            final initialTime =
+                _endTime ?? _startTime ?? const TimeOfDay(hour: 18, minute: 0);
+            final picked = await showTimePicker(
+              context: context,
+              initialTime: initialTime,
+            );
+            if (picked != null) {
+              setState(() {
+                _endTime = picked;
+              });
+            }
+          },
+        ),
 
         const SizedBox(height: 20),
 
         // =========================
-        // RIEPILOGO VISIVO GENERALE
+        // RIEPILOGO ORARI
         // =========================
         Card(
           elevation: 0,
@@ -1625,6 +1302,13 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                 const SizedBox(height: 6),
                 Text('Consegna: $startSummary'),
                 Text('Ritiro:   $endSummary'),
+                const SizedBox(height: 8),
+                Text(
+                  durationSummary,
+                  style: textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                  ),
+                ),
               ],
             ),
           ),
@@ -1632,7 +1316,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
         const SizedBox(height: 16),
 
-        // NOTE FINALI
         Text(
           'Gli orari effettivi di deposito devono rientrare negli orari di apertura del locale. '
           'Controlla sempre la scheda del partner per verificare gli orari.',
@@ -1721,19 +1404,17 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   Widget _buildSummary() {
     final totalBags = _bagsS + _bagsM + _bagsL;
 
-    final start = _effectiveStartTime;
-    final end = _effectiveEndTime;
+    final start = _startTime;
+    final end = _endTime;
 
     String timeText;
     if (start == null || end == null) {
       timeText = 'Orario non selezionato';
-    } else if (_fullDay) {
-      timeText =
-          '${_formatTimeDisplay(start)} - ${_formatTimeDisplay(end)} (tutto il giorno)';
     } else {
       timeText =
-          '${_formatTimeDisplay(start)} - ${_formatTimeDisplay(end)} (3 ore)';
+          '${_formatTimeDisplay(start)} - ${_formatTimeDisplay(end)} (${_durationLabel()})';
     }
+
 
     return ListView(
       children: [
