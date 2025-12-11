@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:BagDrop/config/bagdrop_pricing.dart';
-import 'package:BagDrop/schermate/user/bookings/booking_partner_detail_screen.dart';
 import 'package:BagDrop/models/partner.dart';
 import 'package:BagDrop/models/partner_booking.dart';
+import 'package:BagDrop/schermate/partner/user_view/partner_detail_screen.dart';
 
 class BookingRecapScreen extends StatelessWidget {
   final Partner partner;
@@ -15,9 +15,10 @@ class BookingRecapScreen extends StatelessWidget {
   });
 
   String _formatDateTime(DateTime dt) {
+    final local = dt.toLocal();
     String two(int v) => v.toString().padLeft(2, '0');
-    return '${two(dt.day)}/${two(dt.month)}/${dt.year} '
-        '${two(dt.hour)}:${two(dt.minute)}';
+    return '${two(local.day)}/${two(local.month)}/${local.year} '
+        '${two(local.hour)}:${two(local.minute)}';
   }
 
   @override
@@ -25,7 +26,7 @@ class BookingRecapScreen extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
-    final totalBags = booking.bagsS + booking.bagsM + booking.bagsL;
+    final totalBags = booking.totalBags;
     final dropoff = booking.plannedDropoffLocal;
     final pickup = booking.plannedPickupLocal;
 
@@ -59,30 +60,28 @@ class BookingRecapScreen extends StatelessWidget {
         case BagDropDuration.threeDays:
           durationLabel = '3 giorni';
           break;
-        default:
-          durationLabel = '';
       }
     }
 
-    String _statusText;
-    Color _statusColor;
+    String statusText;
+    Color statusColor;
     switch (booking.status.toLowerCase()) {
       case 'pending':
-        _statusText = 'In attesa';
-        _statusColor = Colors.orange;
+        statusText = 'In attesa';
+        statusColor = Colors.orange;
         break;
       case 'cancelled':
       case 'canceled':
-        _statusText = 'Annullata';
-        _statusColor = Colors.red;
+        statusText = 'Annullata';
+        statusColor = Colors.red;
         break;
       case 'completed':
-        _statusText = 'Completata';
-        _statusColor = Colors.blue;
+        statusText = 'Completata';
+        statusColor = Colors.blue;
         break;
       default:
-        _statusText = 'Confermata';
-        _statusColor = Colors.green;
+        statusText = 'Confermata';
+        statusColor = Colors.green;
     }
 
     return Scaffold(
@@ -106,6 +105,7 @@ class BookingRecapScreen extends StatelessWidget {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
             ),
+            elevation: 1.5,
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: Column(
@@ -129,11 +129,23 @@ class BookingRecapScreen extends StatelessWidget {
                             if (partner.address != null &&
                                 partner.address!.trim().isNotEmpty) ...[
                               const SizedBox(height: 4),
-                              Text(
-                                partner.address!,
-                                style: TextStyle(
-                                  color: cs.onSurface.withOpacity(0.7),
-                                ),
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.location_on_outlined,
+                                    size: 16,
+                                    color: cs.onSurface.withOpacity(0.6),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      partner.address!,
+                                      style: TextStyle(
+                                        color: cs.onSurface.withOpacity(0.7),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ],
@@ -145,45 +157,47 @@ class BookingRecapScreen extends StatelessWidget {
                           vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: _statusColor.withOpacity(0.12),
+                          color: statusColor.withOpacity(0.12),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
-                          _statusText,
+                          statusText,
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
-                            color: _statusColor,
+                            color: statusColor,
                           ),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
+
+                  // Date e orari con icone
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Consegna prevista: ${_formatDateTime(dropoff)}',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: cs.onSurface.withOpacity(0.7),
-                        ),
+                      _IconLabelRow(
+                        icon: Icons.login,
+                        label: 'Consegna prevista',
+                        value: _formatDateTime(dropoff),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Ritiro previsto: ${_formatDateTime(pickup)}',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: cs.onSurface.withOpacity(0.7),
-                        ),
+                      const SizedBox(height: 4),
+                      _IconLabelRow(
+                        icon: Icons.logout,
+                        label: 'Ritiro previsto',
+                        value: _formatDateTime(pickup),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Prenotazione creata il ${_formatDateTime(booking.createdAt)}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: cs.onSurface.withOpacity(0.5),
+                      const SizedBox(height: 4),
+                      _IconLabelRow(
+                        icon: Icons.schedule_outlined,
+                        label: 'Prenotazione creata il',
+                        value: _formatDateTime(booking.createdAt),
+                        labelStyle: tt.bodySmall?.copyWith(
+                          color: cs.onSurface.withOpacity(0.6),
+                        ),
+                        valueStyle: tt.bodySmall?.copyWith(
+                          color: cs.onSurface.withOpacity(0.6),
                         ),
                       ),
                     ],
@@ -195,10 +209,8 @@ class BookingRecapScreen extends StatelessWidget {
                       onPressed: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (_) => BookingPartnerDetailScreen(
-                              partner: partner,
-                              booking: booking,
-                            ),
+                            builder: (_) =>
+                                PartnerDetailScreen(partner: partner),
                           ),
                         );
                       },
@@ -221,6 +233,7 @@ class BookingRecapScreen extends StatelessWidget {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
             ),
+            elevation: 1,
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: Column(
@@ -247,6 +260,7 @@ class BookingRecapScreen extends StatelessWidget {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
             ),
+            elevation: 1,
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: Column(
@@ -273,6 +287,7 @@ class BookingRecapScreen extends StatelessWidget {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
             ),
+            elevation: 1,
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: Column(
@@ -323,6 +338,7 @@ class BookingRecapScreen extends StatelessWidget {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
+              elevation: 1,
               child: Padding(
                 padding: const EdgeInsets.all(14),
                 child: Column(
@@ -337,7 +353,7 @@ class BookingRecapScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      booking.notes!,
+                      booking.notes!.trim(),
                       style: TextStyle(color: cs.onSurface.withOpacity(0.9)),
                     ),
                   ],
@@ -380,6 +396,53 @@ class _InfoRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _IconLabelRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final TextStyle? labelStyle;
+  final TextStyle? valueStyle;
+
+  const _IconLabelRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.labelStyle,
+    this.valueStyle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final defaultLabelStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
+          fontWeight: FontWeight.w600,
+          color: cs.onSurface.withOpacity(0.85),
+        );
+    final defaultValueStyle =
+        Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: cs.onSurface.withOpacity(0.9),
+            );
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: cs.primary),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: labelStyle ?? defaultLabelStyle),
+              const SizedBox(height: 2),
+              Text(value, style: valueStyle ?? defaultValueStyle),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

@@ -16,18 +16,33 @@ class UserProfile {
     this.role = 'user',
   });
 
-  factory UserProfile.fromMap(Map<String, dynamic> map) {
-    return UserProfile(
-      id: map['id'] as String,
-      createdAt: map['created_at'] == null
-          ? null
-          : DateTime.tryParse(map['created_at'] as String),
-      fullName: map['full_name'] as String?,
-      avatarUrl: map['avatar_url'] as String?,
-      kycStatus: (map['kyc_status'] as String?) ?? 'none',
-      role: (map['role'] as String?) ?? 'user',
-    );
+factory UserProfile.fromMap(Map<String, dynamic> map) {
+  DateTime? parseDateTime(dynamic v) {
+    if (v == null) return null;
+
+    if (v is DateTime) {
+      // Normalizza sempre all'orario locale del device
+      return v.toLocal();
+    }
+
+    if (v is String) {
+      // Gestisce sia 'YYYY-MM-DD' che ISO con timezone
+      return DateTime.parse(v).toLocal();
+    }
+
+    return null;
   }
+
+  return UserProfile(
+    id: map['id'] as String,
+    createdAt: parseDateTime(map['created_at']),
+    fullName: map['full_name'] as String?,
+    avatarUrl: map['avatar_url'] as String?,
+    kycStatus: (map['kyc_status'] as String?) ?? 'none',
+    role: (map['role'] as String?) ?? 'user',
+  );
+}
+
 
   Map<String, dynamic> toMap() {
     return {

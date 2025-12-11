@@ -610,18 +610,6 @@ class _PartnerBottomCardState extends State<_PartnerBottomCard> {
     }
   }
 
-  /// Prezzo breve "3h da X €" dal listino globale BagDrop.
-  String _shortPrice3h() {
-    if (BagDropPricing.m3h <= 0) return '';
-    return '3h da ${BagDropPricing.formatEuro(BagDropPricing.m3h)}';
-  }
-
-  /// Prezzo breve "Giorno da X €" dal listino globale BagDrop.
-  String _shortPriceDay() {
-    if (BagDropPricing.m1d <= 0) return '';
-    return 'Giorno da ${BagDropPricing.formatEuro(BagDropPricing.m1d)}';
-  }
-
   /// Widget che mostra:
   /// - spinner mentre carica
   /// - cover se presente
@@ -766,8 +754,6 @@ class _PartnerBottomCardState extends State<_PartnerBottomCard> {
     final textTheme = Theme.of(context).textTheme;
     final partner = widget.partner;
     final isOpen = _isOpenNow(partner);
-    final price3h = _shortPrice3h();
-    final priceDay = _shortPriceDay();
 
     return Positioned(
       left: 0,
@@ -849,25 +835,6 @@ class _PartnerBottomCardState extends State<_PartnerBottomCard> {
                             ),
 
                           const SizedBox(height: 8),
-
-                          // Prezzi → presi dal listino globale BagDrop
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 4,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              if (price3h.isNotEmpty)
-                                Text(
-                                  price3h,
-                                  style: textTheme.bodyMedium?.copyWith(
-                                    color: cs.primary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              if (priceDay.isNotEmpty)
-                                Text(priceDay, style: textTheme.bodyMedium),
-                            ],
-                          ),
                         ],
                       ),
                     ),

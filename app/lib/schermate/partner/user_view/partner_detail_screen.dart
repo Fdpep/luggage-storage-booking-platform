@@ -89,20 +89,6 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
     }
   }
 
-  /// Restituisce la stringa breve per il prezzo "3h da X €"
-  /// usando il listino globale (qui prendiamo come riferimento la taglia M).
-  String _shortPrice3h() {
-    if (BagDropPricing.m3h <= 0) return '';
-    return '3h da ${BagDropPricing.formatEuro(BagDropPricing.m3h)}';
-  }
-
-  /// Restituisce la stringa breve per il prezzo "Giorno da X €"
-  /// usando il listino globale (sempre taglia M come base).
-  String _shortPriceDay() {
-    if (BagDropPricing.m1d <= 0) return '';
-    return 'Giorno da ${BagDropPricing.formatEuro(BagDropPricing.m1d)}';
-  }
-
   Widget _buildPhotoSection(ColorScheme cs) {
     if (_loadingPhotos) {
       return SizedBox(
@@ -406,9 +392,6 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final textTheme = theme.textTheme;
-    // Prezzi globali BagDrop (non più letti dal partner)
-    final price3h = _shortPrice3h();
-    final priceDay = _shortPriceDay();
 
     return Scaffold(
       appBar: AppBar(title: Text(partner.name)),
@@ -421,38 +404,78 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
               _buildPhotoSection(cs),
               const SizedBox(height: 16),
 
-              // Nome + indirizzo
-              Text(
-                partner.name,
-                style: textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
+              Card(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                elevation: 1.5,
+                child: Padding(
+                  padding: const EdgeInsets.all(14.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Nome + piccolo badge
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              partner.name,
+                              style: textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: cs.primary.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              'BagDrop partner',
+                              style: textTheme.labelSmall?.copyWith(
+                                color: cs.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Indirizzo con icona
+                      if (partner.address != null &&
+                          partner.address!.trim().isNotEmpty)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.location_on_outlined,
+                              size: 18,
+                              color: cs.onSurface.withOpacity(0.7),
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                partner.address!.trim(),
+                                style: textTheme.bodyMedium?.copyWith(
+                                  color: cs.onSurface.withOpacity(0.8),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+
+                      const SizedBox(height: 12),
+                    ],
+                  ),
                 ),
               ),
-              if (partner.address != null && partner.address!.trim().isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4.0),
-                  child: Text(partner.address!, style: textTheme.bodyMedium),
-                ),
 
               const SizedBox(height: 12),
-
-              // Prezzi
-              // Prezzi (da listino globale BagDrop)
-              Row(
-                children: [
-                  if (price3h.isNotEmpty)
-                    Text(
-                      price3h,
-                      style: textTheme.titleMedium?.copyWith(color: cs.primary),
-                    ),
-                  if (price3h.isNotEmpty && priceDay.isNotEmpty)
-                    const SizedBox(width: 16),
-                  if (priceDay.isNotEmpty)
-                    Text(priceDay, style: textTheme.titleMedium),
-                ],
-              ),
-
-              const SizedBox(height: 16),
               const Divider(),
 
               // Descrizione
@@ -540,17 +563,27 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
               Text('Contatti', style: textTheme.titleMedium),
               const SizedBox(height: 4),
               if (partner.phone != null && partner.phone!.trim().isNotEmpty)
-                Text('Telefono: ${partner.phone}', style: textTheme.bodyMedium)
+                Row(
+                  children: [
+                    Icon(
+                      Icons.phone_outlined,
+                      size: 18,
+                      color: cs.onSurface.withOpacity(0.7),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      partner.phone!.trim(),
+                      style: textTheme.bodyMedium,
+                    ),
+                  ],
+                )
               else
-                Text('Telefono non disponibile.', style: textTheme.bodyMedium),
-              if (partner.address != null && partner.address!.trim().isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4.0),
-                  child: Text(
-                    'Indirizzo: ${partner.address}',
-                    style: textTheme.bodyMedium,
-                  ),
+                Text(
+                  'Telefono non disponibile.',
+                  style: textTheme.bodyMedium,
                 ),
+              // niente secondo indirizzo: già mostrato sopra
+
 
               const SizedBox(height: 16),
               const Divider(),

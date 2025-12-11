@@ -25,6 +25,10 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   // 3 = riepilogo
   int _step = 0;
   bool _busy = false;
+  // 0 = +3 ore, 1 = tutto il giorno
+  int? _selectedPresetIndex;
+  int _plusDaysPreset = 0;
+
 
   // CONTATTO
   final _firstNameCtrl = TextEditingController();
@@ -318,11 +322,12 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       return 'L\'orario di ritiro è fuori dagli orari di apertura del locale.';
     }
 
-    // Limite di durata "sanità mentale" lato business (per ora 3 giorni max)
+    // Limite di durata lato business (max 7 giorni)
     final durationHours = endDt.difference(startDt).inMinutes / 60.0;
-    if (durationHours > 72.0) {
-      return 'Per ora puoi prenotare al massimo per 3 giorni. Riduci l\'intervallo tra consegna e ritiro.';
+    if (durationHours > 24.0 * 7) {
+      return 'Per ora puoi prenotare al massimo per 7 giorni. Riduci l\'intervallo tra consegna e ritiro.';
     }
+
 
     return null; // ✅ tutto ok
   }
@@ -507,6 +512,91 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       _endTime!.minute,
     );
   }
+
+  /// Applica i preset rapidi:
+  /// 0 → +3 ore
+  /// 1 → tutto il giorno
+  void _applyPreset(int index) {
+    final start = _startDateTime;
+    if (start == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Prima seleziona giorno e orario di consegna.'),
+        ),
+      );
+      return;
+    }
+
+    DateTime end;
+
+    if (index == 0) {
+      // Preset "+3 ore"
+      end = start.add(const Duration(hours: 3));
+    } else if (index == 1) {
+      // Preset "Tutto il giorno"
+      final lastClose = _lastCloseTime;
+
+      if (lastClose != null) {
+        end = DateTime(
+          start.year,
+          start.month,
+          start.day,
+          lastClose.hour,
+          lastClose.minute,
+        );
+
+        // Safety: se non è dopo l'inizio → fallback +3 ore
+        if (!end.isAfter(start)) {
+          end = start.add(const Duration(hours: 3));
+        }
+      } else {
+        // Fallback: 19:00
+        end = DateTime(start.year, start.month, start.day, 19, 0);
+        if (!end.isAfter(start)) {
+          end = start.add(const Duration(hours: 3));
+        }
+      }
+    } else {
+      // Fallback di sicurezza
+      end = start.add(const Duration(hours: 3));
+    }
+
+    setState(() {
+      _selectedPresetIndex = index;
+      _plusDaysPreset = 0; // ogni volta che cambio preset base azzero i giorni extra
+      _endDate = DateTime(end.year, end.month, end.day);
+      _endTime = TimeOfDay.fromDateTime(end);
+    });
+  }
+
+  /// Clicker "+N giorni" → ogni tap aggiunge 1 giorno (max 7)
+  void _applyPlusDaysPreset() {
+    final start = _startDateTime;
+    if (start == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Prima seleziona giorno e orario di consegna.'),
+        ),
+      );
+      return;
+    }
+
+    // limite: massimo 7 giorni totali di permanenza
+    if (_plusDaysPreset >= 7) {
+      return;
+    }
+
+    final newPlus = _plusDaysPreset + 1;
+    final end = start.add(Duration(days: newPlus));
+
+    setState(() {
+      _selectedPresetIndex = 2;   // evidenzia il chip "+N giorni"
+      _plusDaysPreset = newPlus;  // 1, 2, 3, ... 7
+      _endDate = DateTime(end.year, end.month, end.day);
+      _endTime = TimeOfDay.fromDateTime(end);
+    });
+  }
+
 
   Future<void> _loadAvailabilityForSelection() async {
     if (_selectedDate == null ||
@@ -1100,6 +1190,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   Widget _buildDateTimeForm() {
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
+    final cs = theme.colorScheme;
 
     String _formatDate(DateTime? d, String emptyLabel) {
       if (d == null) return emptyLabel;
@@ -1135,154 +1226,322 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
       children: [
+        // Titolo sezione
         Text(
           'Quando vuoi lasciare e ritirare i bagagli?',
-          style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+          style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Scegli giorno e ora di consegna e ritiro. L’intervallo deve rientrare negli orari di apertura del locale.',
+          style: textTheme.bodySmall?.copyWith(
+            color: cs.onSurface.withOpacity(0.7),
+          ),
         ),
         const SizedBox(height: 16),
 
-        // =========================
-        // 1. CONSEGNA
-        // =========================
-        Text(
-          '1. Consegna dei bagagli',
-          style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 8),
-
-        // Giorno di consegna
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Giorno di consegna'),
-          subtitle: Text(
-            _formatDate(_selectedDate, 'Seleziona il giorno di consegna'),
-          ),
-          trailing: const Icon(Icons.calendar_today),
-          onTap: () async {
-            final now = DateTime.now();
-            final today = DateTime(now.year, now.month, now.day);
-            final in7Days = today.add(const Duration(days: 7));
-
-            final picked = await showDatePicker(
-              context: context,
-              initialDate: _selectedDate ?? today,
-              firstDate: today,
-              lastDate: in7Days,
-            );
-            if (picked != null) {
-              setState(() {
-                _selectedDate = DateTime(picked.year, picked.month, picked.day);
-
-                // Se non hai ancora una data di ritiro, inizializzala uguale alla consegna
-                if (_endDate == null || _endDate!.isBefore(_selectedDate!)) {
-                  _endDate = _selectedDate;
-                }
-              });
-            }
-          },
-        ),
-        const SizedBox(height: 8),
-
-        // Orario di consegna
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Orario di consegna'),
-          subtitle: Text(
-            _startTime == null
-                ? 'Seleziona l\'orario di consegna'
-                : _formatTimeDisplay(_startTime!),
-          ),
-          trailing: const Icon(Icons.access_time),
-          onTap: () async {
-            final initial = _startTime ?? const TimeOfDay(hour: 10, minute: 0);
-            final picked = await showTimePicker(
-              context: context,
-              initialTime: initial,
-            );
-            if (picked != null) {
-              setState(() {
-                _startTime = picked;
-              });
-            }
-          },
-        ),
-
-        const SizedBox(height: 24),
-
-        // =========================
-        // 2. RITIRO
-        // =========================
-        Text(
-          '2. Ritiro dei bagagli',
-          style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 8),
-
-        // Giorno di ritiro
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Giorno di ritiro'),
-          subtitle: Text(
-            _formatDate(_endDate, 'Seleziona il giorno di ritiro'),
-          ),
-          trailing: const Icon(Icons.calendar_today),
-          onTap: () async {
-            final now = DateTime.now();
-            final today = DateTime(now.year, now.month, now.day);
-
-            final baseStartDate = _selectedDate ?? today;
-            final firstDate = baseStartDate;
-            final lastDate = baseStartDate.add(const Duration(days: 7));
-            final initial = _endDate ?? baseStartDate;
-
-            final picked = await showDatePicker(
-              context: context,
-              initialDate: initial,
-              firstDate: firstDate,
-              lastDate: lastDate,
-            );
-            if (picked != null) {
-              setState(() {
-                _endDate = DateTime(picked.year, picked.month, picked.day);
-              });
-            }
-          },
-        ),
-        const SizedBox(height: 8),
-
-        // Orario di ritiro
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Orario di ritiro'),
-          subtitle: Text(
-            _endTime == null
-                ? 'Seleziona l\'orario di ritiro'
-                : _formatTimeDisplay(_endTime!),
-          ),
-          trailing: const Icon(Icons.access_time),
-          onTap: () async {
-            final initialTime =
-                _endTime ?? _startTime ?? const TimeOfDay(hour: 18, minute: 0);
-            final picked = await showTimePicker(
-              context: context,
-              initialTime: initialTime,
-            );
-            if (picked != null) {
-              setState(() {
-                _endTime = picked;
-              });
-            }
-          },
-        ),
-
-        const SizedBox(height: 20),
-
-        // =========================
-        // RIEPILOGO ORARI
-        // =========================
+        // CARD CONSEGNA
         Card(
           elevation: 0,
-          color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: cs.primary.withOpacity(0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.login,
+                        size: 20,
+                        color: cs.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Consegna dei bagagli',
+                      style:
+                          textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Bottoni data + ora in riga
+                Row(
+                  children: [
+                    Expanded(
+                      child: _DateTimePillButton(
+                        label: 'Giorno',
+                        value: _formatDate(
+                          _selectedDate,
+                          'Seleziona giorno',
+                        ),
+                        icon: Icons.calendar_today,
+                        onTap: () async {
+                          final now = DateTime.now();
+                          final today = DateTime(now.year, now.month, now.day);
+                          final in7Days = today.add(const Duration(days: 7));
+
+                          final picked = await showDatePicker(
+                            context: context,
+                            initialDate: _selectedDate ?? today,
+                            firstDate: today,
+                            lastDate: in7Days,
+                          );
+                          if (picked != null) {
+                            setState(() {
+                              _selectedDate = DateTime(
+                                picked.year,
+                                picked.month,
+                                picked.day,
+                              );
+
+                              // se il ritiro non è ancora impostato,
+                              // o è prima della consegna, lo riallineiamo
+                              //reset
+                              _selectedPresetIndex = null;
+                              _plusDaysPreset = 0;
+                              
+                              if (_endDate == null ||
+                                  _endDate!.isBefore(_selectedDate!)) {
+                                _endDate = _selectedDate;
+                              }
+                            });
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _DateTimePillButton(
+                        label: 'Orario',
+                        value: _startTime == null
+                            ? 'Seleziona ora'
+                            : _formatTimeDisplay(_startTime!),
+                        icon: Icons.access_time,
+                        onTap: () async {
+                          final initial =
+                              _startTime ?? const TimeOfDay(hour: 10, minute: 0);
+                          final picked = await showTimePicker(
+                            context: context,
+                            initialTime: initial,
+                          );
+                          if (picked != null) {
+                            setState(() {
+                              _startTime = picked;
+                              _selectedPresetIndex = null;
+                              _plusDaysPreset = 0;
+                            });
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 12),
+
+        // MINI TIMELINE VISIVA TRA CONSEGNA E RITIRO
+        Center(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.circle, size: 8, color: cs.primary),
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                width: 48,
+                height: 2,
+                decoration: BoxDecoration(
+                  color: cs.primary.withOpacity(0.6),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              Icon(Icons.flag, size: 16, color: cs.primary),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 12),
+        // PRESET RAPIDI DURATA
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: ChoiceChip(
+                label: const Text('+ 3 ore'),
+                selected: _selectedPresetIndex == 0,
+                onSelected: (selected) {
+                  if (selected) {
+                    _applyPreset(0);
+                  } else {
+                    setState(() => _selectedPresetIndex = null);
+                  }
+                },
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: ChoiceChip(
+                label: const Text('Tutto il giorno'),
+                selected: _selectedPresetIndex == 1,
+                onSelected: (selected) {
+                  if (selected) {
+                    _applyPreset(1);
+                  } else {
+                    setState(() => _selectedPresetIndex = null);
+                  }
+                },
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: ChoiceChip(
+                label: Text(
+                  _plusDaysPreset == 0
+                      ? '+ 1 giorno'
+                      : '+ ${_plusDaysPreset} giorni',
+                ),
+                selected: _selectedPresetIndex == 2 && _plusDaysPreset > 0,
+                onSelected: (_) {
+                  _applyPlusDaysPreset();
+                },
+              ),
+            ),
+
+          ],
+        ),
+
+        const SizedBox(height: 12),
+
+        const SizedBox(height: 12),
+
+
+        // CARD RITIRO
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: cs.secondaryContainer.withOpacity(0.4),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.logout,
+                        size: 20,
+                        color: cs.secondary,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Ritiro dei bagagli',
+                      style:
+                          textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: _DateTimePillButton(
+                        label: 'Giorno',
+                        value: _formatDate(
+                          _endDate,
+                          'Seleziona giorno',
+                        ),
+                        icon: Icons.calendar_today,
+                        onTap: () async {
+                          final now = DateTime.now();
+                          final today = DateTime(now.year, now.month, now.day);
+
+                          final baseStartDate = _selectedDate ?? today;
+                          final firstDate = baseStartDate;
+                          final lastDate = baseStartDate.add(
+                            const Duration(days: 7),
+                          );
+                          final initial = _endDate ?? baseStartDate;
+
+                          final picked = await showDatePicker(
+                            context: context,
+                            initialDate: initial,
+                            firstDate: firstDate,
+                            lastDate: lastDate,
+                          );
+                          if (picked != null) {
+                            setState(() {
+                              _endDate = DateTime(
+                                picked.year,
+                                picked.month,
+                                picked.day,
+                              );
+                            });
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _DateTimePillButton(
+                        label: 'Orario',
+                        value: _endTime == null
+                            ? 'Seleziona ora'
+                            : _formatTimeDisplay(_endTime!),
+                        icon: Icons.access_time,
+                        onTap: () async {
+                          final initialTime =
+                              _endTime ??
+                                  _startTime ??
+                                  const TimeOfDay(hour: 18, minute: 0);
+                          final picked = await showTimePicker(
+                            context: context,
+                            initialTime: initialTime,
+                          );
+                          if (picked != null) {
+                            setState(() {
+                              _endTime = picked;
+                            });
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        // RIEPILOGO ORARI + DURATA
+        Card(
+          elevation: 0,
+          color: cs.surfaceVariant.withOpacity(0.4),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
@@ -1294,18 +1553,53 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                 Text(
                   'Riepilogo orari',
                   style: textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(height: 6),
-                Text('Consegna: $startSummary'),
-                Text('Ritiro:   $endSummary'),
                 const SizedBox(height: 8),
-                Text(
-                  durationSummary,
-                  style: textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.outline,
-                  ),
+                Row(
+                  children: [
+                    const Icon(Icons.login, size: 16),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Consegna: $startSummary',
+                        style: textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    const Icon(Icons.logout, size: 16),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Ritiro:   $endSummary',
+                        style: textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.timer_outlined,
+                      size: 16,
+                      color: cs.primary,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        durationSummary,
+                        style: textTheme.bodySmall?.copyWith(
+                          color: cs.outline,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -1314,24 +1608,29 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
         const SizedBox(height: 16),
 
-        Text(
-          'Gli orari effettivi di deposito devono rientrare negli orari di apertura del locale. '
-          'Controlla sempre la scheda del partner per verificare gli orari.',
-          style: textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.outline,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Puoi prenotare da oggi fino a 7 giorni dopo. Le prenotazioni nel passato non sono consentite.',
-          style: textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.outline,
-          ),
+        // INFO DI AIUTO
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.info_outline,
+              size: 16,
+              color: cs.outline,
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                'Puoi prenotare da oggi fino a 7 giorni dopo. Gli orari devono rientrare negli orari di apertura del locale.',
+                style: textTheme.bodySmall?.copyWith(
+                  color: cs.outline,
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );
   }
-
 
   Widget _buildBagsForm() {
     if (_loadingAvailability) {
@@ -1409,7 +1708,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Prezzo stimato',
+                  'Anteprima del prezzo',
                   style: TextStyle(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 4),
@@ -1586,7 +1885,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Prezzo stimato',
+                  'Prezzo Finale',
                   style: TextStyle(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 4),
@@ -1738,6 +2037,82 @@ class _BagRow extends StatelessWidget {
                   icon: const Icon(Icons.add_circle_outline),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DateTimePillButton extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _DateTimePillButton({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
+    final bool isEmpty =
+        value == 'Seleziona giorno' ||
+        value == 'Seleziona ora' ||
+        value.isEmpty;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: isEmpty
+                ? cs.outline.withOpacity(0.6)
+                : cs.primary.withOpacity(0.7),
+          ),
+          color: isEmpty
+              ? cs.surface
+              : cs.primary.withOpacity(0.06),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 18,
+              color: isEmpty ? cs.outline : cs.primary,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label.toUpperCase(),
+                    style: tt.labelSmall?.copyWith(
+                      letterSpacing: 0.4,
+                      color: cs.onSurface.withOpacity(0.6),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    overflow: TextOverflow.ellipsis,
+                    style: tt.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

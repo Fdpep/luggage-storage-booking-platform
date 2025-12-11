@@ -75,19 +75,15 @@ class PartnerBooking {
   /// Numero totale di bagagli (S+M+L)
   int get totalBags => bagsS + bagsM + bagsL;
 
-  /// Consegna prevista "sicura":
-  /// - se dropoff_planned_at è valorizzato dal DB → lo usiamo
-  /// - altrimenti combiniamo booking_date + start_time
+  /// Consegna prevista:
+  /// usiamo sempre booking_date + start_time interpretati come orari locali.
   DateTime get plannedDropoffLocal {
-    if (dropoffPlannedAt != null) return dropoffPlannedAt!;
     return _combineDateAndTime(bookingDate, startTime);
   }
 
-  /// Ritiro previsto "sicuro":
-  /// - se pickup_planned_at è valorizzato dal DB → lo usiamo
-  /// - altrimenti combiniamo (end_date o booking_date) + end_time
+  /// Ritiro previsto:
+  /// usiamo (end_date o booking_date) + end_time interpretati come orari locali.
   DateTime get plannedPickupLocal {
-    if (pickupPlannedAt != null) return pickupPlannedAt!;
     final d = endDate ?? bookingDate;
     return _combineDateAndTime(d, endTime);
   }

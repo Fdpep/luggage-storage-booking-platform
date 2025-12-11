@@ -6,8 +6,6 @@ import 'package:BagDrop/models/partner.dart';
 import 'package:BagDrop/services/supabase/partner_booking_repo.dart';
 import 'package:BagDrop/services/supabase/partner_repo.dart';
 
-import 'booking_partner_detail_screen.dart';
-
 class UserBookingsPage extends StatefulWidget {
   const UserBookingsPage({super.key});
 

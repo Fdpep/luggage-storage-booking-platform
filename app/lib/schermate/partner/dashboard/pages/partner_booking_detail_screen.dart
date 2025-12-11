@@ -27,27 +27,14 @@ class PartnerBookingDetailScreen extends StatelessWidget {
     final tt = Theme.of(context).textTheme;
     final cs = Theme.of(context).colorScheme;
 
-    final totalBags =
-        (booking.bagsS ?? 0) + (booking.bagsM ?? 0) + (booking.bagsL ?? 0);
+    final totalBags = booking.bagsS + booking.bagsM + booking.bagsL;
 
-    // Drop-off (consegna) – usiamo la proprietà già esistente nel modello
+    // Orari previsti (usiamo sempre i getter "sicuri" dal modello)
     final dropoff = booking.plannedDropoffLocal;
     final dropoffStr = _formatDateTime(dropoff);
 
-    // Se nel modello hai anche plannedPickupLocal, puoi usarlo qui.
-    // Per ora gestiamo in modo difensivo.
-    DateTime? pickup;
-    String pickupStr = 'Non disponibile';
-    try {
-      // Se hai aggiunto booking.plannedPickupLocal nel modello,
-      // puoi decommentare questa riga:
-      // pickup = booking.plannedPickupLocal;
-      if (pickup != null) {
-        pickupStr = _formatDateTime(pickup);
-      }
-    } catch (_) {
-      // Ignoriamo se la proprietà non esiste ancora
-    }
+    final pickup = booking.plannedPickupLocal;
+    final pickupStr = _formatDateTime(pickup);
 
     final status = (booking.status ?? 'confirmed').toLowerCase();
     Color chipBg;
@@ -226,27 +213,10 @@ class PartnerBookingDetailScreen extends StatelessWidget {
               padding: const EdgeInsets.all(12),
               child: Builder(
                 builder: (context) {
-                  // Ricostruiamo start/end dal booking
-                  final start = dropoff; // già calcolato sopra
+                  final start = dropoff;
+                  final end = booking.plannedPickupLocal;
 
-                  DateTime? end;
-                  if (booking.endDate != null && booking.endTime != null) {
-                    final endDate = booking.endDate!;
-                    final parts = booking.endTime!.split(':');
-                    final hh = int.tryParse(parts[0]) ?? 0;
-                    final mm = parts.length > 1
-                        ? int.tryParse(parts[1]) ?? 0
-                        : 0;
-                    end = DateTime(
-                      endDate.year,
-                      endDate.month,
-                      endDate.day,
-                      hh,
-                      mm,
-                    );
-                  }
-
-                  if (end == null || !end.isAfter(start)) {
+                  if (!end.isAfter(start)) {
                     return const Text(
                       'Durata non disponibile: controlla che data/ora di ritiro siano impostate.',
                       style: TextStyle(fontSize: 12),
@@ -260,9 +230,9 @@ class PartnerBookingDetailScreen extends StatelessWidget {
 
                   final total = BagDropPricing.totalFor(
                     duration: duration,
-                    bagsS: booking.bagsS ?? 0,
-                    bagsM: booking.bagsM ?? 0,
-                    bagsL: booking.bagsL ?? 0,
+                    bagsS: booking.bagsS,
+                    bagsM: booking.bagsM,
+                    bagsL: booking.bagsL,
                   );
 
                   String durationLabel;
@@ -308,6 +278,7 @@ class PartnerBookingDetailScreen extends StatelessWidget {
                   );
                 },
               ),
+
             ),
           ),
         ],
