@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import 'package:BagDrop/config/bagdrop_pricing.dart';
+import 'package:BagDrop/schermate/partner/dashboard/pages/bagdrop_pricing_screen.dart';
 import '../../../../models/partner.dart';
 import '../../auth_partner/partner_registration_screen.dart';
 
@@ -66,7 +67,6 @@ class DashboardPage extends StatelessWidget {
     }
 
     final p = partner!;
-
     return ListView(
       children: [
         Text(
@@ -80,13 +80,26 @@ class DashboardPage extends StatelessWidget {
         // Info
         Row(
           children: [
-            Expanded(child: _infoTile("Capacità", "${p.capacity}")),
-            Expanded(child: _infoTile("Tariffe", "Listino BagDrop")),
+            Expanded(child: _infoTile(context, "Capacità", "${p.capacity}")),
+            Expanded(
+              child: _infoTile(
+                context,
+                "Tariffe",
+                "Listino BagDrop",
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const BagDropPricingScreen(),
+                    ),
+                  );
+                },
+              ),
+            ),
           ],
         ),
 
         const SizedBox(height: 16),
-        _infoTile("Stato", p.isActive ? "Attivo" : "Sospeso"),
+        _infoTile(context, "Stato", p.isActive ? "Attivo" : "Sospeso"),
         const SizedBox(height: 24),
 
         const Text(
@@ -99,25 +112,30 @@ class DashboardPage extends StatelessWidget {
     );
   }
 
-  Widget _infoTile(String label, String value) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          children: [
-            Text(
-              label,
-              style: const TextStyle(fontSize: 12, color: Colors.black54),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              value,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
+  Widget _infoTile(
+    BuildContext context,
+    String title,
+    String value, {
+    VoidCallback? onTap,
+  }) {
+    final tt = Theme.of(context).textTheme;
+
+    final content = Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          Text(value, style: tt.bodyMedium),
+        ],
       ),
+    );
+
+    return Card(
+      child: onTap == null ? content : InkWell(onTap: onTap, child: content),
     );
   }
 }
+
+

@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:math'; 
+import 'package:BagDrop/schermate/partner/dashboard/pages/bagdrop_pricing_screen.dart';
 import 'package:BagDrop/schermate/autenticazione/registrazione.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -13,9 +13,6 @@ import 'bookings/user_bookings_page.dart';
 import 'package:BagDrop/models/user_profile.dart';
 import 'package:BagDrop/services/supabase/user_repo.dart';
 import 'delete_account_screen.dart';
-
-
-
 
 /// HomeShell = contenitore della home:
 /// - AppBar: hamburger (Drawer), titolo "BagDrop", icona filtro
@@ -129,7 +126,6 @@ class _HomeShellState extends State<HomeShell> {
           ? _ProfiloPage(user: _user)
           : const _RequireAuthCard(tabTitle: 'Profilo'),
     ];
-
 
     return Scaffold(
       // AppBar superiore con hamburger + titolo + filtro
@@ -246,14 +242,35 @@ class _HomeShellState extends State<HomeShell> {
                 ),
                 const Divider(height: 24),
                 _ItemTile(
-                  icon: Icons.support_agent_outlined,
-                  label: 'Supporto',
-                  onTap: (ctx) => _tap(ctx, 'Supporto'),
+                  icon: Icons.payments_outlined,
+                  label: 'Tariffe BagDrop',
+                  onTap: (ctx) {
+                    // Chiude il drawer
+                    Navigator.of(ctx).pop();
+
+                    // Apre la schermata listino BagDrop
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const BagDropPricingScreen(),
+                      ),
+                    );
+                  },
+                ),
+
+                _ItemTile(
+                  icon: Icons.help_outline,
+                  label: 'Assistenza e Domande frequenti',
+                  onTap: (ctx) => _tap(ctx, 'Assistenza e FAQ'),
                 ),
                 _ItemTile(
                   icon: Icons.settings_outlined,
                   label: 'Impostazioni',
                   onTap: (ctx) => _tap(ctx, 'Impostazioni'),
+                ),
+                _ItemTile(
+                  icon: Icons.description_outlined,
+                  label: 'Documenti contrattuali & Privacy',
+                  onTap: (ctx) => _tap(ctx, 'Documenti contrattuali & Privacy'),
                 ),
                 const Spacer(),
                 Padding(
@@ -588,7 +605,6 @@ class _ItemTile extends StatelessWidget {
   }
 }
 
-
 /// Card per una singola prenotazione lato utente.
 class _BookingCard extends StatelessWidget {
   final PartnerBooking booking;
@@ -646,8 +662,10 @@ class _BookingCard extends StatelessWidget {
             Row(
               children: [
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: _statusColor(context).withOpacity(0.12),
                     borderRadius: BorderRadius.circular(999),
@@ -676,10 +694,7 @@ class _BookingCard extends StatelessWidget {
             // Per ora non abbiamo il nome del partner qui, quindi mettiamo il contatto
             Text(
               '${booking.firstName} ${booking.lastName}',
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 16,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
             ),
             const SizedBox(height: 4),
             Text(
@@ -706,8 +721,11 @@ class _BookingCard extends StatelessWidget {
             // Dettaglio bagagli
             Row(
               children: [
-                Icon(Icons.luggage_outlined,
-                    size: 18, color: cs.onSurface.withOpacity(0.7)),
+                Icon(
+                  Icons.luggage_outlined,
+                  size: 18,
+                  color: cs.onSurface.withOpacity(0.7),
+                ),
                 const SizedBox(width: 6),
                 Text(
                   'Totale bagagli: $_totalBags',
@@ -749,8 +767,6 @@ class _BookingCard extends StatelessWidget {
     );
   }
 }
-
-
 
 class _ProfiloPage extends StatefulWidget {
   final User? user;
@@ -794,7 +810,8 @@ class _ProfiloPageState extends State<_ProfiloPage> {
       try {
         profile = await _userRepo.getMe();
       } catch (_) {
-        profile = null; // se non esiste ancora la riga non è un errore bloccante
+        profile =
+            null; // se non esiste ancora la riga non è un errore bloccante
       }
 
       // Numero prenotazioni totali effettuate
@@ -857,18 +874,17 @@ class _ProfiloPageState extends State<_ProfiloPage> {
     final meta = _currentUser!.userMetadata ?? {};
     final fullName = _buildFullName(meta);
     final email = _currentUser!.email ?? 'n/d';
-    final phone =
-        (meta['phone'] as String?)?.trim().isNotEmpty == true
-            ? (meta['phone'] as String).trim()
-            : 'Non impostato';
+    final phone = (meta['phone'] as String?)?.trim().isNotEmpty == true
+        ? (meta['phone'] as String).trim()
+        : 'Non impostato';
 
     final role = _roleLabel(_userProfile?.role ?? 'user');
     final createdAt = _userProfile?.createdAt;
     final createdText = createdAt == null
         ? 'n/d'
         : '${createdAt.day.toString().padLeft(2, '0')}/'
-          '${createdAt.month.toString().padLeft(2, '0')}/'
-          '${createdAt.year}';
+              '${createdAt.month.toString().padLeft(2, '0')}/'
+              '${createdAt.year}';
 
     return RefreshIndicator(
       onRefresh: _loadData,
@@ -952,20 +968,16 @@ class _ProfiloPageState extends State<_ProfiloPage> {
 
           Text(
             'Dati personali',
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(fontWeight: FontWeight.w600),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),
 
           _InfoTile(label: 'Nome', value: fullName),
           _InfoTile(label: 'Telefono', value: phone),
           _InfoTile(label: 'Email', value: email),
-          _InfoTile(
-            label: 'Cliente su BagDrop dal',
-            value: createdText,
-          ),
+          _InfoTile(label: 'Cliente su BagDrop dal', value: createdText),
           _InfoTile(
             label: 'Prenotazioni effettuate',
             value: '$_myBookingsCount',
@@ -974,10 +986,9 @@ class _ProfiloPageState extends State<_ProfiloPage> {
           const SizedBox(height: 24),
           Text(
             'Azioni',
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(fontWeight: FontWeight.w600),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),
 
@@ -987,9 +998,7 @@ class _ProfiloPageState extends State<_ProfiloPage> {
             child: ElevatedButton.icon(
               onPressed: () async {
                 final changed = await Navigator.of(context).push<bool>(
-                  MaterialPageRoute(
-                    builder: (_) => const _EditProfileScreen(),
-                  ),
+                  MaterialPageRoute(builder: (_) => const _EditProfileScreen()),
                 );
                 if (changed == true) {
                   await _loadData();
@@ -1031,20 +1040,13 @@ class _ProfiloPageState extends State<_ProfiloPage> {
 
           if (_error != null) ...[
             const SizedBox(height: 12),
-            Text(
-              _error!,
-              style: TextStyle(
-                color: cs.error,
-                fontSize: 12,
-              ),
-            ),
+            Text(_error!, style: TextStyle(color: cs.error, fontSize: 12)),
           ],
         ],
       ),
     );
   }
 }
-
 
 /// Schermata separata per modificare i dati del profilo utente.
 /// Apre un form con Nome, Cognome e Telefono.
@@ -1110,16 +1112,15 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
 
       // Aggiorniamo anche user_profiles.full_name per avere un nome leggibile lì
       final fullName =
-          '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}'
-              .trim();
+          '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}'.trim();
       final userRepo = UserRepo();
       await userRepo.upsertMe(nomeCompleto: fullName);
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Dati profilo aggiornati')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Dati profilo aggiornati')));
 
       // Torniamo alla pagina profilo, indicando che ci sono state modifiche
       Navigator.of(context).pop(true);
@@ -1152,10 +1153,9 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
               children: [
                 Text(
                   'Aggiorna i tuoi dati personali',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w600),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 16),
 
@@ -1207,8 +1207,7 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
                     if (t.isEmpty) {
                       return 'Inserisci un numero di telefono';
                     }
-                    final digitsOnly =
-                        t.replaceAll(RegExp(r'[^0-9]'), '');
+                    final digitsOnly = t.replaceAll(RegExp(r'[^0-9]'), '');
                     if (digitsOnly.length < 9 || digitsOnly.length > 15) {
                       return 'Inserisci un numero di telefono valido';
                     }
@@ -1239,7 +1238,6 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
     );
   }
 }
-
 
 /// Gate: se l’utente non è loggato, mostra invito ad accedere/registrarsi.
 /// Usato nelle tab "Prenotazioni" e "Profilo".

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import 'partner_booking_detail_screen.dart';
 import 'package:BagDrop/models/partner.dart';
 import 'package:BagDrop/models/partner_booking.dart';
 import 'package:BagDrop/services/supabase/partner_booking_repo.dart';
@@ -10,10 +10,7 @@ import 'package:BagDrop/services/supabase/partner_booking_repo.dart';
 class PrenotazioniPage extends StatefulWidget {
   final Partner? partner;
 
-  const PrenotazioniPage({
-    super.key,
-    required this.partner,
-  });
+  const PrenotazioniPage({super.key, required this.partner});
 
   @override
   State<PrenotazioniPage> createState() => _PrenotazioniPageState();
@@ -77,10 +74,7 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
         backgroundColor: cs.primary,
         foregroundColor: cs.onPrimary,
       ),
-      body: RefreshIndicator(
-        onRefresh: _loadBookings,
-        child: _buildBody(),
-      ),
+      body: RefreshIndicator(onRefresh: _loadBookings, child: _buildBody()),
     );
   }
 
@@ -92,12 +86,7 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
     if (_error != null) {
       return ListView(
         padding: const EdgeInsets.all(16),
-        children: [
-          Text(
-            _error!,
-            textAlign: TextAlign.center,
-          ),
-        ],
+        children: [Text(_error!, textAlign: TextAlign.center)],
       );
     }
 
@@ -118,8 +107,17 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
       padding: const EdgeInsets.all(16),
       itemCount: _bookings.length,
       itemBuilder: (context, index) {
-        final b = _bookings[index];
-        return _BookingCard(booking: b);
+        final booking = _bookings[index];
+        return _BookingCard(
+          booking: booking,
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => PartnerBookingDetailScreen(booking: booking),
+              ),
+            );
+          },
+        );
       },
     );
   }
@@ -128,24 +126,26 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
 /// Card singola prenotazione.
 class _BookingCard extends StatelessWidget {
   final PartnerBooking booking;
+  final VoidCallback? onTap; // 
 
-  const _BookingCard({required this.booking});
+  const _BookingCard({
+    required this.booking,
+    this.onTap, // 
+  });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
-    final totalBags = (booking.bagsS ?? 0) +
-        (booking.bagsM ?? 0) +
-        (booking.bagsL ?? 0);
+    final totalBags =
+        (booking.bagsS ?? 0) + (booking.bagsM ?? 0) + (booking.bagsL ?? 0);
 
     // Data/ora di CONSEGNA prevista (usiamo i nuovi campi)
     final d = booking.plannedDropoffLocal;
     final createdAtStr =
         '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')} '
         '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
-
 
     final status = (booking.status ?? 'confirmed').toLowerCase();
     Color chipColor;
@@ -166,130 +166,122 @@ class _BookingCard extends StatelessWidget {
         break;
     }
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Riga superiore: nome + status chip + data
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(
-                    '${booking.firstName ?? ''} ${booking.lastName ?? ''}'
-                        .trim(),
-                    style: tt.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                if (createdAtStr.isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  Text(
-                    'Consegna: $createdAtStr',
-                    style: tt.bodySmall?.copyWith(
-                      color: tt.bodySmall?.color?.withOpacity(0.7),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 6),
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: chipColor,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                statusLabel,
-                style: tt.labelSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-
-            // Contatti
-            if ((booking.phone ?? '').isNotEmpty ||
-                (booking.email ?? '').isNotEmpty) ...[
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap, // 👈 NEW: apre dettaglio
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Riga superiore: nome + status chip + data
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.phone_outlined, size: 16),
-                  const SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      booking.phone ?? '',
-                      style: tt.bodySmall,
+                      '${booking.firstName ?? ''} ${booking.lastName ?? ''}'
+                          .trim(),
+                      style: tt.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
-                ],
-              ),
-              if ((booking.email ?? '').isNotEmpty) ...[
-                const SizedBox(height: 2),
-                Row(
-                  children: [
-                    const Icon(Icons.email_outlined, size: 16),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        booking.email ?? '',
-                        style: tt.bodySmall,
+                  if (createdAtStr.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      'Consegna: $createdAtStr',
+                      style: tt.bodySmall?.copyWith(
+                        color: tt.bodySmall?.color?.withOpacity(0.7),
                       ),
                     ),
                   ],
+                ],
+              ),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: chipColor,
+                  borderRadius: BorderRadius.circular(12),
                 ),
-              ],
+                child: Text(
+                  statusLabel,
+                  style: tt.labelSmall?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
               const SizedBox(height: 8),
-            ],
 
-            // Bagagli
-            Text(
-              'Bagagli: $totalBags',
-              style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 2),
-            Wrap(
-              spacing: 8,
-              runSpacing: 2,
-              children: [
-                if ((booking.bagsS ?? 0) > 0)
-                  _ChipMini(
-                    label: 'S × ${booking.bagsS}',
-                    color: cs.primary.withOpacity(0.1),
+              // Contatti
+              if ((booking.phone ?? '').isNotEmpty ||
+                  (booking.email ?? '').isNotEmpty) ...[
+                Row(
+                  children: [
+                    const Icon(Icons.phone_outlined, size: 16),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(booking.phone ?? '', style: tt.bodySmall),
+                    ),
+                  ],
+                ),
+                if ((booking.email ?? '').isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      const Icon(Icons.email_outlined, size: 16),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(booking.email ?? '', style: tt.bodySmall),
+                      ),
+                    ],
                   ),
-                if ((booking.bagsM ?? 0) > 0)
-                  _ChipMini(
-                    label: 'M × ${booking.bagsM}',
-                    color: cs.primary.withOpacity(0.1),
-                  ),
-                if ((booking.bagsL ?? 0) > 0)
-                  _ChipMini(
-                    label: 'L × ${booking.bagsL}',
-                    color: cs.primary.withOpacity(0.1),
-                  ),
+                ],
+                const SizedBox(height: 8),
               ],
-            ),
 
-            // Note
-            if ((booking.notes ?? '').trim().isNotEmpty) ...[
-              const SizedBox(height: 8),
+              // Bagagli
               Text(
-                'Note:',
-                style: tt.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                'Bagagli: $totalBags',
+                style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 2),
-              Text(
-                booking.notes!.trim(),
-                style: tt.bodySmall,
+              Wrap(
+                spacing: 8,
+                runSpacing: 2,
+                children: [
+                  if ((booking.bagsS ?? 0) > 0)
+                    _ChipMini(
+                      label: 'S × ${booking.bagsS}',
+                      color: cs.primary.withOpacity(0.1),
+                    ),
+                  if ((booking.bagsM ?? 0) > 0)
+                    _ChipMini(
+                      label: 'M × ${booking.bagsM}',
+                      color: cs.primary.withOpacity(0.1),
+                    ),
+                  if ((booking.bagsL ?? 0) > 0)
+                    _ChipMini(
+                      label: 'L × ${booking.bagsL}',
+                      color: cs.primary.withOpacity(0.1),
+                    ),
+                ],
               ),
+
+              // Note
+              if ((booking.notes ?? '').trim().isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Note:',
+                  style: tt.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 2),
+                Text(booking.notes!.trim(), style: tt.bodySmall),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -300,10 +292,7 @@ class _ChipMini extends StatelessWidget {
   final String label;
   final Color color;
 
-  const _ChipMini({
-    required this.label,
-    required this.color,
-  });
+  const _ChipMini({required this.label, required this.color});
 
   @override
   Widget build(BuildContext context) {
@@ -314,10 +303,7 @@ class _ChipMini extends StatelessWidget {
         color: color,
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Text(
-        label,
-        style: tt.labelSmall,
-      ),
+      child: Text(label, style: tt.labelSmall),
     );
   }
 }

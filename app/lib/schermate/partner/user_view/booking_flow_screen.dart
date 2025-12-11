@@ -46,7 +46,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   /// Orario di ritiro
   TimeOfDay? _endTime;
 
-
   /// Orari di apertura settimanali normalizzati.
   /// Per ogni giorno (mon..sun) abbiamo una lista di intervalli {open, close} "HH:MM".
   late Map<String, List<Map<String, dynamic>>> _weeklyHours;
@@ -112,7 +111,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
   /// Converte un TimeOfDay in minuti da mezzanotte (utile per confronti).
   int _timeOfDayToMinutes(TimeOfDay t) => t.hour * 60 + t.minute;
-
 
   /// Prima apertura del giorno corrente (_selectedDate) in base a weekly + eccezioni.
   /// - se la data è chiusa (weekly vuoto + non forced_open, oppure closed_dates) → null
@@ -275,8 +273,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     }
 
     // Date solo "calendar" (senza orario)
-    final startDateOnly =
-        DateTime(startDt.year, startDt.month, startDt.day);
+    final startDateOnly = DateTime(startDt.year, startDt.month, startDt.day);
     final endDateOnly = DateTime(endDt.year, endDt.month, endDt.day);
 
     final now = DateTime.now();
@@ -322,15 +319,13 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     }
 
     // Limite di durata "sanità mentale" lato business (per ora 3 giorni max)
-    final durationHours =
-        endDt.difference(startDt).inMinutes / 60.0;
+    final durationHours = endDt.difference(startDt).inMinutes / 60.0;
     if (durationHours > 72.0) {
       return 'Per ora puoi prenotare al massimo per 3 giorni. Riduci l\'intervallo tra consegna e ritiro.';
     }
 
     return null; // ✅ tutto ok
   }
-
 
   /// Normalizza opening_hours in formato settimanale:
   /// - se è null → 08:00-20:00 tutti i giorni
@@ -460,9 +455,9 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
       final error = _validateDateTimeSelection();
       if (error != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error)));
         return;
       }
 
@@ -475,7 +470,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       }
 
       setState(() => _step = 2);
-
     } else if (_step == 2) {
       // Step 2 → 3: bagagli
       if (_bagsS + _bagsM + _bagsL <= 0) {
@@ -515,7 +509,10 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   }
 
   Future<void> _loadAvailabilityForSelection() async {
-    if (_selectedDate == null || _endDate == null || _startTime == null || _endTime == null) {
+    if (_selectedDate == null ||
+        _endDate == null ||
+        _startTime == null ||
+        _endTime == null) {
       return;
     }
 
@@ -607,9 +604,9 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       final dtError = _validateDateTimeSelection();
       if (dtError != null) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(dtError)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(dtError)));
         setState(() => _busy = false);
         return;
       }
@@ -675,8 +672,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content:
-                Text('Seleziona giorno e orario di consegna e di ritiro.'),
+            content: Text('Seleziona giorno e orario di consegna e di ritiro.'),
           ),
         );
         setState(() => _busy = false);
@@ -696,8 +692,11 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         return;
       }
 
-      final bookingStartDate =
-          DateTime(startDt.year, startDt.month, startDt.day);
+      final bookingStartDate = DateTime(
+        startDt.year,
+        startDt.month,
+        startDt.day,
+      );
       final bookingEndDate = DateTime(endDt.year, endDt.month, endDt.day);
 
       // 🔹 Formato "HH:MM" per la logica di disponibilità
@@ -731,9 +730,9 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
       final bool hasPerSizeCapacity =
           (availability.capacityS +
-                  availability.capacityM +
-                  availability.capacityL) >
-              0;
+              availability.capacityM +
+              availability.capacityL) >
+          0;
 
       if (hasPerSizeCapacity) {
         if (_bagsS > 0 && _bagsS > availability.availableS) {
@@ -1195,8 +1194,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           ),
           trailing: const Icon(Icons.access_time),
           onTap: () async {
-            final initial =
-                _startTime ?? const TimeOfDay(hour: 10, minute: 0);
+            final initial = _startTime ?? const TimeOfDay(hour: 10, minute: 0);
             final picked = await showTimePicker(
               context: context,
               initialTime: initial,
@@ -1334,6 +1332,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     );
   }
 
+
   Widget _buildBagsForm() {
     if (_loadingAvailability) {
       return const Center(child: CircularProgressIndicator());
@@ -1357,6 +1356,8 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       // se non c'è capacità per taglia, lasciamo i max null
       // e lasciamo il controllo "di sicurezza" solo a _confirmBooking
     }
+
+    final totalBags = _bagsS + _bagsM + _bagsL; // 👈 NEW
 
     return ListView(
       children: [
@@ -1397,6 +1398,40 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           max: maxL,
           onChanged: (v) => setState(() => _bagsL = v),
         ),
+
+        const SizedBox(height: 16),
+
+        // 👇 Box prezzo dinamico in Step 3
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Prezzo stimato',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                if (_selectedDate == null ||
+                    _startTime == null ||
+                    _endTime == null ||
+                    totalBags == 0)
+                  const Text(
+                    'Seleziona data, orario e almeno un bagaglio per vedere il prezzo.',
+                  )
+                else
+                  Text(
+                    _formatPrice(_currentTotalPrice()),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -1414,7 +1449,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       timeText =
           '${_formatTimeDisplay(start)} - ${_formatTimeDisplay(end)} (${_durationLabel()})';
     }
-
 
     return ListView(
       children: [

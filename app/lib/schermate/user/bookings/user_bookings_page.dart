@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import 'package:BagDrop/schermate/user/bookings/booking_recap_screen.dart';
 import 'package:BagDrop/models/partner_booking.dart';
 import 'package:BagDrop/models/partner.dart';
 import 'package:BagDrop/services/supabase/partner_booking_repo.dart';
@@ -193,139 +193,169 @@ class _BookingListItemState extends State<_BookingListItem> {
             ? 'Caricamento attività...'
             : (partner?.name ?? 'Attività non disponibile');
 
+        final status = booking.status.toLowerCase();
+        final isConfirmed = status == 'confirmed';
+
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          child: InkWell(
+          shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            onTap: () {
-              if (partner == null) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content:
-                        Text('Dettagli dell’attività non disponibili.'),
-                  ),
-                );
-                return;
-              }
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => BookingPartnerDetailScreen(
-                    partner: partner,
-                    booking: booking,
-                  ),
-                ),
-              );
-            },
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Riga superiore: stato + data
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color:
-                              _statusColor(context, booking.status).withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          _statusLabel(booking.status),
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: _statusColor(context, booking.status),
-                          ),
-                        ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Riga superiore: stato + date
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
                       ),
-                      const Spacer(),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            _formatDate(dropoff),
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: cs.onSurface.withOpacity(0.8),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'creata il ${_formatDate(booking.createdAt)}',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: cs.onSurface.withOpacity(0.5),
-                            ),
-                          ),
-                        ],
+                      decoration: BoxDecoration(
+                        color: _statusColor(context, booking.status)
+                            .withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(999),
                       ),
-
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Nome partner
-                  Text(
-                    partnerName,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 16,
-                    ),
-                  ),
-                  if (hasError)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4.0),
                       child: Text(
-                        'Errore nel caricamento dell’attività.',
+                        _statusLabel(booking.status),
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.red.shade600,
+                          fontWeight: FontWeight.w700,
+                          color: _statusColor(context, booking.status),
                         ),
                       ),
                     ),
-
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Icon(Icons.luggage_outlined,
-                          size: 16, color: cs.onSurface.withOpacity(0.7)),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Bagagli: ${booking.bagsS + booking.bagsM + booking.bagsL}',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: cs.onSurface.withOpacity(0.8),
+                    const Spacer(),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          _formatDate(dropoff),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: cs.onSurface.withOpacity(0.8),
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'creata il ${_formatDate(booking.createdAt)}',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: cs.onSurface.withOpacity(0.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+
+                // Nome partner
+                Text(
+                  partnerName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                  ),
+                ),
+                if (hasError)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4.0),
+                    child: Text(
+                      'Errore nel caricamento dell’attività.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.red.shade600,
                       ),
-                    ],
+                    ),
                   ),
 
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.luggage_outlined,
+                      size: 16,
+                      color: cs.onSurface.withOpacity(0.7),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Bagagli: ${booking.bagsS + booking.bagsM + booking.bagsL}',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: cs.onSurface.withOpacity(0.8),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 8),
+
+                // Bottoni: Riepilogo + QR code
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: partner == null
+                            ? null
+                            : () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => BookingRecapScreen(
+                                      partner: partner,
+                                      booking: booking,
+                                    ),
+                                  ),
+                                );
+                              },
+                        icon: const Icon(Icons.receipt_long_outlined, size: 18),
+                        label: const Text('Riepilogo'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: (partner == null || !isConfirmed)
+                            ? null
+                            : () {
+                                // Placeholder: QR code verrà implementato in seguito
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'QR code in arrivo in uno step successivo.',
+                                    ),
+                                  ),
+                                );
+                              },
+                        icon: const Icon(Icons.qr_code_2, size: 18),
+                        label: const Text('QR code'),
+                      ),
+                    ),
+                  ],
+                ),
+
+                if (!isConfirmed) ...[
                   const SizedBox(height: 4),
                   Text(
-                    isLoading
-                        ? 'Caricamento dettagli...'
-                        : 'Tocca per vedere i dettagli dell’attività e della prenotazione.',
+                    'Il QR code sarà disponibile quando la prenotazione sarà confermata.',
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 11,
                       color: cs.onSurface.withOpacity(0.6),
                     ),
                   ),
                 ],
-              ),
+              ],
             ),
           ),
         );
       },
     );
   }
+
 }
 
 /// Versione light di SectionTitle / HintCard per riusare lo stile in questa pagina.
