@@ -3,6 +3,11 @@ import 'package:BagDrop/models/partner_booking.dart';
 import 'package:BagDrop/services/supabase/client.dart';
 
 /// DTO per la disponibilità di un partner.
+///
+/// NOTA:
+/// - capacityTotal / usedTotal / availableTotal sono espressi in "unità equivalenti"
+///   dove 1S = 1, 1M = 2, 1L = 4 (cioè "mezze M").
+/// 
 class PartnerAvailability {
   final int capacityS;
   final int capacityM;
@@ -153,8 +158,17 @@ class PartnerBookingRepo {
     final int capL = (partnerRow['capacity_l'] as int?) ?? 0;
     final int capTotalDb = (partnerRow['capacity'] as int?) ?? 0;
 
-    final int sumSizes = capS + capM + capL;
-    final int capacityTotal = sumSizes > 0 ? sumSizes : capTotalDb;
+    // Capacità totale in unità equivalenti (mezze-M):
+    // 1S = 1, 1M = 2, 1L = 4
+    final int capacityTotalUnits2x = capS * 1 + capM * 2 + capL * 4;
+
+    // Se non sono configurate capacità per taglia,
+    // facciamo fallback sul vecchio campo `capacity` (considerato come "M"),
+    // moltiplicando per 2 per portarlo nelle stesse unità.
+    final int capacityTotal = capacityTotalUnits2x > 0
+        ? capacityTotalUnits2x
+        : (capTotalDb > 0 ? capTotalDb * 2 : 0);
+
 
     // 2) Sommiamo i bagagli delle prenotazioni attive (status != cancelled)
     final bookingsData = await client
@@ -173,7 +187,8 @@ class PartnerBookingRepo {
       usedL += (row['bags_l'] as int?) ?? 0;
     }
 
-    final int usedTotal = usedS + usedM + usedL;
+    // Utilizzo totale in unità equivalenti (mezze-M)
+    final int usedTotal = usedS * 1 + usedM * 2 + usedL * 4;
 
     int availableS = capS - usedS;
     int availableM = capM - usedM;
@@ -236,8 +251,15 @@ class PartnerBookingRepo {
     final int capL = (partnerRow['capacity_l'] as int?) ?? 0;
     final int capTotalDb = (partnerRow['capacity'] as int?) ?? 0;
 
-    final int sumSizes = capS + capM + capL;
-    final int capacityTotal = sumSizes > 0 ? sumSizes : capTotalDb;
+    // Capacità totale in unità equivalenti (mezze-M):
+    // 1S = 1, 1M = 2, 1L = 4
+    final int capacityTotalUnits2x = capS * 1 + capM * 2 + capL * 4;
+
+    // Fallback sul vecchio campo `capacity` se le taglie non sono impostate
+    final int capacityTotal = capacityTotalUnits2x > 0
+        ? capacityTotalUnits2x
+        : (capTotalDb > 0 ? capTotalDb * 2 : 0);
+
 
     // 2) Intervallo richiesto dal NUOVO booking
     final DateTime requestStart = DateTime(
@@ -307,7 +329,9 @@ class PartnerBookingRepo {
       usedL += (map['bags_l'] as int? ?? 0);
     }
 
-    final int usedTotal = usedS + usedM + usedL;
+    // Utilizzo totale in unità equivalenti (mezze-M)
+    final int usedTotal = usedS * 1 + usedM * 2 + usedL * 4;
+
 
     int availableS = capS - usedS;
     int availableM = capM - usedM;

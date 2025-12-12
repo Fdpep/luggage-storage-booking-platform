@@ -67,6 +67,20 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   int _bagsM = 0;
   int _bagsL = 0;
 
+  /// Unità equivalenti in "mezze M":
+  /// 1S = 1, 1M = 2, 1L = 4
+  int _equivalentUnits2x({
+    required int s,
+    required int m,
+    required int l,
+  }) {
+    return s * 1 + m * 2 + l * 4;
+  }
+
+  int _currentRequestedUnits2x() =>
+      _equivalentUnits2x(s: _bagsS, m: _bagsM, l: _bagsL);
+
+
   String _weekdayKey(int weekday) {
     switch (weekday) {
       case DateTime.monday:
@@ -816,7 +830,10 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       );
 
       final totalRequested = _bagsS + _bagsM + _bagsL;
+      final requestedUnits2x =
+          _equivalentUnits2x(s: _bagsS, m: _bagsM, l: _bagsL);
       final errors = <String>[];
+
 
       final bool hasPerSizeCapacity =
           (availability.capacityS +
@@ -843,11 +860,18 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       }
 
       if (availability.capacityTotal > 0 &&
-          totalRequested > availability.availableTotal) {
-        errors.add(
-          'Totale bagagli: disponibili ${availability.availableTotal}, richiesti $totalRequested.',
-        );
+          availability.availableTotal > 0) {
+        if (requestedUnits2x > availability.availableTotal) {
+          final availableHuman = availability.availableTotal / 2.0;
+          final requestedHuman = requestedUnits2x / 2.0;
+          errors.add(
+            'Spazio totale: disponibili ${availableHuman.toStringAsFixed(1)} unità, '
+            'richieste ${requestedHuman.toStringAsFixed(1)} '
+            '(1M = 2S = 0.5L).',
+          );
+        }
       }
+
 
       if (errors.isNotEmpty) {
         if (!mounted) return;
@@ -1632,6 +1656,73 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     );
   }
 
+
+  void _showAvailabilitySnack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg)),
+    );
+  }
+
+  /// Aggiorna i bagagli applicando:
+  /// - limiti per taglia (availableS/M/L se presenti)
+  /// - limite sullo spazio TOTALE equivalente (availableTotal con 1M = 2S = 0.5L)
+  void _updateBags({int? small, int? medium, int? large}) {
+    final av = _availability;
+
+    final newS = small ?? _bagsS;
+    final newM = medium ?? _bagsM;
+    final newL = large ?? _bagsL;
+
+    // niente valori negativi
+    if (newS < 0 || newM < 0 || newL < 0) return;
+
+    if (av != null) {
+      final hasPerSizeCapacity =
+          (av.capacityS + av.capacityM + av.capacityL) > 0;
+
+      // 🔹 Limiti per taglia se configurati
+      if (hasPerSizeCapacity) {
+        if (newS > av.availableS) {
+          _showAvailabilitySnack(
+            'Small (S) disponibili: ${av.availableS}.',
+          );
+          return;
+        }
+        if (newM > av.availableM) {
+          _showAvailabilitySnack(
+            'Medium (M) disponibili: ${av.availableM}.',
+          );
+          return;
+        }
+        if (newL > av.availableL) {
+          _showAvailabilitySnack(
+            'Large (L) disponibili: ${av.availableL}.',
+          );
+          return;
+        }
+      }
+
+      // 🔹 Limite sullo spazio TOTALE equivalente (stessa unità del repo: mezze-M)
+      if (av.capacityTotal > 0 && av.availableTotal > 0) {
+        final units2x =
+            _equivalentUnits2x(s: newS, m: newM, l: newL);
+        if (units2x > av.availableTotal) {
+          _showAvailabilitySnack(
+            'Non c\'è abbastanza spazio per questa combinazione di bagagli.',
+          );
+          return;
+        }
+      }
+    }
+
+    setState(() {
+      _bagsS = newS;
+      _bagsM = newM;
+      _bagsL = newL;
+    });
+  }
+
+
   Widget _buildBagsForm() {
     if (_loadingAvailability) {
       return const Center(child: CircularProgressIndicator());
@@ -1656,7 +1747,33 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       // e lasciamo il controllo "di sicurezza" solo a _confirmBooking
     }
 
-    final totalBags = _bagsS + _bagsM + _bagsL; // 👈 NEW
+    final totalBags = _bagsS + _bagsM + _bagsL;
+
+    // 🔹 Dati per la barra di spazio totale (unità equivalenti: 1S = 1, 1M = 2, 1L = 4)
+    int capacityUnits = 0;
+    int usedUnits = 0;
+    int selectionUnits = 0;
+    int futureUsedUnits = 0;
+    double occupancyRatio = 0.0;
+    bool isOverCapacity = false;
+
+    if (av != null && av.capacityTotal > 0) {
+      capacityUnits = av.capacityTotal;        // capacità totale in unità equivalenti
+      usedUnits = av.usedTotal;                // già occupato da altre prenotazioni
+      selectionUnits = _currentRequestedUnits2x(); // unità equivalenti dei bagagli scelti ora
+      futureUsedUnits = usedUnits + selectionUnits;
+
+      if (futureUsedUnits > capacityUnits) {
+        isOverCapacity = true;
+      }
+
+      final clamped = futureUsedUnits.clamp(0, capacityUnits);
+      occupancyRatio = capacityUnits > 0 ? clamped / capacityUnits : 0.0;
+    }
+
+    // Per mostrare un numero più leggibile (coerente col messaggio in _confirmBooking)
+    final double capacityHuman = capacityUnits / 2.0;
+    final double futureUsedHuman = futureUsedUnits / 2.0;
 
     return ListView(
       children: [
@@ -1679,7 +1796,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           description: 'Zainetti o trolley piccoli',
           count: _bagsS,
           max: maxS,
-          onChanged: (v) => setState(() => _bagsS = v),
+          onChanged: (v) => _updateBags(small: v),
         ),
         const SizedBox(height: 8),
         _BagRow(
@@ -1687,7 +1804,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           description: 'Trolley medi',
           count: _bagsM,
           max: maxM,
-          onChanged: (v) => setState(() => _bagsM = v),
+          onChanged: (v) => _updateBags(medium: v),
         ),
         const SizedBox(height: 8),
         _BagRow(
@@ -1695,8 +1812,60 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           description: 'Valigie grandi',
           count: _bagsL,
           max: maxL,
-          onChanged: (v) => setState(() => _bagsL = v),
+          onChanged: (v) => _updateBags(large: v),
         ),
+
+        if (av != null && av.capacityTotal > 0) ...[
+          const SizedBox(height: 12),
+          Text(
+            'Spazio totale per questo intervallo',
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: occupancyRatio.clamp(0.0, 1.0),
+              minHeight: 10,
+              backgroundColor:
+                  Theme.of(context).colorScheme.surfaceVariant,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                isOverCapacity
+                    ? Theme.of(context).colorScheme.error
+                    : Theme.of(context).colorScheme.primary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            isOverCapacity
+                ? 'Stai superando lo spazio disponibile: riduci il numero di bagagli.'
+                : 'Occupato: ${futureUsedHuman.toStringAsFixed(1)}'
+                  ' / ${capacityHuman.toStringAsFixed(1)} unità equivalenti',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: isOverCapacity
+                      ? Theme.of(context).colorScheme.error
+                      : Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.7),
+                ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Equivalenze: 1 S = 1 • 1 M = 2 • 1 L = 4 unità.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontSize: 11,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withOpacity(0.6),
+                ),
+          ),
+        ],
 
         const SizedBox(height: 16),
 

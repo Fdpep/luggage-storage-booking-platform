@@ -27,6 +27,7 @@ class SchermataVerifyOtp extends StatefulWidget {
   final int? partnerCapacityS;
   final int? partnerCapacityM;
   final int? partnerCapacityL;
+  final Map<String, dynamic>? partnerOpeningHours;
 
   final String? partnerMessage;
   final double? partnerLat;
@@ -46,6 +47,7 @@ class SchermataVerifyOtp extends StatefulWidget {
     this.partnerMessage,
     this.partnerLat,
     this.partnerLng,
+    this.partnerOpeningHours,
   });
 
   @override
@@ -181,6 +183,11 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
         final double? lng = widget.partnerLng ??
             (partnerSignup?['lng'] as num?)?.toDouble();
 
+        // 👇 NUOVO: opening_hours dal widget o dai metadati partner_signup
+        final Map<String, dynamic>? openingHours =
+            widget.partnerOpeningHours ??
+                (partnerSignup?['opening_hours'] as Map<String, dynamic>?);
+
         if (name == null || address == null || lat == null || lng == null) {
           // Mancano dati fondamentali → non possiamo completare la registrazione partner
           ScaffoldMessenger.of(context).showSnackBar(
@@ -212,6 +219,8 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
           message: message,
           lat: lat,
           lng: lng,
+          // 👇 NUOVO
+          openingHours: openingHours, // 👈 NUOVO
         );
 
         // 5c) Ora che abbiamo usato i dati, puliamo partner_signup dai metadati

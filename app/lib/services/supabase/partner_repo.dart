@@ -102,7 +102,7 @@ class PartnerRepo {
     int? capacityL,
     String? message,
     double? lat,
-    double? lng,
+    double? lng, Map<String, dynamic>? openingHours,
   }) async {
     // Normalizziamo le capacità per taglia
     final capS = capacityS ?? 0;
@@ -134,6 +134,7 @@ class PartnerRepo {
       'reject_reason': null,
       'is_active': false,
       'updated_at': DateTime.now().toIso8601String(),
+      if (openingHours != null) 'opening_hours': openingHours, // 👈 NUOVO
     };
 
     if (existing == null) {

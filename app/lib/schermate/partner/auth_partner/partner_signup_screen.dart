@@ -6,6 +6,8 @@ import '../../autenticazione/verify_otp.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../../../services/supabase/maps/map_geocoding_service.dart';
 import '../../../services/supabase/location/places_autocomplete_service.dart';
+import 'package:BagDrop/widgets/opening_hours_editors.dart';
+
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 
@@ -22,7 +24,9 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
   // Step corrente:
   // 0 = Dati account
   // 1 = Dati attività + indirizzo
-  // 2 = Capacità + nota + privacy + invio
+  // 2 = Capacità magazzino
+  // 3 = Orari di apertura + eccezioni
+  // 4 = Riepilogo finale + invio
   int _step = 0;
 
   // Credenziali account
@@ -39,11 +43,6 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
   /// Quanti bagagli MEDIUM (M) stanno nello spazio GENERALE
   final _baseMediumCtrl = TextEditingController();
 
-  /// Capacità GENERALE accettata per taglia
-  final _generalSCtrl = TextEditingController();
-  final _generalMCtrl = TextEditingController();
-  final _generalLCtrl = TextEditingController();
-
   /// Capacità EXTRA dedicata solo a quella taglia
   final _extraSCtrl = TextEditingController();
   final _extraMCtrl = TextEditingController();
@@ -51,6 +50,11 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
 
   // Messaggio al team
   final _messageCtrl = TextEditingController();
+
+  // Orari di apertura + eccezioni inseriti nel signup
+  Map<String, dynamic>? _openingHoursStructured;
+  Map<String, dynamic>? _openingExceptions;
+
 
   int _parseNonNegative(String? text) {
     final t = (text ?? '').trim();
@@ -70,27 +74,19 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
   ({int capS, int capM, int capL, int total}) _computeFinalCapacities() {
     final base = _computeBaseFromMedium();
 
-    final genS = _generalSCtrl.text.trim().isEmpty
-        ? base.baseS
-        : _parseNonNegative(_generalSCtrl.text);
-    final genM = _generalMCtrl.text.trim().isEmpty
-        ? base.baseM
-        : _parseNonNegative(_generalMCtrl.text);
-    final genL = _generalLCtrl.text.trim().isEmpty
-        ? base.baseL
-        : _parseNonNegative(_generalLCtrl.text);
-
     final extraS = _parseNonNegative(_extraSCtrl.text);
     final extraM = _parseNonNegative(_extraMCtrl.text);
     final extraL = _parseNonNegative(_extraLCtrl.text);
 
-    final capS = genS + extraS;
-    final capM = genM + extraM;
-    final capL = genL + extraL;
+    final capS = base.baseS + extraS;
+    final capM = base.baseM + extraM;
+    final capL = base.baseL + extraL;
+
     final total = capS + capM + capL;
 
     return (capS: capS, capM: capM, capL: capL, total: total);
   }
+
 
   int get _totalCapacity => _computeFinalCapacities().total;
 
@@ -119,9 +115,6 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
     _addressCtrl.dispose();
 
     _baseMediumCtrl.dispose();
-    _generalSCtrl.dispose();
-    _generalMCtrl.dispose();
-    _generalLCtrl.dispose();
     _extraSCtrl.dispose();
     _extraMCtrl.dispose();
     _extraLCtrl.dispose();
@@ -141,16 +134,6 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
           content: Text(
             'Devi accettare i Documenti contrattuali & Privacy per continuare.',
           ),
-        ),
-      );
-      return;
-    }
-
-    if (_totalCapacity <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content:
-              Text('Imposta almeno 1 bagaglio complessivo tra S, M e L.'),
         ),
       );
       return;
@@ -186,6 +169,25 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
         return;
       }
     }
+
+    // Costruzione opening_hours da orari + eccezioni
+    if (_openingHoursStructured == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Imposta gli orari di apertura del locale prima di inviare la richiesta.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    Map<String, dynamic> openingHours = {
+      'type': 'weekly_v1',
+      ..._openingHoursStructured!,
+      if (_openingExceptions != null) 'exceptions': _openingExceptions,
+    };
+
 
     setState(() => _busy = true);
     final supabase = Supabase.instance.client;
@@ -228,6 +230,7 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
             'message': message,
             'lat': _lat,
             'lng': _lng,
+            'opening_hours': openingHours,
           },
         },
       );
@@ -258,12 +261,19 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
             email: email,
             postSignup: true,
             isPartnerFlow: true,
+
             partnerName: _nameCtrl.text.trim(),
             partnerAddress: _addressCtrl.text.trim(),
             partnerCapacity: capacity,
             partnerMessage: message,
             partnerLat: _lat!,
             partnerLng: _lng!,
+
+            // 👇 NUOVO: capacità per taglia + opening_hours
+            partnerCapacityS: capS,
+            partnerCapacityM: capM,
+            partnerCapacityL: capL,
+            partnerOpeningHours: openingHours,
           ),
         ),
       );
@@ -287,11 +297,12 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
     if (_busy) return;
 
     if (_step == 0) {
-      // Validazione campi account
+      // Step 0: account
       if (!(_formKey.currentState?.validate() ?? false)) return;
       setState(() => _step = 1);
+
     } else if (_step == 1) {
-      // Validazione nome + indirizzo + geocoding
+      // Step 1: attività + indirizzo + geocoding
       if (!(_formKey.currentState?.validate() ?? false)) return;
 
       if (_lat == null || _lng == null) {
@@ -310,8 +321,53 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
       }
 
       setState(() => _step = 2);
+
     } else if (_step == 2) {
-      // Step finale → submit
+      // Step 2: capacità magazzino
+      if (!(_formKey.currentState?.validate() ?? false)) return;
+
+      final caps = _computeFinalCapacities();
+      if (caps.total <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Imposta almeno 1 posto complessivo tra S, M e L (spazio generale + extra).',
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (!_acceptDocs) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Devi accettare i Documenti contrattuali & Privacy per continuare.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      setState(() => _step = 3);
+
+    } else if (_step == 3) {
+      // Step 3: orari di apertura
+      if (_openingHoursStructured == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Imposta gli orari di apertura del locale prima di continuare.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      setState(() => _step = 4);
+
+    } else if (_step == 4) {
+      // Step 4: riepilogo finale -> submit
       await _submit();
     }
   }
@@ -600,7 +656,7 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
 
   Widget _buildStepHeader() {
     final cs = Theme.of(context).colorScheme;
-    final steps = ['Account', 'Attività', 'Capacità'];
+    final steps = ['Account', 'Attività', 'Capacità', 'Orari', 'Riepilogo'];
 
     return Row(
       children: List.generate(steps.length, (index) {
@@ -655,6 +711,10 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
         return _buildStepBusiness();
       case 2:
         return _buildStepCapacity();
+      case 3:
+        return _buildStepOpeningHours();
+      case 4:
+        return _buildStepSummary();
       default:
         return const SizedBox.shrink();
     }
@@ -868,8 +928,8 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
         ),
         const SizedBox(height: 8),
         Text(
-          'Indica prima quanti bagagli MEDIUM (M) possono stare nello SPAZIO GENERALE. '
-          'Da lì stimiamo lo spazio equivalente per S e L.',
+          'Indica quanti bagagli MEDIUM (M) possono stare nello SPAZIO GENERALE. '
+          'Da lì stimiamo lo spazio equivalente per S e L. Poi puoi aggiungere eventuali extra dedicati.',
           style: textTheme.bodySmall,
         ),
         const SizedBox(height: 16),
@@ -903,7 +963,7 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Spazio generale equivalente:',
+                  'Spazio generale equivalente (stimato da BagDrop):',
                   style: TextStyle(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 4),
@@ -915,73 +975,6 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
           ),
         ),
         const SizedBox(height: 16),
-
-        Text(
-          'Capacità GENERALE che vuoi accettare',
-          style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 8),
-
-        TextFormField(
-          controller: _generalSCtrl,
-          decoration: InputDecoration(
-            labelText: 'Small (S) – generale',
-            hintText: base.baseS.toString(),
-          ),
-          keyboardType: TextInputType.number,
-          textInputAction: TextInputAction.next,
-          validator: (v) {
-            final n = _parseNonNegative(v);
-            if (n > base.baseS) {
-              return 'Non puoi superare il suggerito (${base.baseS})';
-            }
-            return null;
-          },
-          enabled: !_busy,
-          onChanged: (_) => setState(() {}),
-        ),
-        const SizedBox(height: 12),
-
-        TextFormField(
-          controller: _generalMCtrl,
-          decoration: InputDecoration(
-            labelText: 'Medium (M) – generale',
-            hintText: base.baseM.toString(),
-          ),
-          keyboardType: TextInputType.number,
-          textInputAction: TextInputAction.next,
-          validator: (v) {
-            final n = _parseNonNegative(v);
-            if (n > base.baseM) {
-              return 'Non puoi superare il suggerito (${base.baseM})';
-            }
-            return null;
-          },
-          enabled: !_busy,
-          onChanged: (_) => setState(() {}),
-        ),
-        const SizedBox(height: 12),
-
-        TextFormField(
-          controller: _generalLCtrl,
-          decoration: InputDecoration(
-            labelText: 'Large (L) – generale',
-            hintText: base.baseL.toString(),
-          ),
-          keyboardType: TextInputType.number,
-          textInputAction: TextInputAction.next,
-          validator: (v) {
-            final n = _parseNonNegative(v);
-            if (n > base.baseL) {
-              return 'Non puoi superare il suggerito (${base.baseL})';
-            }
-            return null;
-          },
-          enabled: !_busy,
-          onChanged: (_) => setState(() {}),
-        ),
-
-        const SizedBox(height: 20),
 
         Text(
           'Spazio EXTRA dedicato (solo S / solo M / solo L)',
@@ -1043,11 +1036,36 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
         ),
         const SizedBox(height: 12),
 
-        Text(
-          'Capacità totale: $_totalCapacity bagagli',
-          style: textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+        Card(
+          color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Riepilogo capacità finale',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                Text('Small (S): ${caps.capS} posti'),
+                Text('Medium (M): ${caps.capM} posti'),
+                Text('Large (L): ${caps.capL} posti'),
+                const SizedBox(height: 8),
+                Text(
+                  'Lo spazio generale viene ottimizzato automaticamente tra S, M e L. '
+                  'Gli "extra" sono posti dedicati solo a quella dimensione.',
+                  style: textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface.withOpacity(0.7),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-        const SizedBox(height: 12),
+
+        const SizedBox(height: 16),
+
         Text(
           'Questi valori saranno usati da BagDrop per evitare overbooking.',
           style: textTheme.bodySmall,
@@ -1073,6 +1091,326 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
     );
   }
 
+  Widget _buildStepOpeningHours() {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return ListView(
+      children: [
+        Text(
+          'Orari di apertura',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Imposta gli orari di apertura per ogni giorno della settimana.\n'
+          'Se fai orario continuato, inserisci una sola fascia.\n'
+          'Puoi anche aggiungere giorni di chiusura/apertura straordinaria (festività, aperture speciali, ecc.).',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: cs.outline,
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Editor orari settimanali
+        OpeningHoursEditor(
+          initialValue: _openingHoursStructured,
+          onChanged: (value) {
+            setState(() {
+              _openingHoursStructured = value;
+            });
+          },
+        ),
+        const SizedBox(height: 16),
+
+        // Editor eccezioni calendario
+        OpeningExceptionsEditor(
+          initialValue: _openingExceptions,
+          onChanged: (value) {
+            setState(() {
+              _openingExceptions = value;
+            });
+          },
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Queste informazioni verranno usate per controllare che le prenotazioni '
+          'cadano solo in orari e giorni in cui il locale è effettivamente aperto.',
+          style: theme.textTheme.bodySmall,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStepSummary() {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final caps = _computeFinalCapacities();
+
+    // Helper per formato semplice data yyyy-mm-dd -> dd/mm/yyyy
+    String _fmtDate(String iso) {
+      if (iso.length < 10) return iso;
+      final y = iso.substring(0, 4);
+      final m = iso.substring(5, 7);
+      final d = iso.substring(8, 10);
+      return '$d/$m/$y';
+    }
+
+    final exceptions = _openingExceptions ?? {};
+    final closedDates = (exceptions['closed_dates'] as List<dynamic>?)
+            ?.cast<String>() ??
+        const <String>[];
+    final forcedOpenDates =
+        (exceptions['forced_open_dates'] as List<dynamic>?)
+                ?.cast<String>() ??
+            const <String>[];
+
+    // Day labels per orari
+    const dayOrder = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+    const dayLabels = {
+      'mon': 'Lunedì',
+      'tue': 'Martedì',
+      'wed': 'Mercoledì',
+      'thu': 'Giovedì',
+      'fri': 'Venerdì',
+      'sat': 'Sabato',
+      'sun': 'Domenica',
+    };
+
+    List<Widget> _buildOpeningSummary() {
+      final weekly = _openingHoursStructured;
+      if (weekly == null) {
+        return [
+          Text(
+            'Nessun orario impostato (verrà usato un default 08:00–20:00).',
+            style: theme.textTheme.bodySmall?.copyWith(color: cs.outline),
+          ),
+        ];
+      }
+
+      return dayOrder.map((dayKey) {
+        final label = dayLabels[dayKey] ?? dayKey;
+        final intervalsRaw = weekly[dayKey] as List<dynamic>? ?? const [];
+        if (intervalsRaw.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              children: [
+                SizedBox(width: 90, child: Text(label)),
+                const SizedBox(width: 8),
+                Text(
+                  'Chiuso',
+                  style:
+                      theme.textTheme.bodySmall?.copyWith(color: cs.outline),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final intervals = intervalsRaw
+            .map((e) => (e as Map).cast<String, dynamic>())
+            .toList();
+
+        final text = intervals
+            .map((m) => '${m['open']} – ${m['close']}')
+            .join('  /  ');
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(width: 90, child: Text(label)),
+              const SizedBox(width: 8),
+              Expanded(child: Text(text)),
+            ],
+          ),
+        );
+      }).toList();
+    }
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      children: [
+        Text(
+          'Riepilogo registrazione partner',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Controlla che tutte le informazioni siano corrette prima di inviare la richiesta.',
+          style: theme.textTheme.bodySmall,
+        ),
+        const SizedBox(height: 16),
+
+        // Account
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Account',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                Text('Email: ${_emailCtrl.text.trim()}'),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Dati attività
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Attività',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                Text('Nome: ${_nameCtrl.text.trim()}'),
+                const SizedBox(height: 2),
+                Text('Indirizzo: ${_addressCtrl.text.trim()}'),
+                if (_messageCtrl.text.trim().isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Messaggio al team:',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                  ),
+                  Text(_messageCtrl.text.trim()),
+                ],
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Capacità
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Capacità bagagli',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                Text('Small (S): ${caps.capS} posti'),
+                Text('Medium (M): ${caps.capM} posti'),
+                Text('Large (L): ${caps.capL} posti'),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Orari
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Orari di apertura',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                ..._buildOpeningSummary(),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Eccezioni
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Eccezioni calendario',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Chiusure straordinarie:',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                if (closedDates.isEmpty)
+                  Text(
+                    'Nessuna chiusura straordinaria impostata.',
+                    style: theme.textTheme.bodySmall,
+                  )
+                else
+                  Text(
+                    closedDates.map(_fmtDate).join(', '),
+                    style: theme.textTheme.bodySmall,
+                  ),
+                const SizedBox(height: 6),
+                Text(
+                  'Aperture straordinarie:',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                if (forcedOpenDates.isEmpty)
+                  Text(
+                    'Nessuna apertura straordinaria impostata.',
+                    style: theme.textTheme.bodySmall,
+                  )
+                else
+                  Text(
+                    forcedOpenDates.map(_fmtDate).join(', '),
+                    style: theme.textTheme.bodySmall,
+                  ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Info privacy / documenti
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              _acceptDocs ? Icons.check_circle : Icons.info_outline,
+              size: 18,
+              color: _acceptDocs ? cs.primary : cs.outline,
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                _acceptDocs
+                    ? 'Hai dichiarato di accettare i Documenti contrattuali & Privacy.'
+                    : 'Devi accettare i Documenti contrattuali & Privacy nello step precedente per poter inviare la richiesta.',
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+
   Widget _buildBottomButtons() {
     return Row(
       children: [
@@ -1093,8 +1431,8 @@ class _PartnerSignUpScreenState extends State<PartnerSignUpScreen> {
                     height: 22,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : Icon(_step < 2 ? Icons.arrow_forward : Icons.send),
-            label: Text(_step < 2 ? 'Avanti' : 'Invia richiesta'),
+                : Icon(_step < 4 ? Icons.arrow_forward : Icons.send),
+            label: Text(_step < 4 ? 'Avanti' : 'Invia richiesta'),
           ),
         ),
       ],
