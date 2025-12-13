@@ -1,5 +1,5 @@
 // è la pagina che vede l'utente cliccando il tasto prenota ora dalla scheda dell'attività
-
+import 'package:BagDrop/schermate/partner/dashboard/pages/bagdrop_pricing_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:BagDrop/config/bagdrop_pricing.dart';
@@ -28,7 +28,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   // 0 = +3 ore, 1 = tutto il giorno
   int? _selectedPresetIndex;
   int _plusDaysPreset = 0;
-
 
   // CONTATTO
   final _firstNameCtrl = TextEditingController();
@@ -69,17 +68,12 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
   /// Unità equivalenti in "mezze M":
   /// 1S = 1, 1M = 2, 1L = 4
-  int _equivalentUnits2x({
-    required int s,
-    required int m,
-    required int l,
-  }) {
+  int _equivalentUnits2x({required int s, required int m, required int l}) {
     return s * 1 + m * 2 + l * 4;
   }
 
   int _currentRequestedUnits2x() =>
       _equivalentUnits2x(s: _bagsS, m: _bagsM, l: _bagsL);
-
 
   String _weekdayKey(int weekday) {
     switch (weekday) {
@@ -342,7 +336,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       return 'Per ora puoi prenotare al massimo per 7 giorni. Riduci l\'intervallo tra consegna e ritiro.';
     }
 
-
     return null; // ✅ tutto ok
   }
 
@@ -577,7 +570,8 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
     setState(() {
       _selectedPresetIndex = index;
-      _plusDaysPreset = 0; // ogni volta che cambio preset base azzero i giorni extra
+      _plusDaysPreset =
+          0; // ogni volta che cambio preset base azzero i giorni extra
       _endDate = DateTime(end.year, end.month, end.day);
       _endTime = TimeOfDay.fromDateTime(end);
     });
@@ -604,13 +598,12 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     final end = start.add(Duration(days: newPlus));
 
     setState(() {
-      _selectedPresetIndex = 2;   // evidenzia il chip "+N giorni"
-      _plusDaysPreset = newPlus;  // 1, 2, 3, ... 7
+      _selectedPresetIndex = 2; // evidenzia il chip "+N giorni"
+      _plusDaysPreset = newPlus; // 1, 2, 3, ... 7
       _endDate = DateTime(end.year, end.month, end.day);
       _endTime = TimeOfDay.fromDateTime(end);
     });
   }
-
 
   Future<void> _loadAvailabilityForSelection() async {
     if (_selectedDate == null ||
@@ -830,10 +823,12 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       );
 
       final totalRequested = _bagsS + _bagsM + _bagsL;
-      final requestedUnits2x =
-          _equivalentUnits2x(s: _bagsS, m: _bagsM, l: _bagsL);
+      final requestedUnits2x = _equivalentUnits2x(
+        s: _bagsS,
+        m: _bagsM,
+        l: _bagsL,
+      );
       final errors = <String>[];
-
 
       final bool hasPerSizeCapacity =
           (availability.capacityS +
@@ -859,8 +854,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         }
       }
 
-      if (availability.capacityTotal > 0 &&
-          availability.availableTotal > 0) {
+      if (availability.capacityTotal > 0 && availability.availableTotal > 0) {
         if (requestedUnits2x > availability.availableTotal) {
           final availableHuman = availability.availableTotal / 2.0;
           final requestedHuman = requestedUnits2x / 2.0;
@@ -871,7 +865,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           );
         }
       }
-
 
       if (errors.isNotEmpty) {
         if (!mounted) return;
@@ -1024,6 +1017,16 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   String _formatPrice(double value) {
     return BagDropPricing.formatEuro(value);
   }
+
+//helper info tariffe
+  void _openPricingScreen() {
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => const BagDropPricingScreen(),
+    ),
+  );
+}
+
 
   @override
   Widget build(BuildContext context) {
@@ -1262,6 +1265,43 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
             color: cs.onSurface.withOpacity(0.7),
           ),
         ),
+
+        const SizedBox(height: 12),
+
+        // ✅ INFO PREZZI / TARIFFE (cliccabile)
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: ListTile(
+            onTap: _openPricingScreen, // oppure inline Navigator.push(...)
+            leading: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: cs.primary.withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.payments_outlined, size: 20, color: cs.primary),
+            ),
+            title: Text(
+              'Prezzi e tariffe',
+              style: textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            subtitle: Text(
+              durationSummary, // <-- usa il tuo testo già calcolato
+              style: textTheme.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.7),
+              ),
+            ),
+            trailing: Icon(
+              Icons.chevron_right_rounded,
+              color: cs.onSurface.withOpacity(0.6),
+            ),
+          ),
+        ),
         const SizedBox(height: 16),
 
         // CARD CONSEGNA
@@ -1283,17 +1323,14 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                         color: cs.primary.withOpacity(0.12),
                         shape: BoxShape.circle,
                       ),
-                      child: Icon(
-                        Icons.login,
-                        size: 20,
-                        color: cs.primary,
-                      ),
+                      child: Icon(Icons.login, size: 20, color: cs.primary),
                     ),
                     const SizedBox(width: 8),
                     Text(
                       'Consegna dei bagagli',
-                      style:
-                          textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                      style: textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ],
                 ),
@@ -1305,10 +1342,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                     Expanded(
                       child: _DateTimePillButton(
                         label: 'Giorno',
-                        value: _formatDate(
-                          _selectedDate,
-                          'Seleziona giorno',
-                        ),
+                        value: _formatDate(_selectedDate, 'Seleziona giorno'),
                         icon: Icons.calendar_today,
                         onTap: () async {
                           final now = DateTime.now();
@@ -1334,7 +1368,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                               //reset
                               _selectedPresetIndex = null;
                               _plusDaysPreset = 0;
-                              
+
                               if (_endDate == null ||
                                   _endDate!.isBefore(_selectedDate!)) {
                                 _endDate = _selectedDate;
@@ -1354,7 +1388,8 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                         icon: Icons.access_time,
                         onTap: () async {
                           final initial =
-                              _startTime ?? const TimeOfDay(hour: 10, minute: 0);
+                              _startTime ??
+                              const TimeOfDay(hour: 10, minute: 0);
                           final picked = await showTimePicker(
                             context: context,
                             initialTime: initial,
@@ -1445,14 +1480,12 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                 },
               ),
             ),
-
           ],
         ),
 
         const SizedBox(height: 12),
 
         const SizedBox(height: 12),
-
 
         // CARD RITIRO
         Card(
@@ -1473,17 +1506,14 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                         color: cs.secondaryContainer.withOpacity(0.4),
                         shape: BoxShape.circle,
                       ),
-                      child: Icon(
-                        Icons.logout,
-                        size: 20,
-                        color: cs.secondary,
-                      ),
+                      child: Icon(Icons.logout, size: 20, color: cs.secondary),
                     ),
                     const SizedBox(width: 8),
                     Text(
                       'Ritiro dei bagagli',
-                      style:
-                          textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                      style: textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ],
                 ),
@@ -1494,10 +1524,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                     Expanded(
                       child: _DateTimePillButton(
                         label: 'Giorno',
-                        value: _formatDate(
-                          _endDate,
-                          'Seleziona giorno',
-                        ),
+                        value: _formatDate(_endDate, 'Seleziona giorno'),
                         icon: Icons.calendar_today,
                         onTap: () async {
                           final now = DateTime.now();
@@ -1539,8 +1566,8 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                         onTap: () async {
                           final initialTime =
                               _endTime ??
-                                  _startTime ??
-                                  const TimeOfDay(hour: 18, minute: 0);
+                              _startTime ??
+                              const TimeOfDay(hour: 18, minute: 0);
                           final picked = await showTimePicker(
                             context: context,
                             initialTime: initialTime,
@@ -1609,18 +1636,12 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Icon(
-                      Icons.timer_outlined,
-                      size: 16,
-                      color: cs.primary,
-                    ),
+                    Icon(Icons.timer_outlined, size: 16, color: cs.primary),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         durationSummary,
-                        style: textTheme.bodySmall?.copyWith(
-                          color: cs.outline,
-                        ),
+                        style: textTheme.bodySmall?.copyWith(color: cs.outline),
                       ),
                     ),
                   ],
@@ -1636,18 +1657,12 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(
-              Icons.info_outline,
-              size: 16,
-              color: cs.outline,
-            ),
+            Icon(Icons.info_outline, size: 16, color: cs.outline),
             const SizedBox(width: 6),
             Expanded(
               child: Text(
                 'Puoi prenotare da oggi fino a 7 giorni dopo. Gli orari devono rientrare negli orari di apertura del locale.',
-                style: textTheme.bodySmall?.copyWith(
-                  color: cs.outline,
-                ),
+                style: textTheme.bodySmall?.copyWith(color: cs.outline),
               ),
             ),
           ],
@@ -1656,11 +1671,8 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     );
   }
 
-
   void _showAvailabilitySnack(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg)),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   /// Aggiorna i bagagli applicando:
@@ -1683,29 +1695,22 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       // 🔹 Limiti per taglia se configurati
       if (hasPerSizeCapacity) {
         if (newS > av.availableS) {
-          _showAvailabilitySnack(
-            'Small (S) disponibili: ${av.availableS}.',
-          );
+          _showAvailabilitySnack('Small (S) disponibili: ${av.availableS}.');
           return;
         }
         if (newM > av.availableM) {
-          _showAvailabilitySnack(
-            'Medium (M) disponibili: ${av.availableM}.',
-          );
+          _showAvailabilitySnack('Medium (M) disponibili: ${av.availableM}.');
           return;
         }
         if (newL > av.availableL) {
-          _showAvailabilitySnack(
-            'Large (L) disponibili: ${av.availableL}.',
-          );
+          _showAvailabilitySnack('Large (L) disponibili: ${av.availableL}.');
           return;
         }
       }
 
       // 🔹 Limite sullo spazio TOTALE equivalente (stessa unità del repo: mezze-M)
       if (av.capacityTotal > 0 && av.availableTotal > 0) {
-        final units2x =
-            _equivalentUnits2x(s: newS, m: newM, l: newL);
+        final units2x = _equivalentUnits2x(s: newS, m: newM, l: newL);
         if (units2x > av.availableTotal) {
           _showAvailabilitySnack(
             'Non c\'è abbastanza spazio per questa combinazione di bagagli.',
@@ -1721,7 +1726,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       _bagsL = newL;
     });
   }
-
 
   Widget _buildBagsForm() {
     if (_loadingAvailability) {
@@ -1758,9 +1762,10 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     bool isOverCapacity = false;
 
     if (av != null && av.capacityTotal > 0) {
-      capacityUnits = av.capacityTotal;        // capacità totale in unità equivalenti
-      usedUnits = av.usedTotal;                // già occupato da altre prenotazioni
-      selectionUnits = _currentRequestedUnits2x(); // unità equivalenti dei bagagli scelti ora
+      capacityUnits = av.capacityTotal; // capacità totale in unità equivalenti
+      usedUnits = av.usedTotal; // già occupato da altre prenotazioni
+      selectionUnits =
+          _currentRequestedUnits2x(); // unità equivalenti dei bagagli scelti ora
       futureUsedUnits = usedUnits + selectionUnits;
 
       if (futureUsedUnits > capacityUnits) {
@@ -1819,10 +1824,9 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           const SizedBox(height: 12),
           Text(
             'Spazio totale per questo intervallo',
-            style: Theme.of(context)
-                .textTheme
-                .bodyMedium
-                ?.copyWith(fontWeight: FontWeight.w600),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 6),
           ClipRRect(
@@ -1830,8 +1834,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
             child: LinearProgressIndicator(
               value: occupancyRatio.clamp(0.0, 1.0),
               minHeight: 10,
-              backgroundColor:
-                  Theme.of(context).colorScheme.surfaceVariant,
+              backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
               valueColor: AlwaysStoppedAnimation<Color>(
                 isOverCapacity
                     ? Theme.of(context).colorScheme.error
@@ -1844,26 +1847,20 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
             isOverCapacity
                 ? 'Stai superando lo spazio disponibile: riduci il numero di bagagli.'
                 : 'Occupato: ${futureUsedHuman.toStringAsFixed(1)}'
-                  ' / ${capacityHuman.toStringAsFixed(1)} unità equivalenti',
+                      ' / ${capacityHuman.toStringAsFixed(1)} unità equivalenti',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: isOverCapacity
-                      ? Theme.of(context).colorScheme.error
-                      : Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withOpacity(0.7),
-                ),
+              color: isOverCapacity
+                  ? Theme.of(context).colorScheme.error
+                  : Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+            ),
           ),
           const SizedBox(height: 2),
           Text(
             'Equivalenze: 1 S = 1 • 1 M = 2 • 1 L = 4 unità.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontSize: 11,
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withOpacity(0.6),
-                ),
+              fontSize: 11,
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+            ),
           ),
         ],
 
@@ -2249,17 +2246,11 @@ class _DateTimePillButton extends StatelessWidget {
                 ? cs.outline.withOpacity(0.6)
                 : cs.primary.withOpacity(0.7),
           ),
-          color: isEmpty
-              ? cs.surface
-              : cs.primary.withOpacity(0.06),
+          color: isEmpty ? cs.surface : cs.primary.withOpacity(0.06),
         ),
         child: Row(
           children: [
-            Icon(
-              icon,
-              size: 18,
-              color: isEmpty ? cs.outline : cs.primary,
-            ),
+            Icon(icon, size: 18, color: isEmpty ? cs.outline : cs.primary),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
@@ -2276,9 +2267,7 @@ class _DateTimePillButton extends StatelessWidget {
                   Text(
                     value,
                     overflow: TextOverflow.ellipsis,
-                    style: tt.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+                    style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
                   ),
                 ],
               ),

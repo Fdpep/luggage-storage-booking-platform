@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:BagDrop/config/bagdrop_pricing.dart';
 import 'package:BagDrop/models/partner.dart';
 import 'package:BagDrop/models/partner_photo.dart';
 import 'package:BagDrop/services/supabase/partner_photo/partner_photo_repo.dart';
 import 'package:BagDrop/services/supabase/partner_booking_repo.dart';
 import 'package:BagDrop/schermate/partner/user_view/booking_flow_screen.dart';
+import 'package:BagDrop/theme/app_theme.dart';
 
 /// Schermata di dettaglio di un partner (vista dall'utente).
 ///
@@ -394,59 +394,63 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
     final textTheme = theme.textTheme;
 
     return Scaffold(
-      appBar: AppBar(title: Text(partner.name)),
+      appBar: AppBar(
+        backgroundColor: cs.primary,
+        foregroundColor: cs.onPrimary,
+        title: const _LogoTitle(),
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildPhotoSection(cs),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
 
+              // Header “moderno”
               Card(
+                elevation: 0,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(18),
+                  side: BorderSide(color: cs.outlineVariant.withOpacity(0.35)),
                 ),
-                elevation: 1.5,
                 child: Padding(
-                  padding: const EdgeInsets.all(14.0),
+                  padding: const EdgeInsets.all(14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Nome + piccolo badge
                       Row(
                         children: [
                           Expanded(
                             child: Text(
                               partner.name,
                               style: textTheme.headlineSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
+                                fontWeight: FontWeight.w900,
                               ),
                             ),
                           ),
                           Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 10,
-                              vertical: 4,
+                              vertical: 6,
                             ),
                             decoration: BoxDecoration(
-                              color: cs.primary.withOpacity(0.08),
+                              color: cs.primary.withOpacity(0.10),
                               borderRadius: BorderRadius.circular(999),
                             ),
                             child: Text(
                               'BagDrop partner',
                               style: textTheme.labelSmall?.copyWith(
                                 color: cs.primary,
-                                fontWeight: FontWeight.w600,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 10),
 
-                      // Indirizzo con icona
                       if (partner.address != null &&
                           partner.address!.trim().isNotEmpty)
                         Row(
@@ -455,157 +459,169 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
                             Icon(
                               Icons.location_on_outlined,
                               size: 18,
-                              color: cs.onSurface.withOpacity(0.7),
+                              color: cs.onSurface.withOpacity(0.70),
                             ),
-                            const SizedBox(width: 4),
+                            const SizedBox(width: 6),
                             Expanded(
                               child: Text(
                                 partner.address!.trim(),
                                 style: textTheme.bodyMedium?.copyWith(
-                                  color: cs.onSurface.withOpacity(0.8),
+                                  color: cs.onSurface.withOpacity(0.85),
                                 ),
                               ),
                             ),
                           ],
                         ),
-
-                      const SizedBox(height: 12),
                     ],
                   ),
                 ),
               ),
 
               const SizedBox(height: 12),
-              const Divider(),
 
               // Descrizione
-              Text('Descrizione', style: textTheme.titleMedium),
-              const SizedBox(height: 4),
-              Text(
-                (partner.description?.trim().isNotEmpty ?? false)
-                    ? partner.description!.trim()
-                    : 'Nessuna descrizione disponibile.',
-                style: textTheme.bodyMedium,
-              ),
-
-              const SizedBox(height: 16),
-              const Divider(),
-
-              // Orari di apertura
-              Text('Orari di apertura', style: textTheme.titleMedium),
-              const SizedBox(height: 4),
-              _buildOpeningHours(theme),
-
-              const SizedBox(height: 16),
-              const Divider(),
-
-              // Regole
-              Text('Regole deposito', style: textTheme.titleMedium),
-              const SizedBox(height: 4),
-              Text(
-                (partner.rules?.trim().isNotEmpty ?? false)
-                    ? partner.rules!.trim()
-                    : 'Nessuna regola specificata. Evita comunque oggetti di valore e materiali pericolosi.',
-                style: textTheme.bodyMedium,
-              ),
-
-              const SizedBox(height: 16),
-              const Divider(),
-
-              // Capacità e disponibilità
-              Text('Capacità e disponibilità', style: textTheme.titleMedium),
-              const SizedBox(height: 4),
-              Builder(
-                builder: (context) {
-                  final capS = partner.capacityS;
-                  final capM = partner.capacityM;
-                  final capL = partner.capacityL;
-
-                  final totalFromSizes = capS + capM + capL;
-                  final effectiveTotal = totalFromSizes > 0
-                      ? totalFromSizes
-                      : partner.capacity;
-
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Numero massimo di bagagli: $effectiveTotal',
-                        style: textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: 4),
-                      if (totalFromSizes > 0) ...[
-                        if (capS > 0)
-                          Text(
-                            '• Small (S): $capS',
-                            style: textTheme.bodySmall,
-                          ),
-                        if (capM > 0)
-                          Text(
-                            '• Medium (M): $capM',
-                            style: textTheme.bodySmall,
-                          ),
-                        if (capL > 0)
-                          Text(
-                            '• Large (L): $capL',
-                            style: textTheme.bodySmall,
-                          ),
-                      ],
-                    ],
-                  );
-                },
-              ),
-
-              const SizedBox(height: 16),
-              const Divider(),
-
-              // Contatti
-              Text('Contatti', style: textTheme.titleMedium),
-              const SizedBox(height: 4),
-              if (partner.phone != null && partner.phone!.trim().isNotEmpty)
-                Row(
-                  children: [
-                    Icon(
-                      Icons.phone_outlined,
-                      size: 18,
-                      color: cs.onSurface.withOpacity(0.7),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      partner.phone!.trim(),
-                      style: textTheme.bodyMedium,
-                    ),
-                  ],
-                )
-              else
-                Text(
-                  'Telefono non disponibile.',
+              _SectionCard(
+                icon: Icons.info_outline,
+                title: 'Descrizione',
+                child: Text(
+                  (partner.description?.trim().isNotEmpty ?? false)
+                      ? partner.description!.trim()
+                      : 'Nessuna descrizione disponibile.',
                   style: textTheme.bodyMedium,
                 ),
-              // niente secondo indirizzo: già mostrato sopra
+              ),
 
+              const SizedBox(height: 12),
 
-              const SizedBox(height: 16),
-              const Divider(),
+              // Orari (tendina moderna)
+              _OpeningHoursDropdown(hoursContent: _buildOpeningHours(theme)),
+
+              const SizedBox(height: 12),
+
+              // Regole
+              _SectionCard(
+                icon: Icons.rule_folder_outlined,
+                title: 'Regole deposito',
+                child: Text(
+                  (partner.rules?.trim().isNotEmpty ?? false)
+                      ? partner.rules!.trim()
+                      : 'Nessuna regola specificata. Evita comunque oggetti di valore e materiali pericolosi.',
+                  style: textTheme.bodyMedium,
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Capacità (chip moderni)
+              _SectionCard(
+                icon: Icons.inventory_2_outlined,
+                title: 'Capacità e disponibilità',
+                child: Builder(
+                  builder: (context) {
+                    final capS = partner.capacityS;
+                    final capM = partner.capacityM;
+                    final capL = partner.capacityL;
+
+                    final totalFromSizes = capS + capM + capL;
+                    final effectiveTotal = totalFromSizes > 0
+                        ? totalFromSizes
+                        : partner.capacity;
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Riga 1: totale
+                        _InfoChip(
+                          icon: Icons.luggage_outlined,
+                          label: 'Bagagli disponibili: $effectiveTotal',
+                        ),
+
+                        // Riga 2: taglie (solo se presenti)
+                        if (totalFromSizes > 0) ...[
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: [
+                              if (capS > 0)
+                                _InfoChip(
+                                  icon: Icons.circle_outlined,
+                                  label: 'S: $capS',
+                                ),
+                              if (capM > 0)
+                                _InfoChip(
+                                  icon: Icons.circle_outlined,
+                                  label: 'M: $capM',
+                                ),
+                              if (capL > 0)
+                                _InfoChip(
+                                  icon: Icons.circle_outlined,
+                                  label: 'L: $capL',
+                                ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    );
+                  },
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Contatti
+              _SectionCard(
+                icon: Icons.call_outlined,
+                title: 'Contatti',
+                child:
+                    (partner.phone != null && partner.phone!.trim().isNotEmpty)
+                    ? Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              partner.phone!.trim(),
+                              style: textTheme.bodyMedium,
+                            ),
+                          ),
+                          // Se vuoi renderli “cliccabili”, qui agganci url_launcher (tel:, sms:, whatsapp)
+                          IconButton(
+                            onPressed: () {
+                              // TODO: launchUrl(Uri.parse('tel:${partner.phone!.trim()}'));
+                            },
+                            icon: const Icon(Icons.phone_outlined),
+                          ),
+                        ],
+                      )
+                    : Text(
+                        'Telefono non disponibile.',
+                        style: textTheme.bodyMedium,
+                      ),
+              ),
+
+              const SizedBox(height: 12),
 
               // Mappa
-              Text('Posizione', style: textTheme.titleMedium),
-              const SizedBox(height: 8),
-              _buildMapPreview(),
+              _SectionCard(
+                icon: Icons.map_outlined,
+                title: 'Posizione',
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: _buildMapPreview(),
+                ),
+              ),
 
-              const SizedBox(height: 80), // spazio per il bottone in basso
+              const SizedBox(height: 80),
             ],
           ),
         ),
       ),
 
-      // Bottone "Prenota ora" fisso in basso
       bottomNavigationBar: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: SizedBox(
-            height: 48,
+            height: 50,
             child: ElevatedButton(
               onPressed: () {
                 Navigator.of(context).push(
@@ -618,6 +634,184 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _SectionCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final Widget child;
+  final Widget? trailing;
+
+  const _SectionCard({
+    required this.icon,
+    required this.title,
+    required this.child,
+    this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final tt = theme.textTheme;
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: cs.outlineVariant.withOpacity(0.35)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: cs.primary.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, size: 20, color: cs.primary),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: tt.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                if (trailing != null) trailing!,
+              ],
+            ),
+            const SizedBox(height: 12),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _InfoChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: cs.surfaceVariant.withOpacity(0.55),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.30)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: cs.onSurfaceVariant),
+          const SizedBox(width: 6),
+          Text(label),
+        ],
+      ),
+    );
+  }
+}
+
+class _OpeningHoursDropdown extends StatelessWidget {
+  final Widget hoursContent;
+
+  const _OpeningHoursDropdown({required this.hoursContent});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final tt = theme.textTheme;
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: cs.outlineVariant.withOpacity(0.35)),
+      ),
+      child: Theme(
+        data: theme.copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+          leading: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: cs.primary.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(Icons.schedule_outlined, size: 20, color: cs.primary),
+          ),
+          title: Text(
+            'Orari di apertura',
+            style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          subtitle: Text(
+            'Tocca per vedere i dettagli',
+            style: tt.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.65),
+            ),
+          ),
+          trailing: Icon(
+            Icons.keyboard_arrow_down_rounded,
+            color: cs.onSurfaceVariant,
+          ),
+          children: [hoursContent],
+        ),
+      ),
+    );
+  }
+}
+
+/// Titolo “BagDrop” in AppBar con brand:
+/// - “Bag” chiaro
+/// - “Drop” giallo
+class _LogoTitle extends StatelessWidget {
+  const _LogoTitle();
+
+  @override
+  Widget build(BuildContext context) {
+    return RichText(
+      text: const TextSpan(
+        children: [
+          TextSpan(
+            text: 'Bag',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 20,
+              color: Colors.white,
+              letterSpacing: 0.5,
+            ),
+          ),
+          TextSpan(text: ' '),
+          TextSpan(
+            text: 'Drop',
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 20,
+              color: AppTheme.brandYellow,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
       ),
     );
   }

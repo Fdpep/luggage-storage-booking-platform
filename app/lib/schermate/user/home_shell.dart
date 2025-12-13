@@ -33,15 +33,8 @@ class _HomeShellState extends State<HomeShell> {
   final _supabase = Supabase.instance.client;
   StreamSubscription<AuthState>? _authSub;
 
-  int _currentIndex = 0;
-
   bool get _isLoggedIn => _supabase.auth.currentSession != null;
   User? get _user => _supabase.auth.currentUser;
-
-  // Navigazione tab bottom
-  void _onBottomTap(int idx) {
-    setState(() => _currentIndex = idx);
-  }
 
   // Tap generico per voci “non ancora implementate”
   void _tap(BuildContext ctx, String label) {
@@ -116,19 +109,7 @@ class _HomeShellState extends State<HomeShell> {
       debugPrint('[HomeShell] guest mode attiva (no session)');
     }
 
-    // Pagine con gating (tab 1 sempre visibile; 2-3 richiedono login)
-    final pages = <Widget>[
-      const UserMapPage(),
-      _isLoggedIn
-          ? const UserBookingsPage()
-          : const _RequireAuthCard(tabTitle: 'Prenotazioni'),
-      _isLoggedIn
-          ? _ProfiloPage(user: _user)
-          : const _RequireAuthCard(tabTitle: 'Profilo'),
-    ];
-
     return Scaffold(
-      // AppBar superiore con hamburger + titolo + filtro
       appBar: AppBar(
         backgroundColor: cs.primary,
         foregroundColor: cs.onPrimary,
@@ -140,202 +121,131 @@ class _HomeShellState extends State<HomeShell> {
           ),
         ),
         title: _LogoTitle(),
-        actions: [
-          IconButton(
-            tooltip: 'Filtri mappa',
-            onPressed: () => _tap(context, 'Filtri mappa'),
-            icon: const Icon(Icons.filter_list),
-          ),
-        ],
+        actions: const [],
       ),
-
-      // Drawer laterale (menu a panino)
+      //drawer laterale (menu a panino)
       drawer: Drawer(
-        child: SafeArea(
-          child: Column(
-            children: [
-              // Header: cambia se loggato / non loggato
-              _DrawerHeader(isLoggedIn: _isLoggedIn, user: _user),
+        child: Builder(
+          builder: (ctx) {
+            final cs = Theme.of(ctx).colorScheme;
+            final topPad = MediaQuery.of(ctx).padding.top;
 
-              // Voci specifiche per NON loggato
-              if (!_isLoggedIn) ...[
-                const SizedBox(height: 8),
-                _ItemTile(
-                  icon: Icons.login,
-                  label: 'Accedi',
-                  onTap: (ctx) {
-                    Navigator.of(ctx).pushNamedAndRemoveUntil(
-                      '/accesso',
-                      (route) => false, // svuota lo stack
-                    );
-                  },
-                ),
-                _ItemTile(
-                  icon: Icons.person_add_outlined,
-                  label: 'Registrati',
-                  onTap: (ctx) {
-                    Navigator.of(ctx).pushNamedAndRemoveUntil(
-                      '/registrazione',
-                      (route) => false,
-                    );
-                  },
-                ),
-                const Divider(height: 24),
+            return Column(
+              children: [
+                Container(height: topPad, color: cs.primary),
+                _DrawerHeader(isLoggedIn: _isLoggedIn, user: _user),
 
-                // Sezioni extra (come da tua richiesta)
-                _ItemTile(
-                  icon: Icons.help_outline,
-                  label: 'Assistenza e Domande frequenti',
-                  onTap: (ctx) => _tap(ctx, 'Assistenza e FAQ'),
-                ),
-                _ItemTile(
-                  icon: Icons.luggage_outlined,
-                  label: 'Lascia a BagDrop',
-                  onTap: (ctx) => _tap(ctx, 'Lascia a BagDrop'),
-                ),
-                _ItemTile(
-                  icon: Icons.menu_book_outlined,
-                  label: 'Istruzioni',
-                  onTap: (ctx) => _tap(ctx, 'Istruzioni'),
-                ),
-                _ItemTile(
-                  icon: Icons.payments_outlined,
-                  label: 'Tariffe BagDrop',
-                  onTap: (ctx) => _tap(ctx, 'Tariffe BagDrop'),
-                ),
-                _ItemTile(
-                  icon: Icons.description_outlined,
-                  label: 'Documenti contrattuali & Privacy',
-                  onTap: (ctx) => _tap(ctx, 'Documenti contrattuali & Privacy'),
-                ),
-                const Spacer(),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16.0,
-                    vertical: 8,
-                  ),
-                  child: Text(
-                    'v0.1 • Pilot Milano – Santa Sofia',
-                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                  ),
-                ),
-              ],
-
-              // Voci per LOGGATO
-              if (_isLoggedIn) ...[
-                const SizedBox(height: 8),
-                _ItemTile(
-                  icon: Icons.list_alt_outlined,
-                  label: 'Le mie prenotazioni',
-                  onTap: (ctx) {
-                    setState(() => _currentIndex = 1);
-                    Navigator.of(ctx).pop();
-                  },
-                ),
-                _ItemTile(
-                  icon: Icons.person_outline,
-                  label: 'Profilo',
-                  onTap: (ctx) {
-                    setState(() => _currentIndex = 2);
-                    Navigator.of(ctx).pop();
-                  },
-                ),
-                const Divider(height: 24),
-                _ItemTile(
-                  icon: Icons.payments_outlined,
-                  label: 'Tariffe BagDrop',
-                  onTap: (ctx) {
-                    // Chiude il drawer
-                    Navigator.of(ctx).pop();
-
-                    // Apre la schermata listino BagDrop
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const BagDropPricingScreen(),
-                      ),
-                    );
-                  },
-                ),
-
-                _ItemTile(
-                  icon: Icons.help_outline,
-                  label: 'Assistenza e Domande frequenti',
-                  onTap: (ctx) => _tap(ctx, 'Assistenza e FAQ'),
-                ),
-                _ItemTile(
-                  icon: Icons.settings_outlined,
-                  label: 'Impostazioni',
-                  onTap: (ctx) => _tap(ctx, 'Impostazioni'),
-                ),
-                _ItemTile(
-                  icon: Icons.description_outlined,
-                  label: 'Documenti contrattuali & Privacy',
-                  onTap: (ctx) => _tap(ctx, 'Documenti contrattuali & Privacy'),
-                ),
-                const Spacer(),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16.0,
-                    vertical: 8,
-                  ),
-                  child: Row(
+                // ✅ voci menu (scrollabili)
+                Expanded(
+                  child: ListView(
+                    padding: EdgeInsets.zero,
                     children: [
-                      ElevatedButton.icon(
-                        onPressed: () async {
-                          final didLogout = await AuthActions.confirmAndLogout(
-                            context,
+                      const SizedBox(height: 8),
+
+                      _ItemTile(
+                        icon: Icons.list_alt_outlined,
+                        label: 'Le mie prenotazioni',
+                        onTap: (c) {
+                          Navigator.of(c).pop();
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const _UserBookingsScreen(),
+                            ),
                           );
-                          if (!didLogout)
-                            return; // utente ha annullato o errore
-                          if (!mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Disconnesso')),
-                          );
-                          Navigator.of(context).pop(); // chiudi drawer
-                          setState(() => _currentIndex = 0); // torna a mappa
                         },
-                        icon: const Icon(Icons.logout),
-                        label: const Text('Esci'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.brandPurple,
-                          foregroundColor: Colors.white,
-                        ),
                       ),
-                      const Spacer(),
+                      _ItemTile(
+                        icon: Icons.person_outline,
+                        label: 'Profilo',
+                        onTap: (c) {
+                          Navigator.of(c).pop();
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => _UserProfileScreen(user: _user),
+                            ),
+                          );
+                        },
+                      ),
+
+                      const Divider(height: 24),
+
+                      _ItemTile(
+                        icon: Icons.payments_outlined,
+                        label: 'Tariffe BagDrop',
+                        onTap: (c) {
+                          Navigator.of(c).pop();
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const BagDropPricingScreen(),
+                            ),
+                          );
+                        },
+                      ),
+
+                      _ItemTile(
+                        icon: Icons.help_outline,
+                        label: 'Assistenza e Domande frequenti',
+                        onTap: (c) => _tap(c, 'Assistenza e FAQ'),
+                      ),
+
+                      _ItemTile(
+                        icon: Icons.settings_outlined,
+                        label: 'Impostazioni',
+                        onTap: (c) => _tap(c, 'Impostazioni'),
+                      ),
+
+                      _ItemTile(
+                        icon: Icons.description_outlined,
+                        label: 'Documenti contrattuali & Privacy',
+                        onTap: (c) =>
+                            _tap(c, 'Documenti contrattuali & Privacy'),
+                      ),
                     ],
                   ),
                 ),
+
+                // ✅ ESCI fisso in basso (come volevi)
+                SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16.0,
+                      vertical: 8,
+                    ),
+                    child: Row(
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: () async {
+                            final didLogout =
+                                await AuthActions.confirmAndLogout(context);
+                            if (!didLogout) return;
+                            if (!mounted) return;
+
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Disconnesso')),
+                            );
+                            Navigator.of(context).pop(); // chiudi drawer
+                          },
+                          icon: const Icon(Icons.logout),
+                          label: const Text('Esci'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.brandPurple,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                        const Spacer(),
+                      ],
+                    ),
+                  ),
+                ),
               ],
-            ],
-          ),
+            );
+          },
         ),
       ),
 
-      // Corpo principale: pagine
-      body: pages[_currentIndex],
-
-      // Bottom navigation (Mappa sempre accessibile)
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        backgroundColor: Colors.white,
-        selectedItemColor: Colors.black87,
-        unselectedItemColor: Colors.grey,
-        onTap: _onBottomTap,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.map_outlined),
-            label: 'Mappa',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.list_alt_outlined),
-            label: 'Prenotazioni',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            label: 'Profilo',
-          ),
-        ],
-      ),
+      // ✅ HOME = SOLO MAPPA
+      body: const UserMapPage(),
     );
   }
 
@@ -461,6 +371,8 @@ class _HomeShellState extends State<HomeShell> {
 /// - “Bag” chiaro
 /// - “Drop” giallo
 class _LogoTitle extends StatelessWidget {
+  const _LogoTitle();
+
   @override
   Widget build(BuildContext context) {
     return RichText(
@@ -964,8 +876,6 @@ class _ProfiloPageState extends State<_ProfiloPage> {
             ),
           ),
 
-          const SizedBox(height: 24),
-
           Text(
             'Dati personali',
             style: Theme.of(
@@ -974,73 +884,185 @@ class _ProfiloPageState extends State<_ProfiloPage> {
           ),
           const SizedBox(height: 8),
 
-          _InfoTile(label: 'Nome', value: fullName),
-          _InfoTile(label: 'Telefono', value: phone),
-          _InfoTile(label: 'Email', value: email),
-          _InfoTile(label: 'Cliente su BagDrop dal', value: createdText),
-          _InfoTile(
-            label: 'Prenotazioni effettuate',
-            value: '$_myBookingsCount',
+          _CardGroup(
+            children: [
+              _InfoTile(
+                label: 'Nome',
+                value: fullName,
+                icon: Icons.badge_outlined,
+              ),
+              _InfoTile(
+                label: 'Telefono',
+                value: phone,
+                icon: Icons.phone_outlined,
+              ),
+              _InfoTile(label: 'Email', value: email, icon: Icons.mail_outline),
+              _InfoTile(
+                label: 'Cliente su BagDrop dal',
+                value: createdText,
+                icon: Icons.event_outlined,
+              ),
+              _InfoTile(
+                label: 'Prenotazioni effettuate',
+                value: '$_myBookingsCount',
+                icon: Icons.receipt_long_outlined,
+              ),
+
+              // ✅ Modifica dati (come riga, non bottone)
+              _ActionTile(
+                icon: Icons.edit_outlined,
+                title: 'Modifica dati',
+                subtitle: 'Aggiorna le informazioni del profilo',
+                onTap: () async {
+                  final changed = await Navigator.of(context).push<bool>(
+                    MaterialPageRoute(
+                      builder: (_) => const _EditProfileScreen(),
+                    ),
+                  );
+                  if (changed == true) {
+                    await _loadData();
+                  }
+                },
+              ),
+            ],
           ),
 
           const SizedBox(height: 24),
           Text(
-            'Azioni',
+            'Azioni account',
             style: Theme.of(
               context,
             ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),
 
-          // Bottone modifica dati
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () async {
-                final changed = await Navigator.of(context).push<bool>(
-                  MaterialPageRoute(builder: (_) => const _EditProfileScreen()),
-                );
-                if (changed == true) {
-                  await _loadData();
-                }
-              },
-              icon: const Icon(Icons.edit_outlined),
-              label: const Text('Modifica dati'),
-            ),
-          ),
+          _CardGroup(
+            children: [
+              _ActionTile(
+                icon: Icons.logout_rounded,
+                title: 'Logout',
+                subtitle: 'Esci dal tuo account',
+                onTap: () async {
+                  final didLogout = await AuthActions.confirmAndLogout(context);
+                  if (!didLogout) return;
+                  if (!mounted) return;
 
-          const SizedBox(height: 8),
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('Disconnesso')));
 
-          // Bottone rosso "Elimina account"
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: cs.error,
-                side: BorderSide(color: cs.error),
+                  // ✅ torna alla root (dove di solito hai AuthGate / schermata "Accedi")
+                  Navigator.of(context).popUntil((route) => route.isFirst);
+
+                  // opzionale: se questa pagina rimane visibile per qualche motivo
+                  // setState(() => _currentUser = null);
+                },
               ),
-              onPressed: () async {
-                final deleted = await Navigator.of(context).push<bool>(
-                  MaterialPageRoute(
-                    builder: (_) => const DeleteAccountScreen(),
-                  ),
-                );
-
-                if (deleted == true && mounted) {
-                  // AuthGate / RootGate dovrebbe già reagire al signOut
-                  // fatto nella schermata di eliminazione.
-                  // Qui possiamo opzionalmente mostrare un messaggio,
-                  // ma tanto l'utente esce dall'area utente.
-                }
-              },
-              icon: const Icon(Icons.delete_outline),
-              label: const Text('Elimina account'),
-            ),
+              _ActionTile(
+                icon: Icons.delete_outline,
+                title: 'Elimina account',
+                subtitle: 'Operazione irreversibile',
+                color: cs.error,
+                onTap: () async {
+                  final deleted = await Navigator.of(context).push<bool>(
+                    MaterialPageRoute(
+                      builder: (_) => const DeleteAccountScreen(),
+                    ),
+                  );
+                  if (deleted == true && mounted) {
+                    // di solito la schermata gestisce già signOut/redirect
+                  }
+                },
+              ),
+            ],
           ),
 
           if (_error != null) ...[
             const SizedBox(height: 12),
             Text(_error!, style: TextStyle(color: cs.error, fontSize: 12)),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+//helper widget titolo sezioni profilo:
+class _ActionTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final VoidCallback onTap;
+  final Color? color;
+
+  const _ActionTile({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+    this.subtitle,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final effectiveColor = color ?? cs.onSurface;
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+      leading: Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
+          color: (color ?? cs.primary).withOpacity(0.12),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(icon, color: effectiveColor),
+      ),
+      title: Text(
+        title,
+        style: TextStyle(fontWeight: FontWeight.w700, color: effectiveColor),
+      ),
+      subtitle: subtitle == null
+          ? null
+          : Text(
+              subtitle!,
+              style: TextStyle(color: cs.onSurface.withOpacity(0.65)),
+            ),
+      trailing: Icon(
+        Icons.chevron_right_rounded,
+        color: cs.onSurface.withOpacity(0.45),
+      ),
+      onTap: onTap,
+    );
+  }
+}
+
+class _CardGroup extends StatelessWidget {
+  final List<Widget> children;
+
+  const _CardGroup({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: cs.outlineVariant.withOpacity(0.35)),
+      ),
+      child: Column(
+        children: [
+          for (int i = 0; i < children.length; i++) ...[
+            children[i],
+            if (i != children.length - 1)
+              Divider(
+                height: 1,
+                thickness: 1,
+                color: cs.outlineVariant.withOpacity(0.35),
+              ),
           ],
         ],
       ),
@@ -1139,9 +1161,9 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Modifica dati profilo'),
         backgroundColor: cs.primary,
         foregroundColor: cs.onPrimary,
+        title: const _LogoTitle(),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -1346,19 +1368,114 @@ class _HintCard extends StatelessWidget {
 class _InfoTile extends StatelessWidget {
   final String label;
   final String value;
-  const _InfoTile({required this.label, required this.value});
+  final IconData? icon;
+
+  const _InfoTile({required this.label, required this.value, this.icon});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+
     return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+      leading: icon == null
+          ? null
+          : Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: cs.primary.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: cs.primary, size: 20),
+            ),
       title: Text(
         label,
-        style: TextStyle(color: cs.onSurface.withOpacity(0.7)),
+        style: TextStyle(
+          color: cs.onSurface.withOpacity(0.65),
+          fontWeight: FontWeight.w600,
+        ),
       ),
-      trailing: Text(
-        value,
-        style: const TextStyle(fontWeight: FontWeight.w700),
+      trailing: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.45,
+        ),
+        child: Text(
+          value,
+          textAlign: TextAlign.right,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+      ),
+    );
+  }
+}
+
+class _UserBookingsScreen extends StatelessWidget {
+  const _UserBookingsScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: cs.primary,
+        foregroundColor: cs.onPrimary,
+        title: const _LogoTitle(),
+      ),
+      body: const UserBookingsPage(),
+    );
+  }
+}
+
+class _UserProfileScreen extends StatelessWidget {
+  final User? user;
+  const _UserProfileScreen({this.user});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: cs.primary,
+        foregroundColor: cs.onPrimary,
+        title: const _LogoTitle(),
+      ),
+      body: _ProfiloPage(user: user),
+    );
+  }
+}
+
+class _RoundIconButton extends StatelessWidget {
+  final IconData icon;
+  final String? tooltip;
+  final VoidCallback onTap;
+
+  const _RoundIconButton({
+    required this.icon,
+    required this.onTap,
+    this.tooltip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Material(
+      color: Colors.white,
+      elevation: 3,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: Tooltip(
+            message: tooltip ?? '',
+            child: Icon(icon, color: cs.onSurface),
+          ),
+        ),
       ),
     );
   }

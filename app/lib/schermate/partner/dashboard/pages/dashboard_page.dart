@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:BagDrop/config/bagdrop_pricing.dart';
 import 'package:BagDrop/schermate/partner/dashboard/pages/bagdrop_pricing_screen.dart';
 import '../../../../models/partner.dart';
 import '../../auth_partner/partner_registration_screen.dart';

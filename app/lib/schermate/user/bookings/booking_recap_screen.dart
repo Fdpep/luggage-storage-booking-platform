@@ -3,6 +3,7 @@ import 'package:BagDrop/config/bagdrop_pricing.dart';
 import 'package:BagDrop/models/partner.dart';
 import 'package:BagDrop/models/partner_booking.dart';
 import 'package:BagDrop/schermate/partner/user_view/partner_detail_screen.dart';
+import 'package:BagDrop/theme/app_theme.dart';
 
 class BookingRecapScreen extends StatelessWidget {
   final Partner partner;
@@ -85,7 +86,11 @@ class BookingRecapScreen extends StatelessWidget {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Riepilogo prenotazione')),
+      appBar: AppBar(
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        foregroundColor: Theme.of(context).colorScheme.onPrimary,
+        title: const _LogoTitle(),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -366,6 +371,42 @@ class BookingRecapScreen extends StatelessWidget {
   }
 }
 
+/// Titolo “BagDrop” in AppBar con brand:
+/// - “Bag” chiaro
+/// - “Drop” giallo
+class _LogoTitle extends StatelessWidget {
+  const _LogoTitle();
+
+  @override
+  Widget build(BuildContext context) {
+    return RichText(
+      text: const TextSpan(
+        children: [
+          TextSpan(
+            text: 'Bag',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 20,
+              color: Colors.white,
+              letterSpacing: 0.5,
+            ),
+          ),
+          TextSpan(text: ' '),
+          TextSpan(
+            text: 'Drop',
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 20,
+              color: AppTheme.brandYellow,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _InfoRow extends StatelessWidget {
   final String label;
   final String value;
@@ -419,13 +460,12 @@ class _IconLabelRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final defaultLabelStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
-          fontWeight: FontWeight.w600,
-          color: cs.onSurface.withOpacity(0.85),
-        );
-    final defaultValueStyle =
-        Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: cs.onSurface.withOpacity(0.9),
-            );
+      fontWeight: FontWeight.w600,
+      color: cs.onSurface.withOpacity(0.85),
+    );
+    final defaultValueStyle = Theme.of(
+      context,
+    ).textTheme.bodyMedium?.copyWith(color: cs.onSurface.withOpacity(0.9));
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,

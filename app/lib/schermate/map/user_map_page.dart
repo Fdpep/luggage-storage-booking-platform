@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:BagDrop/config/bagdrop_pricing.dart';
 import '../../models/partner.dart'; // adatta il path se usi import assoluti
 import '../../services/supabase/location/location_service.dart'; // nuovo servizio
 import '../../services/supabase/maps/map_geocoding_service.dart';
@@ -388,6 +387,14 @@ class UserMapPageState extends State<UserMapPage> {
     }
   }
 
+  void _openFilters() {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => const _MapFiltersSheet(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -502,6 +509,13 @@ class UserMapPageState extends State<UserMapPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               FloatingActionButton.small(
+                heroTag: 'map_filters',
+                onPressed: _openFilters,
+                child: const Icon(Icons.tune),
+              ),
+              const SizedBox(height: 8),
+
+              FloatingActionButton.small(
                 heroTag: 'zoom_in',
                 onPressed: _zoomIn,
                 child: const Icon(Icons.add),
@@ -548,6 +562,32 @@ class UserMapPageState extends State<UserMapPage> {
             },
           ),
       ],
+    );
+  }
+}
+
+class _MapFiltersSheet extends StatelessWidget {
+  const _MapFiltersSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text(
+              'Filtri mappa',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            SizedBox(height: 12),
+            Text('Placeholder: qui inseriremo i filtri reali.'),
+            SizedBox(height: 8),
+          ],
+        ),
+      ),
     );
   }
 }

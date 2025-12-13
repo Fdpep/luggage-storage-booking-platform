@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:BagDrop/config/bagdrop_pricing.dart';
+import 'package:BagDrop/theme/app_theme.dart';
 
 class BagDropPricingScreen extends StatelessWidget {
   const BagDropPricingScreen({super.key});
@@ -10,7 +11,9 @@ class BagDropPricingScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Listino BagDrop'),
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        foregroundColor: Theme.of(context).colorScheme.onPrimary,
+        title: const _LogoTitle(),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -72,6 +75,42 @@ class BagDropPricingScreen extends StatelessWidget {
   }
 }
 
+/// Titolo “BagDrop” in AppBar con brand:
+/// - “Bag” chiaro
+/// - “Drop” giallo
+class _LogoTitle extends StatelessWidget {
+  const _LogoTitle();
+
+  @override
+  Widget build(BuildContext context) {
+    return RichText(
+      text: const TextSpan(
+        children: [
+          TextSpan(
+            text: 'Bag',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 20,
+              color: Colors.white,
+              letterSpacing: 0.5,
+            ),
+          ),
+          TextSpan(text: ' '),
+          TextSpan(
+            text: 'Drop',
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 20,
+              color: AppTheme.brandYellow,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PricingRow {
   final String label;
   final double price;
@@ -83,11 +122,7 @@ class _PricingCard extends StatelessWidget {
   final String title;
   final List<_PricingRow> rows;
 
-  const _PricingCard({
-    super.key,
-    required this.title,
-    required this.rows,
-  });
+  const _PricingCard({super.key, required this.title, required this.rows});
 
   @override
   Widget build(BuildContext context) {
