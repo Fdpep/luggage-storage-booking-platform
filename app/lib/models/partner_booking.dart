@@ -8,6 +8,10 @@ class PartnerBooking {
   /// pending / confirmed / cancelled / completed
   final String status;
 
+  /// Se rifiutata dal partner
+  final String? rejectReason;
+  final DateTime? rejectedAt;
+
   /// Dati di contatto (mappati 1:1 sulle colonne contact_*)
   final String firstName;
   final String lastName;
@@ -33,7 +37,7 @@ class PartnerBooking {
   final DateTime bookingDate;
   final DateTime? endDate;
   final String startTime; // 'HH:MM:SS' (o 'HH:MM')
-  final String endTime;   // 'HH:MM:SS' (o 'HH:MM')
+  final String endTime; // 'HH:MM:SS' (o 'HH:MM')
 
   /// Nuovo modello "timestamp completi"
   ///
@@ -52,6 +56,8 @@ class PartnerBooking {
     required this.partnerId,
     required this.userId,
     required this.status,
+    this.rejectReason,
+    this.rejectedAt,
     required this.firstName,
     required this.lastName,
     required this.phone,
@@ -109,14 +115,7 @@ class PartnerBooking {
       second = int.tryParse(parts[2]) ?? 0;
     }
 
-    return DateTime(
-      date.year,
-      date.month,
-      date.day,
-      hour,
-      minute,
-      second,
-    );
+    return DateTime(date.year, date.month, date.day, hour, minute, second);
   }
 
   // ---------- FROM / TO MAP ----------
@@ -153,6 +152,8 @@ class PartnerBooking {
       partnerId: map['partner_id'] as String,
       userId: map['user_id'] as String,
       status: (map['status'] as String?) ?? 'confirmed',
+      rejectReason: map['reject_reason'] as String?,
+      rejectedAt: parseDateTime(map['rejected_at']),
       firstName: (map['contact_first_name'] as String?) ?? '',
       lastName: (map['contact_last_name'] as String?) ?? '',
       phone: (map['contact_phone'] as String?) ?? '',
@@ -161,10 +162,8 @@ class PartnerBooking {
       bagsM: (map['bags_m'] as int?) ?? 0,
       bagsL: (map['bags_l'] as int?) ?? 0,
       notes: map['notes'] as String?,
-      createdAt:
-          parseDateTime(map['created_at']) ?? DateTime.now().toLocal(),
-      updatedAt:
-          parseDateTime(map['updated_at']) ?? DateTime.now().toLocal(),
+      createdAt: parseDateTime(map['created_at']) ?? DateTime.now().toLocal(),
+      updatedAt: parseDateTime(map['updated_at']) ?? DateTime.now().toLocal(),
       bookingDate: parseDate(map['booking_date']),
       endDate: map['end_date'] != null ? parseDate(map['end_date']) : null,
       startTime: parseTime(map['start_time'], fallback: '00:00:00'),
@@ -182,6 +181,8 @@ class PartnerBooking {
       'partner_id': partnerId,
       'user_id': userId,
       'status': status,
+      'reject_reason': rejectReason,
+      'rejected_at': rejectedAt?.toUtc().toIso8601String(),
       'contact_first_name': firstName,
       'contact_last_name': lastName,
       'contact_phone': phone,
@@ -192,23 +193,24 @@ class PartnerBooking {
       'notes': notes,
       'created_at': createdAt.toUtc().toIso8601String(),
       'updated_at': updatedAt.toUtc().toIso8601String(),
-      'booking_date':
-          DateTime(bookingDate.year, bookingDate.month, bookingDate.day)
-              .toIso8601String(),
+      'booking_date': DateTime(
+        bookingDate.year,
+        bookingDate.month,
+        bookingDate.day,
+      ).toIso8601String(),
       'end_date': endDate != null
-          ? DateTime(endDate!.year, endDate!.month, endDate!.day)
-              .toIso8601String()
+          ? DateTime(
+              endDate!.year,
+              endDate!.month,
+              endDate!.day,
+            ).toIso8601String()
           : null,
       'start_time': startTime,
       'end_time': endTime,
-      'dropoff_planned_at':
-          dropoffPlannedAt?.toUtc().toIso8601String(),
-      'pickup_planned_at':
-          pickupPlannedAt?.toUtc().toIso8601String(),
-      'dropoff_effective_at':
-          dropoffEffectiveAt?.toUtc().toIso8601String(),
-      'pickup_effective_at':
-          pickupEffectiveAt?.toUtc().toIso8601String(),
+      'dropoff_planned_at': dropoffPlannedAt?.toUtc().toIso8601String(),
+      'pickup_planned_at': pickupPlannedAt?.toUtc().toIso8601String(),
+      'dropoff_effective_at': dropoffEffectiveAt?.toUtc().toIso8601String(),
+      'pickup_effective_at': pickupEffectiveAt?.toUtc().toIso8601String(),
     };
   }
 }

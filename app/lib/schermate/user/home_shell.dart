@@ -534,10 +534,15 @@ class _BookingCard extends StatelessWidget {
   Color _statusColor(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     switch (booking.status) {
+      case 'rejected':
+        return Colors.red.shade700;
+      case 'cancelled_by_partner':
+      case 'cancelled_by_user':
+        return Colors.red.shade600;
       case 'confirmed':
         return Colors.green.shade600;
       case 'pending':
-        return cs.primary;
+        return Colors.red.shade600;
       case 'cancelled':
         return Colors.red.shade600;
       default:
@@ -547,6 +552,12 @@ class _BookingCard extends StatelessWidget {
 
   String _statusLabel() {
     switch (booking.status) {
+      case 'rejected':
+        return 'Rifiutata';
+      case 'cancelled_by_partner':
+      case 'cancelled_by_user':
+        return 'Annullata';
+
       case 'confirmed':
         return 'Confermata';
       case 'pending':
@@ -601,6 +612,15 @@ class _BookingCard extends StatelessWidget {
                 ),
               ],
             ),
+            if ((booking.status).toLowerCase() == 'rejected' &&
+                (booking.rejectReason ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Motivo: ${booking.rejectReason!.trim()}',
+                style: const TextStyle(fontSize: 12),
+              ),
+            ],
+
             const SizedBox(height: 8),
 
             // Per ora non abbiamo il nome del partner qui, quindi mettiamo il contatto

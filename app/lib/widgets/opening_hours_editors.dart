@@ -428,7 +428,7 @@ class _OpeningHoursEditorState extends State<OpeningHoursEditor> {
                       TextButton(
                         onPressed: isClosed ? null : () => _setClosed(day),
                         child: Text(
-                          'Imposta chiuso',
+                          'Chiuso',
                           style: TextStyle(
                             color: isClosed ? cs.outline : cs.error,
                           ),

@@ -18,6 +18,9 @@ import '../auth_partner/partner_registration_screen.dart';
 import '../auth_partner/partner_waiting_screen.dart';
 import '../../autenticazione/auth_actions.dart';
 
+// ✅ NUOVO: drawer condiviso + scope
+import '../user_view/partner_drawer.dart';
+
 class PartnerShell extends StatefulWidget {
   const PartnerShell({super.key});
 
@@ -63,10 +66,13 @@ class _PartnerShellState extends State<PartnerShell> {
     }
 
     final p = _partner;
+    final user = Supabase.instance.client.auth.currentUser;
 
     // Nessun partner → deve ancora registrare l’attività
     if (p == null) {
       return _buildShell(
+        user: user,
+        partner: null,
         pages: [
           DashboardPage(partner: null, onPartnerChanged: _reload),
           PrenotazioniPage(partner: null),
@@ -84,6 +90,8 @@ class _PartnerShellState extends State<PartnerShell> {
 
     // Partner approvato → tutte le pagine abilitate
     return _buildShell(
+      user: user,
+      partner: p,
       pages: [
         DashboardPage(partner: p, onPartnerChanged: _reload),
         PrenotazioniPage(partner: p),
@@ -94,35 +102,20 @@ class _PartnerShellState extends State<PartnerShell> {
     );
   }
 
-  Widget _buildShell({required List<Widget> pages}) {
-    return Scaffold(
-      body: pages[_index],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _index,
-        onTap: (i) => setState(() => _index = i),
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.dashboard_outlined),
-            label: 'Dashboard',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.inventory_2_outlined),
-            label: 'Prenotazioni',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.qr_code_scanner),
-            label: 'Scanner',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.business_outlined),
-            label: 'Spazi',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            label: 'Profilo',
-          ),
-        ],
-      ),
+  Widget _buildShell({
+    required List<Widget> pages,
+    required Partner? partner,
+    required User? user,
+  }) {
+    // ✅ Niente Scaffold + niente BottomNavigationBar.
+    // Manteniamo l’indice e lo esponiamo via scope al Drawer.
+    return PartnerShellScope(
+      partner: partner,
+      user: user,
+      index: _index,
+      reloadPartner: _reload,
+      setIndex: (i) => setState(() => _index = i),
+      child: pages[_index],
     );
   }
 }

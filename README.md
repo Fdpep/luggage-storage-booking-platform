@@ -228,6 +228,13 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
 
   * stato `is_active` (attivo/sospeso su mappa)
 
+  * **toggle “Accetto prenotazioni”** (`accepting_bookings`):
+  * separato da `is_active` (che riguarda visibilità/attività su mappa)
+  * se `accepting_bookings = false`:
+    * il locale può restare visibile (se `is_active = true`)
+    * ma **non è prenotabile** dagli utenti
+
+
 * **Prenotazioni ricevute** (`PrenotazioniPage`):
 
   * lista delle righe in `partner_bookings` per quel partner
@@ -240,6 +247,18 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
     * totale bagagli + dettaglio S/M/L
     * note
     * stato (confirmed / pending / cancelled)
+
+
+  * azioni:
+
+    * **rifiuta prenotazione** (irreversibile) con **motivazione obbligatoria**
+    * lo stato passa a `rejected` e viene salvata `reject_reason` + `rejected_at`
+  
+  * `partners` → attività partner:
+  ...
+  * `is_active` (attivo/sospeso su mappa)
+  * `accepting_bookings` (boolean, default true) → abilita/disabilita la possibilità di ricevere nuove prenotazioni
+
 
 * **Blocco modifiche orari/capacità con prenotazioni future**:
 
@@ -353,6 +372,10 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
     status text not null default 'confirmed' check (
       status in ('pending', 'confirmed', 'cancelled', 'completed')
     ),
+
+      -- rifiuto partner (definitivo)
+    reject_reason text,
+    rejected_at timestamptz,
 
     contact_first_name text not null,
     contact_last_name  text not null,
@@ -745,11 +768,17 @@ lib/
 
 * Gestisce le operazioni sulle prenotazioni:
 
+
+
   * `createBooking({...})`:
 
     * richiede utente loggato
     * inserisce in `partner_bookings` con contatto + S/M/L + note
     * status di default `confirmed`
+
+  * `rejectBooking({bookingId, reason})`:
+    * chiama la RPC `public.reject_partner_booking(p_booking_id, p_reason)`
+    * imposta lo stato a `rejected` (irreversibile) e salva motivazione + timestamp
 
   * `getMyBookings()`:
 
@@ -838,7 +867,13 @@ lib/
 ## 📦 Prenotazioni (stato attuale)
 
 1. L’utente apre la **scheda partner** (`PartnerDetailScreen`) dalla mappa.
+* La creazione di una prenotazione è consentita solo se il partner:
+  * `status = approved`
+  * `is_active = true`
+  * `accepting_bookings = true`
 2. Clicca **“Prenota ora”** → `BookingFlowScreen`.
+  * disabilitato se `partner.accepting_bookings = false`
+  * testo alternativo: “Prenotazioni sospese”
 3. Step 1 – Contatto:
 
    * inserisce nome, cognome, email, telefono, note.
@@ -883,6 +918,7 @@ lib/
 10. Lato partner:
 
     * in “Prenotazioni” vede tutte le prenotazioni ricevute con date/ore e dettaglio S/M/L.
+    * può **rifiutare** una prenotazione con **motivazione** → stato `rejected` (definitivo)
 
 > Il sistema implementa un **motore di disponibilità per intervallo di livello base**: controlla overlap e capacità, ma non genera ancora slot “a griglia” né ha logiche di overbooking avanzate.
 

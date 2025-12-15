@@ -29,6 +29,7 @@ class Partner {
   final double? pricePerDay;
 
   final bool isActive;
+  final bool acceptingBookings;
 
   /// Nuovi campi descrittivi per la scheda locale
   final String? description; // descrizione breve attività
@@ -59,6 +60,7 @@ class Partner {
    // Campi prezzo legacy (non più usati dalla UI).
     this.price2h,
     this.pricePerDay,
+    required this.acceptingBookings,
     this.isActive = true,
     this.status = 'pending',
     this.description,
@@ -88,6 +90,7 @@ class Partner {
       price2h: (map['price_2h'] as num?)?.toDouble(),
       pricePerDay: (map['price_per_day'] as num?)?.toDouble(),
       isActive: (map['is_active'] as bool?) ?? true,
+      acceptingBookings: (map['accepting_bookings'] as bool?) ?? true,
       description: map['description'] as String?,
       phone: map['phone'] as String?,
       rules: map['rules'] as String?,
@@ -120,6 +123,7 @@ class Partner {
       'price_2h': price2h,
       'price_per_day': pricePerDay,
       'is_active': isActive,
+      'accepting_bookings': acceptingBookings,
       'description': description,
       'phone': phone,
       'rules': rules,

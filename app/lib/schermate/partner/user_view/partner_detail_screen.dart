@@ -623,14 +623,20 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
           child: SizedBox(
             height: 50,
             child: ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => BookingFlowScreen(partner: partner),
-                  ),
-                );
-              },
-              child: const Text('Prenota ora'),
+              onPressed: partner.acceptingBookings
+                  ? () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => BookingFlowScreen(partner: partner),
+                        ),
+                      );
+                    }
+                  : null,
+              child: Text(
+                partner.acceptingBookings
+                    ? 'Prenota ora'
+                    : 'Prenotazioni sospese',
+              ),
             ),
           ),
         ),

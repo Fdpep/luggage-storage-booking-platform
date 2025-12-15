@@ -1,6 +1,3 @@
-// lib/schermate/partner/partner_photos_screen.dart
-
-
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -9,11 +6,6 @@ import 'package:BagDrop/models/partner_photo.dart';
 import 'package:BagDrop/services/supabase/partner_photo/partner_photo_repo.dart';
 import 'package:BagDrop/services/supabase/partner_photo/partner_photo_storage.dart';
 
-/// Schermata per gestire le foto del locale:
-/// - mostra tutte le foto del partner
-/// - permette di aggiungere nuove foto
-/// - permette di impostare la copertina
-/// - permette di eliminare una foto
 class PartnerPhotosScreen extends StatefulWidget {
   final Partner partner;
 
@@ -45,7 +37,6 @@ class _PartnerPhotosScreenState extends State<PartnerPhotosScreen> {
     _loadPhotos();
   }
 
-  /// Carica tutte le foto del partner da Supabase.
   Future<void> _loadPhotos() async {
     setState(() {
       _loading = true;
@@ -53,8 +44,7 @@ class _PartnerPhotosScreenState extends State<PartnerPhotosScreen> {
     });
 
     try {
-      final photos =
-          await _photoRepo.fetchPhotosForPartner(widget.partner.id);
+      final photos = await _photoRepo.fetchPhotosForPartner(widget.partner.id);
 
       if (!mounted) return;
       setState(() {
@@ -72,8 +62,6 @@ class _PartnerPhotosScreenState extends State<PartnerPhotosScreen> {
     }
   }
 
-  /// Apre la galleria, carica l'immagine su Storage tramite PartnerPhotoStorage
-  /// e inserisce il metadato in partner_photos.
   Future<void> _addPhoto() async {
     if (_uploading) return;
 
@@ -84,48 +72,32 @@ class _PartnerPhotosScreenState extends State<PartnerPhotosScreen> {
       imageQuality: 85,
     );
 
-    if (picked == null) return; // utente ha annullato
+    if (picked == null) return;
 
-    setState(() {
-      _uploading = true;
-    });
+    setState(() => _uploading = true);
 
     try {
+      final bytes = await picked.readAsBytes();
+      final originalName = picked.name;
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}_$originalName';
 
-           // Leggiamo i bytes dall'immagine selezionata
-     final bytes = await picked.readAsBytes();
+      final ext = originalName.split('.').last.toLowerCase();
+      final contentType = (ext == 'png') ? 'image/png' : 'image/jpeg';
 
-     // Nome file (usa quello originale, eventualmente preceduto da timestamp)
-     final originalName = picked.name; // es. "image.jpg"
-     final fileName =
-         '${DateTime.now().millisecondsSinceEpoch}_$originalName';
-
-     // Content-Type semplice in base all'estensione
-     final ext = originalName.split('.').last.toLowerCase();
-     String contentType;
-     if (ext == 'png') {
-       contentType = 'image/png';
-     } else {
-       // default jpg/jpeg
-       contentType = 'image/jpeg';
-     }
-
-     // Upload su Supabase Storage → otteniamo l'URL pubblico
-     final String publicUrl = await _storage.uploadPartnerPhoto(
-       partnerId: widget.partner.id,
-       fileName: fileName,
-       bytes: bytes,
-       contentType: contentType,
-     );
-
+      final String publicUrl = await _storage.uploadPartnerPhoto(
+        partnerId: widget.partner.id,
+        fileName: fileName,
+        bytes: bytes,
+        contentType: contentType,
+      );
 
       final bool isFirst = _photos.isEmpty;
 
       await _photoRepo.insertPhoto(
         partnerId: widget.partner.id,
         url: publicUrl,
-        isCover: isFirst,               // la prima foto diventa cover
-        sortOrder: _photos.length,      // in coda
+        isCover: isFirst,
+        sortOrder: _photos.length,
       );
 
       await _loadPhotos();
@@ -138,28 +110,17 @@ class _PartnerPhotosScreenState extends State<PartnerPhotosScreen> {
       debugPrint('Errore _addPhoto: $e\n$st');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Errore durante il caricamento della foto.'),
-        ),
+        const SnackBar(content: Text('Errore durante il caricamento della foto.')),
       );
     } finally {
-      if (mounted) {
-        setState(() {
-          _uploading = false;
-        });
-      }
+      if (mounted) setState(() => _uploading = false);
     }
   }
 
-  /// Imposta una foto come copertina:
-  /// - mette is_cover = true per questa foto
-  /// - mette is_cover = false per tutte le altre.
   Future<void> _setAsCover(PartnerPhoto photo) async {
     if (_savingCoverId != null) return;
 
-    setState(() {
-      _savingCoverId = photo.id;
-    });
+    setState(() => _savingCoverId = photo.id);
 
     try {
       for (final p in _photos) {
@@ -173,24 +134,22 @@ class _PartnerPhotosScreenState extends State<PartnerPhotosScreen> {
       }
 
       await _loadPhotos();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Copertina aggiornata.')),
+      );
     } catch (e, st) {
       debugPrint('Errore _setAsCover: $e\n$st');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Errore durante l’aggiornamento della copertina.'),
-        ),
+        const SnackBar(content: Text('Errore durante l’aggiornamento della copertina.')),
       );
     } finally {
-      if (mounted) {
-        setState(() {
-          _savingCoverId = null;
-        });
-      }
+      if (mounted) setState(() => _savingCoverId = null);
     }
   }
 
-  /// Elimina una foto (solo metadati, non per forza lo Storage).
   Future<void> _deletePhoto(PartnerPhoto photo) async {
     if (_deletingId != null) return;
 
@@ -198,9 +157,7 @@ class _PartnerPhotosScreenState extends State<PartnerPhotosScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Elimina foto'),
-        content: const Text(
-          'Vuoi davvero eliminare questa foto dal tuo profilo attività?',
-        ),
+        content: const Text('Vuoi davvero eliminare questa foto dal tuo profilo attività?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -216,169 +173,416 @@ class _PartnerPhotosScreenState extends State<PartnerPhotosScreen> {
 
     if (confirmed != true) return;
 
-    setState(() {
-      _deletingId = photo.id;
-    });
+    setState(() => _deletingId = photo.id);
 
     try {
       await _photoRepo.deletePhoto(photo.id);
-
-      // In futuro puoi anche eliminare il file dallo Storage:
-      // await _storage.deleteFromStorage(photo.url);
-
       await _loadPhotos();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Foto eliminata.')),
+      );
     } catch (e, st) {
       debugPrint('Errore _deletePhoto: $e\n$st');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Errore durante l’eliminazione della foto.'),
-        ),
+        const SnackBar(content: Text('Errore durante l’eliminazione della foto.')),
       );
     } finally {
-      if (mounted) {
-        setState(() {
-          _deletingId = null;
-        });
-      }
+      if (mounted) setState(() => _deletingId = null);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
     final tt = theme.textTheme;
 
     return Scaffold(
       appBar: AppBar(
+        centerTitle: false,
         title: const Text('Foto del locale'),
+        backgroundColor: cs.primary,
+        foregroundColor: cs.onPrimary,
+        elevation: 0,
       ),
+
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
-                    child: Text(
-                      _error!,
-                      textAlign: TextAlign.center,
-                    ),
+                    child: Text(_error!, textAlign: TextAlign.center),
                   ),
                 )
-              : _photos.isEmpty
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Text(
-                          'Non hai ancora caricato foto.\n'
-                          'Usa il pulsante in basso a destra per aggiungerne.',
-                          textAlign: TextAlign.center,
-                          style: tt.bodyMedium,
-                        ),
-                      ),
-                    )
-                  : GridView.builder(
-                      padding: const EdgeInsets.all(16),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
-                      ),
-                      itemCount: _photos.length,
-                      itemBuilder: (ctx, index) {
-                        final photo = _photos[index];
-                        final isCover = photo.isCover;
-                        final busy =
-                            _savingCoverId == photo.id || _deletingId == photo.id;
-
-                        return Stack(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Image.network(
-                                photo.url,
-                                width: double.infinity,
-                                height: double.infinity,
-                                fit: BoxFit.cover,
-                              ),
-                            ),
-                            // Badge "COVER"
-                            if (isCover)
-                              Positioned(
-                                left: 8,
-                                top: 8,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black54,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    'COPERTINA',
-                                    style: tt.labelSmall?.copyWith(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            // Menu azioni
-                            Positioned(
-                              right: 0,
-                              top: 0,
-                              child: PopupMenuButton<String>(
-                                onSelected: (value) {
-                                  if (value == 'cover') {
-                                    _setAsCover(photo);
-                                  } else if (value == 'delete') {
-                                    _deletePhoto(photo);
-                                  }
-                                },
-                                itemBuilder: (ctx) => [
-                                  if (!isCover)
-                                    const PopupMenuItem(
-                                      value: 'cover',
-                                      child: Text('Imposta come copertina'),
-                                    ),
-                                  const PopupMenuItem(
-                                    value: 'delete',
-                                    child: Text('Elimina'),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (busy)
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.black26,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: const Center(
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor:
-                                        AlwaysStoppedAnimation<Color>(Colors.white),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        );
-                      },
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
+                  children: [
+                    _HeaderCard(
+                      title: widget.partner.name,
+                      subtitle: _photos.isEmpty
+                          ? 'Nessuna foto caricata'
+                          : '${_photos.length} foto • Tocca una foto per le opzioni',
                     ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _uploading ? null : _addPhoto,
-        icon: _uploading
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Icon(Icons.add_a_photo_outlined),
-        label: Text(_uploading ? 'Carico...' : 'Aggiungi foto'),
+                    const SizedBox(height: 12),
+
+                    if (_photos.isEmpty)
+                      _EmptyState(
+                        onAdd: _uploading ? null : _addPhoto,
+                        uploading: _uploading,
+                      )
+                    else
+                      GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                        ),
+                        itemCount: _photos.length,
+                        itemBuilder: (ctx, index) {
+                          final photo = _photos[index];
+                          final isCover = photo.isCover;
+                          final busy =
+                              _savingCoverId == photo.id || _deletingId == photo.id;
+
+                          return _PhotoTile(
+                            url: photo.url,
+                            isCover: isCover,
+                            busy: busy,
+                            onMenu: () => _openActionsSheet(photo),
+                          );
+                        },
+                      ),
+                  ],
+                ),
+
+      // ✅ CTA moderna fissa in basso (coerente col resto dell’app)
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          child: SizedBox(
+            height: 48,
+            child: ElevatedButton.icon(
+              onPressed: _uploading ? null : _addPhoto,
+              icon: _uploading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.add_a_photo_outlined),
+              label: Text(_uploading ? 'Caricamento…' : 'Aggiungi foto'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: cs.primary,
+                foregroundColor: cs.onPrimary,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openActionsSheet(PartnerPhoto photo) {
+    final isCover = photo.isCover;
+    final busy = _savingCoverId != null || _deletingId != null;
+
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: Icon(Icons.star_outline, color: cs.primary),
+                  title: const Text('Imposta come copertina'),
+                  subtitle: isCover ? const Text('È già la copertina attuale') : null,
+                  enabled: !isCover && !busy,
+                  onTap: !isCover && !busy
+                      ? () {
+                          Navigator.of(ctx).pop();
+                          _setAsCover(photo);
+                        }
+                      : null,
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(Icons.delete_outline, color: cs.error),
+                  title: const Text('Elimina foto'),
+                  enabled: !busy,
+                  onTap: !busy
+                      ? () {
+                          Navigator.of(ctx).pop();
+                          _deletePhoto(photo);
+                        }
+                      : null,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _HeaderCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+
+  const _HeaderCard({
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: cs.outlineVariant.withOpacity(0.6)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: cs.primaryContainer,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(Icons.photo_library_outlined, color: cs.onPrimaryContainer),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: tt.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.7)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PhotoTile extends StatelessWidget {
+  final String url;
+  final bool isCover;
+  final bool busy;
+  final VoidCallback onMenu;
+
+  const _PhotoTile({
+    required this.url,
+    required this.isCover,
+    required this.busy,
+    required this.onMenu,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onMenu,
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: cs.outlineVariant.withOpacity(0.6)),
+          ),
+          child: Stack(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: Image.network(
+                  url,
+                  width: double.infinity,
+                  height: double.infinity,
+                  fit: BoxFit.cover,
+                ),
+              ),
+
+              // overlay “soft” per migliorare leggibilità badge
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withOpacity(0.35),
+                        Colors.transparent,
+                        Colors.black.withOpacity(0.20),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+              if (isCover)
+                Positioned(
+                  left: 10,
+                  top: 10,
+                  child: _CoverChip(),
+                ),
+
+              Positioned(
+                right: 10,
+                top: 10,
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.35),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.more_vert, color: Colors.white, size: 18),
+                ),
+              ),
+
+              if (busy)
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.black26,
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: const Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CoverChip extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.45),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        'COPERTINA',
+        style: tt.labelSmall?.copyWith(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.3,
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  final VoidCallback? onAdd;
+  final bool uploading;
+
+  const _EmptyState({
+    required this.onAdd,
+    required this.uploading,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: cs.outlineVariant.withOpacity(0.6)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: cs.primaryContainer,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Icon(Icons.add_photo_alternate_outlined, color: cs.onPrimaryContainer),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Aggiungi le foto del tuo locale',
+              style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Carica almeno una foto. La prima diventerà automaticamente copertina.',
+              style: tt.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.7)),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 14),
+            OutlinedButton.icon(
+              onPressed: onAdd,
+              icon: uploading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.add_a_photo_outlined),
+              label: Text(uploading ? 'Caricamento…' : 'Carica una foto'),
+              style: OutlinedButton.styleFrom(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

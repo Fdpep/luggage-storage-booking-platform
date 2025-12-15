@@ -25,6 +25,7 @@ dependencies:
   http: ^1.2.2         # per chiamare le API di geocoding
   image_picker: ^1.1.2 # per scegliere le foto dal dispositivo
   google_maps_flutter: ^2.14.0
+  reorderable_grid_view: ^2.2.8
 
 dev_dependencies:
   flutter_test:

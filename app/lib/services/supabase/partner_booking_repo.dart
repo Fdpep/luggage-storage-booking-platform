@@ -1,13 +1,12 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:BagDrop/models/partner_booking.dart';
-import 'package:BagDrop/services/supabase/client.dart';
 
 /// DTO per la disponibilità di un partner.
 ///
 /// NOTA:
 /// - capacityTotal / usedTotal / availableTotal sono espressi in "unità equivalenti"
 ///   dove 1S = 1, 1M = 2, 1L = 4 (cioè "mezze M").
-/// 
+///
 class PartnerAvailability {
   final int capacityS;
   final int capacityM;
@@ -169,7 +168,6 @@ class PartnerBookingRepo {
         ? capacityTotalUnits2x
         : (capTotalDb > 0 ? capTotalDb * 2 : 0);
 
-
     // 2) Sommiamo i bagagli delle prenotazioni attive (status != cancelled)
     final bookingsData = await client
         .from('partner_bookings')
@@ -216,6 +214,21 @@ class PartnerBookingRepo {
     );
   }
 
+  Future<void> rejectBooking({
+    required String bookingId,
+    required String reason,
+  }) async {
+    final r = reason.trim();
+    if (r.isEmpty) {
+      throw ArgumentError('Motivazione obbligatoria');
+    }
+
+    await client.rpc(
+      'reject_partner_booking',
+      params: {'p_booking_id': bookingId, 'p_reason': r},
+    );
+  }
+
   /// Calcola la disponibilità per UN INTERVALLO specifico.
   ///
   /// L’intervallo è definito da:
@@ -229,7 +242,8 @@ class PartnerBookingRepo {
   /// [bookingDate] rimane nel metodo solo per compatibilità, ma non è usato.
   Future<PartnerAvailability> getPartnerAvailabilityForInterval({
     required String partnerId,
-    required DateTime bookingDate, // rimane per compatibilità, non lo usiamo più
+    required DateTime
+    bookingDate, // rimane per compatibilità, non lo usiamo più
     required DateTime startDate,
     required DateTime endDate,
     required String startTime,
@@ -259,7 +273,6 @@ class PartnerBookingRepo {
     final int capacityTotal = capacityTotalUnits2x > 0
         ? capacityTotalUnits2x
         : (capTotalDb > 0 ? capTotalDb * 2 : 0);
-
 
     // 2) Intervallo richiesto dal NUOVO booking
     final DateTime requestStart = DateTime(
@@ -295,8 +308,9 @@ class PartnerBookingRepo {
       final map = raw as Map<String, dynamic>;
 
       // Giorni di inizio/fine della prenotazione salvata
-      final DateTime bookingStartDay =
-          DateTime.parse(map['booking_date'] as String);
+      final DateTime bookingStartDay = DateTime.parse(
+        map['booking_date'] as String,
+      );
       final DateTime bookingEndDay = map['end_date'] == null
           ? bookingStartDay
           : DateTime.parse(map['end_date'] as String);
@@ -320,7 +334,12 @@ class PartnerBookingRepo {
       );
 
       // Se non si sovrappone all'intervallo richiesto, non occupa capacità.
-      if (!_intervalsOverlap(bookingStart, bookingEnd, requestStart, requestEnd)) {
+      if (!_intervalsOverlap(
+        bookingStart,
+        bookingEnd,
+        requestStart,
+        requestEnd,
+      )) {
         continue;
       }
 
@@ -331,7 +350,6 @@ class PartnerBookingRepo {
 
     // Utilizzo totale in unità equivalenti (mezze-M)
     final int usedTotal = usedS * 1 + usedM * 2 + usedL * 4;
-
 
     int availableS = capS - usedS;
     int availableM = capM - usedM;
@@ -428,11 +446,9 @@ class PartnerBookingRepo {
     }
 
     return false;
-
   }
 
-
-    int _parseHour(String hhmm) {
+  int _parseHour(String hhmm) {
     final parts = hhmm.split(':');
     if (parts.isEmpty) return 0;
     return int.tryParse(parts[0]) ?? 0;
@@ -453,5 +469,4 @@ class PartnerBookingRepo {
     // [aStart, aEnd) e [bStart, bEnd) si sovrappongono se:
     return aStart.isBefore(bEnd) && bStart.isBefore(aEnd);
   }
-
 }

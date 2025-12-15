@@ -102,7 +102,8 @@ class PartnerRepo {
     int? capacityL,
     String? message,
     double? lat,
-    double? lng, Map<String, dynamic>? openingHours,
+    double? lng,
+    Map<String, dynamic>? openingHours,
   }) async {
     // Normalizziamo le capacità per taglia
     final capS = capacityS ?? 0;
@@ -169,6 +170,16 @@ class PartnerRepo {
         'created_at': DateTime.now().toIso8601String(),
       });
     }
+  }
+
+  Future<void> setAcceptingBookings({
+    required String partnerId,
+    required bool accepting,
+  }) async {
+    await _client
+        .from('partners')
+        .update({'accepting_bookings': accepting})
+        .eq('id', partnerId);
   }
 
   /// Carica la lista di partner APPROVATI e ATTIVI nelle vicinanze di un punto.

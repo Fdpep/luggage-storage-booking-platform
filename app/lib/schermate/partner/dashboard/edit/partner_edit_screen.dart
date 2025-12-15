@@ -8,7 +8,6 @@ import 'package:flutter/services.dart';
 import 'package:BagDrop/services/supabase/partner_booking_repo.dart';
 import 'package:BagDrop/widgets/opening_hours_editors.dart';
 
-
 /// Schermata per permettere al Partner di modificare la scheda del locale:
 /// - nome / indirizzo
 /// - descrizione breve
@@ -27,9 +26,7 @@ class PartnerEditScreen extends StatefulWidget {
 
 //modello locale di orari
 
-
 //editor orari
-
 
 class _PartnerEditScreenState extends State<PartnerEditScreen> {
   final _formKey = GlobalKey<FormState>();
@@ -332,14 +329,26 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
 
     if (_loading) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Modifica locale')),
+        appBar: AppBar(
+          centerTitle: false,
+          title: const Text('Modifica scheda locale'),
+          backgroundColor: theme.colorScheme.primary,
+          foregroundColor: theme.colorScheme.onPrimary,
+          elevation: 0,
+        ),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     if (_partner == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Modifica locale')),
+        appBar: AppBar(
+          centerTitle: false,
+          title: const Text('Modifica scheda locale'),
+          backgroundColor: theme.colorScheme.primary,
+          foregroundColor: theme.colorScheme.onPrimary,
+          elevation: 0,
+        ),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -353,247 +362,236 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
       );
     }
 
+    // ✅ QUI il tuo scaffold “moderno” (quello che avevi messo dentro _loading)
     return Scaffold(
-      appBar: AppBar(title: const Text('Modifica locale')),
+      appBar: AppBar(
+        centerTitle: false,
+        title: const Text('Modifica scheda locale'),
+        backgroundColor: theme.colorScheme.primary,
+        foregroundColor: theme.colorScheme.onPrimary,
+        elevation: 0,
+      ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 1) Nome attività
-                TextFormField(
-                  controller: _nameCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Nome attività',
-                    border: OutlineInputBorder(),
-                  ),
-                  validator: (v) {
-                    if ((v ?? '').trim().isEmpty) {
-                      return 'Inserisci il nome dell’attività';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 12),
-
-                // 2) Indirizzo
-                TextFormField(
-                  controller: _addressCtrl,
-                  readOnly: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Indirizzo',
-                    hintText: 'Via / Piazza, numero civico, città',
-                    border: OutlineInputBorder(),
-                    helperText:
-                        'Per modificare l\'indirizzo contatta il supporto BagDrop via email.',
-                  ),
-                  onTap: () {
-                    // Messaggio veloce: l’indirizzo non è modificabile da qui
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Per modificare l\'indirizzo del locale scrivi a support@bagdrop.app',
-                        ),
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+            children: [
+              _EditSectionCard(
+                title: 'Informazioni principali',
+                subtitle: 'Nome, indirizzo, descrizione e contatti',
+                child: Column(
+                  children: [
+                    TextFormField(
+                      controller: _nameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Nome attività',
+                        border: OutlineInputBorder(),
                       ),
-                    );
-                  },
-                  validator: (v) {
-                    if ((v ?? '').trim().isEmpty) {
-                      return 'Indirizzo non disponibile: contatta il supporto.';
-                    }
-                    return null;
-                  },
+                      validator: (v) {
+                        if ((v ?? '').trim().isEmpty) {
+                          return 'Inserisci il nome dell’attività';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 12),
+
+                    TextFormField(
+                      controller: _addressCtrl,
+                      readOnly: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Indirizzo',
+                        hintText: 'Via / Piazza, numero civico, città',
+                        border: OutlineInputBorder(),
+                        helperText:
+                            'Non modificabile da qui. Per aggiornamenti: support@bagdrop.app',
+                      ),
+                      onTap: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Per modificare l\'indirizzo del locale scrivi a support@bagdrop.app',
+                            ),
+                          ),
+                        );
+                      },
+                      validator: (v) {
+                        if ((v ?? '').trim().isEmpty) {
+                          return 'Indirizzo non disponibile: contatta il supporto.';
+                        }
+                        return null;
+                      },
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    TextFormField(
+                      controller: _descCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Descrizione breve',
+                        hintText: 'Es. Bar vicino al Duomo, deposito sicuro…',
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLines: 3,
+                    ),
+                    const SizedBox(height: 12),
+
+                    TextFormField(
+                      controller: _phoneCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Telefono',
+                        hintText: 'Es. +39 333 1234567',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.phone,
+                      validator: (v) {
+                        final t = (v ?? '').trim();
+                        if (t.isEmpty) return null;
+                        final digitsOnly = t.replaceAll(RegExp(r'[^0-9]'), '');
+                        if (digitsOnly.length < 9 || digitsOnly.length > 15) {
+                          return 'Inserisci un numero di telefono valido';
+                        }
+                        return null;
+                      },
+                    ),
+                  ],
                 ),
+              ),
 
-                const SizedBox(height: 8),
-                Text(
-                  'Vuoi aggiornare l\'indirizzo del locale?\n'
-                  'Scrivi a support@bagdrop.app indicando il nuovo indirizzo.',
-                  style: theme.textTheme.bodySmall,
-                ),
+              const SizedBox(height: 14),
 
-                const SizedBox(height: 12),
-
-                // 3) Descrizione breve
-                TextFormField(
-                  controller: _descCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Descrizione breve',
-                    hintText:
-                        'Es. Bar accogliente vicino al Duomo, deposito sicuro...',
-                    border: OutlineInputBorder(),
-                  ),
-                  maxLines: 3,
-                ),
-                const SizedBox(height: 12),
-
-                // 4) Telefono
-                TextFormField(
-                  controller: _phoneCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Telefono',
-                    hintText: 'Es. +39 333 1234567',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.phone,
-                  validator: (v) {
-                    final t = (v ?? '').trim();
-                    if (t.isEmpty) {
-                      // Per il partner possiamo anche considerarlo opzionale:
-                      // se lo vuoi obbligatorio, cambia in: "return 'Inserisci un numero di telefono';"
-                      return null;
-                    }
-                    final digitsOnly = t.replaceAll(RegExp(r'[^0-9]'), '');
-                    if (digitsOnly.length < 9 || digitsOnly.length > 15) {
-                      return 'Inserisci un numero di telefono valido';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 12),
-
-                // 5) Regole deposito
-                TextFormField(
+              _EditSectionCard(
+                title: 'Regole del deposito',
+                subtitle: 'Cosa è consentito / non consentito',
+                child: TextFormField(
                   controller: _rulesCtrl,
                   decoration: const InputDecoration(
                     labelText: 'Regole deposito',
-                    hintText:
-                        'Es. Max 25kg a bagaglio, no oggetti di valore, no liquidi...',
+                    hintText: 'Es. No oggetti di valore, no liquidi, max 25kg…',
                     border: OutlineInputBorder(),
                   ),
                   maxLines: 3,
                 ),
-                const SizedBox(height: 12),
+              ),
 
-                // 6) Orari di apertura settimanali + eccezioni
-                Text('Orari di apertura', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 8),
+              const SizedBox(height: 14),
 
-                Text(
-                  'Imposta gli orari per ogni giorno della settimana.\n'
-                  'Se fai orario continuato inserisci solo la prima fascia (mattina).\n'
-                  'Più sotto puoi aggiungere giorni di chiusura/apertura straordinaria (es. Natale).',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.outline,
-                  ),
-                ),
-                const SizedBox(height: 8),
+              _EditSectionCard(
+                title: 'Orari di apertura',
+                subtitle: 'Settimana + eccezioni (festività, chiusure)',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_hasFutureBookings)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 10),
+                        child: _WarningBanner(
+                          text:
+                              'Ci sono prenotazioni future: non puoi modificare orari, capacità e '
+                              'eccezioni calendario finché non saranno concluse.',
+                        ),
+                      ),
 
-                if (_hasFutureBookings)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8.0),
-                    child: Text(
-                      'Ci sono prenotazioni future: non puoi modificare orari, capacità e '
-                      'eccezioni calendario finché non saranno concluse.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.error,
+                    IgnorePointer(
+                      ignoring: _hasFutureBookings,
+                      child: Opacity(
+                        opacity: _hasFutureBookings ? 0.6 : 1.0,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            OpeningHoursEditor(
+                              initialValue: _openingHoursStructured,
+                              onChanged: (value) {
+                                setState(() {
+                                  _openingHoursStructured = value;
+                                });
+                              },
+                            ),
+                            const SizedBox(height: 12),
+                            OpeningExceptionsEditor(
+                              initialValue: _openingExceptions,
+                              onChanged: (value) {
+                                setState(() {
+                                  _openingExceptions = value;
+                                });
+                              },
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
+                  ],
+                ),
+              ),
 
-                IgnorePointer(
-                  ignoring: _hasFutureBookings,
-                  child: Opacity(
-                    opacity: _hasFutureBookings ? 0.6 : 1.0,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        OpeningHoursEditor(
-                          initialValue: _openingHoursStructured,
-                          onChanged: (value) {
-                            setState(() {
-                              _openingHoursStructured = value;
-                            });
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        OpeningExceptionsEditor(
-                          initialValue: _openingExceptions,
-                          onChanged: (value) {
-                            setState(() {
-                              _openingExceptions = value;
-                            });
-                          },
-                        ),
-                      ],
+              const SizedBox(height: 14),
+
+              _EditSectionCard(
+                title: 'Capacità massima per taglia',
+                subtitle: 'Quanti bagagli puoi gestire contemporaneamente',
+                child: Column(
+                  children: [
+                    TextFormField(
+                      controller: _capacitySCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Bagagli SMALL (S)',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.number,
+                      enabled: !_hasFutureBookings,
                     ),
-                  ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _capacityMCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Bagagli MEDIUM (M)',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.number,
+                      enabled: !_hasFutureBookings,
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _capacityLCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Bagagli LARGE (L)',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.number,
+                      enabled: !_hasFutureBookings,
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
+              ),
 
-                // 7) Capacità per taglia
-                Text(
-                  'Capacità massima per taglia bagagli',
-                  style: theme.textTheme.titleMedium,
+              const SizedBox(height: 14),
+
+              _EditSectionCard(
+                title: 'Prezzi',
+                subtitle: 'Gestiti centralmente da BagDrop',
+                child: const _InfoBanner(
+                  text:
+                      'I prezzi di deposito sono uguali per tutti i partner e vengono gestiti direttamente da BagDrop.',
                 ),
-                const SizedBox(height: 8),
+              ),
 
-                TextFormField(
-                  controller: _capacitySCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Bagagli SMALL (S)',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.number,
-                  enabled: !_hasFutureBookings,
-                ),
-                const SizedBox(height: 8),
+              const SizedBox(height: 14),
 
-                TextFormField(
-                  controller: _capacityMCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Bagagli MEDIUM (M)',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.number,
-                  enabled: !_hasFutureBookings,
-                ),
-                const SizedBox(height: 8),
-
-                TextFormField(
-                  controller: _capacityLCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Bagagli LARGE (L)',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.number,
-                  enabled: !_hasFutureBookings,
-                ),
-                const SizedBox(height: 12),
-
-                // 8) Prezzi
-                const SizedBox(height: 12),
-                Text(
-                  'I prezzi di deposito sono uguali per tutti i partner e vengono gestiti direttamente da BagDrop.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 12),
-
-                // 9) Stato disponibilità
-                SwitchListTile(
+              _EditSectionCard(
+                title: 'Stato del locale',
+                subtitle: 'Visibilità e disponibilità su BagDrop',
+                child: SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
                   title: const Text('Locale attivo su BagDrop'),
                   subtitle: const Text(
                     'Disattiva per sospendere temporaneamente le prenotazioni.',
                   ),
                   value: _isActive,
-                  onChanged: (v) {
-                    setState(() {
-                      _isActive = v;
-                    });
-                  },
+                  onChanged: (v) => setState(() => _isActive = v),
                 ),
-
-                const SizedBox(height: 16),
-                Text(
-                  'Queste informazioni saranno visibili agli utenti nella scheda del locale (mappa + dettaglio).',
-                  style: theme.textTheme.bodySmall,
-                ),
-                const SizedBox(height: 80),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -605,6 +603,14 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
             height: 48,
             child: ElevatedButton(
               onPressed: _saving ? null : _save,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: theme.colorScheme.primary,
+                foregroundColor: theme.colorScheme.onPrimary,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
               child: _saving
                   ? const SizedBox(
                       width: 20,
@@ -615,6 +621,114 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _EditSectionCard extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final Widget child;
+
+  const _EditSectionCard({
+    required this.title,
+    required this.child,
+    this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
+    return Card(
+      elevation: 0,
+      color: cs.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: cs.outlineVariant.withOpacity(0.6)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            if (subtitle != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                subtitle!,
+                style: tt.bodySmall?.copyWith(
+                  color: cs.onSurface.withOpacity(0.65),
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoBanner extends StatelessWidget {
+  final String text;
+  const _InfoBanner({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withOpacity(0.55),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.6), width: 1),
+      ),
+
+      child: Row(
+        children: [
+          Icon(
+            Icons.info_outline,
+            size: 18,
+            color: cs.onSurface.withOpacity(0.7),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: Text(text)),
+        ],
+      ),
+    );
+  }
+}
+
+class _WarningBanner extends StatelessWidget {
+  final String text;
+  const _WarningBanner({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cs.errorContainer.withOpacity(0.35),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: cs.error.withOpacity(0.35), width: 1),
+      ),
+
+      child: Row(
+        children: [
+          Icon(Icons.warning_amber_rounded, size: 18, color: cs.error),
+          const SizedBox(width: 10),
+          Expanded(child: Text(text)),
+        ],
       ),
     );
   }

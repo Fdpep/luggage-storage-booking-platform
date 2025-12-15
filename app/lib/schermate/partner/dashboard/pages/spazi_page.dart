@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../user_view/partner_drawer.dart';
 
 class SpaziPage extends StatelessWidget {
   const SpaziPage({super.key});
@@ -8,6 +9,7 @@ class SpaziPage extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
+      drawer: const PartnerDrawer(),
       appBar: AppBar(
         title: const Text("Spazi"),
         backgroundColor: cs.primary,
