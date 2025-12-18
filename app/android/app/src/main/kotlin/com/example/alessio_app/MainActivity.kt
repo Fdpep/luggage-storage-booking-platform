@@ -1,4 +1,4 @@
-package com.example.BagDrop
+package com.example.bagdrop
 
 import io.flutter.embedding.android.FlutterActivity
 
