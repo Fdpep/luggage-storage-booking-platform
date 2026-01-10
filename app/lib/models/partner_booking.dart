@@ -53,7 +53,6 @@ class PartnerBooking {
 
   final String bookingCode; // BDXXXXXXXXXX
 
-
   const PartnerBooking({
     required this.id,
     required this.partnerId,
@@ -97,6 +96,19 @@ class PartnerBooking {
     final d = endDate ?? bookingDate;
     return _combineDateAndTime(d, endTime);
   }
+
+  /// Planned (preferisci i timestamp completi se presenti)
+  DateTime get plannedDropoffAtLocal =>
+      (dropoffPlannedAt ?? plannedDropoffLocal).toLocal();
+
+  DateTime get plannedPickupAtLocal =>
+      (pickupPlannedAt ?? plannedPickupLocal).toLocal();
+
+  /// Effective (se presenti)
+  DateTime? get effectiveDropoffAtLocal => dropoffEffectiveAt?.toLocal();
+  DateTime? get effectivePickupAtLocal => pickupEffectiveAt?.toLocal();
+
+  bool get isCompleted => status.toLowerCase() == 'completed';
 
   /// Helper per combinare data + stringa ora "HH:MM[:SS]"
   static DateTime _combineDateAndTime(DateTime date, String timeStr) {

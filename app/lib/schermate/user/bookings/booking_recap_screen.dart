@@ -5,6 +5,8 @@ import 'package:BagDrop/models/partner_booking.dart';
 import 'package:BagDrop/schermate/partner/user_view/partner_detail_screen.dart';
 import 'package:BagDrop/theme/app_theme.dart';
 
+
+
 class BookingRecapScreen extends StatelessWidget {
   final Partner partner;
   final PartnerBooking booking;

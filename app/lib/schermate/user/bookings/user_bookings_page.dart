@@ -6,6 +6,7 @@ import 'package:BagDrop/models/partner.dart';
 import 'package:BagDrop/services/supabase/partner_booking_repo.dart';
 import 'package:BagDrop/services/supabase/partner_repo.dart';
 import 'package:BagDrop/schermate/user/bookings/booking_qr_screen.dart';
+import 'package:BagDrop/schermate/user/bookings/booking_final_recap_screen.dart';
 
 class UserBookingsPage extends StatefulWidget {
   const UserBookingsPage({super.key});
@@ -148,30 +149,186 @@ class _BookingListItemState extends State<_BookingListItem> {
     return '${two(dt.day)}/${two(dt.month)}/${dt.year} ${two(dt.hour)}:${two(dt.minute)}';
   }
 
-  Color _statusColor(BuildContext context, String status) {
+  String _formatCountdown(Duration diff) {
+    final isLate = diff.isNegative;
+    final d = diff.abs();
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+
+    if (h > 0) {
+      return isLate ? 'In ritardo di ${h}h ${m}m' : 'Manca ${h}h ${m}m';
+    }
+    final mins = d.inMinutes;
+    return isLate ? 'In ritardo di ${mins} min' : 'Manca ${mins} min';
+  }
+
+  Widget _buildInStoreReminder(
+    BuildContext context, {
+    required DateTime dropoff,
+    required DateTime pickup,
+  }) {
     final cs = Theme.of(context).colorScheme;
+    final now = DateTime.now();
+
+    final diff = pickup.difference(now);
+    final isLate = diff.isNegative;
+
+    // progress: da dropoff -> pickup
+    final totalSec = pickup.difference(dropoff).inSeconds;
+    double? progress;
+    if (totalSec > 0) {
+      final elapsedSec = now.difference(dropoff).inSeconds;
+      progress = (elapsedSec / totalSec).clamp(0.0, 1.0);
+    }
+
+    final accent = isLate ? Colors.red.shade600 : Colors.blue.shade600;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: accent.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accent.withOpacity(0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.timer_outlined, size: 18, color: accent),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Ritiro previsto',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: cs.onSurface.withOpacity(0.85),
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: accent.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  _formatCountdown(diff),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: accent,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _formatDate(pickup),
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: cs.onSurface.withOpacity(0.9),
+            ),
+          ),
+          if (progress != null) ...[
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                minHeight: 7,
+                value: progress,
+                backgroundColor: cs.onSurface.withOpacity(0.08),
+                valueColor: AlwaysStoppedAnimation<Color>(accent),
+              ),
+            ),
+          ],
+          const SizedBox(height: 6),
+          Text(
+            isLate
+                ? '⚠️ Hai superato l’orario previsto: potrebbe esserci un sovrapprezzo.'
+                : 'Ricorda di fare il check-out entro l’orario previsto.',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: cs.onSurface.withOpacity(0.65),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _statusColor(BuildContext context, String statusRaw) {
+    final cs = Theme.of(context).colorScheme;
+    final status = statusRaw.toLowerCase();
+
     switch (status) {
       case 'confirmed':
         return Colors.green.shade600;
+
       case 'pending':
-        return cs.primary;
+        return Colors.orange.shade700;
+
+      case 'in_store':
+        return Colors.blue.shade600;
+
+      case 'completed':
+        return Colors.indigo.shade600;
+
       case 'cancelled':
+      case 'canceled':
         return Colors.red.shade600;
+
+      case 'rejected':
+        return Colors.red.shade700;
+
       default:
         return cs.onSurface.withOpacity(0.7);
     }
   }
 
-  String _statusLabel(String status) {
-    switch (status) {
+  String _statusLabel(String statusRaw) {
+    switch (statusRaw.toLowerCase()) {
       case 'confirmed':
         return 'Confermata';
       case 'pending':
         return 'In attesa';
+      case 'in_store':
+        return 'In deposito';
+      case 'completed':
+        return 'Completata';
       case 'cancelled':
+      case 'canceled':
         return 'Annullata';
+      case 'rejected':
+        return 'Rifiutata';
       default:
-        return status;
+        return statusRaw;
+    }
+  }
+
+  IconData _statusIcon(String statusRaw) {
+    switch (statusRaw.toLowerCase()) {
+      case 'confirmed':
+        return Icons.check_circle_outline;
+      case 'pending':
+        return Icons.hourglass_top_rounded;
+      case 'in_store':
+        return Icons.lock_clock_outlined;
+      case 'completed':
+        return Icons.verified_outlined;
+      case 'cancelled':
+      case 'canceled':
+        return Icons.cancel_outlined;
+      case 'rejected':
+        return Icons.block_outlined;
+      default:
+        return Icons.info_outline;
     }
   }
 
@@ -193,7 +350,11 @@ class _BookingListItemState extends State<_BookingListItem> {
             : (partner?.name ?? 'Attività non disponibile');
 
         final status = booking.status.toLowerCase();
-        final qrAvailable = status == 'confirmed' || status == 'in_store';
+        final isCompleted = status == 'completed';
+
+        // QR: solo quando ha senso (es: confirmed / in_store) e NON completed
+        final qrAvailable =
+            !isCompleted && (status == 'confirmed' || status == 'in_store');
 
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
@@ -210,8 +371,8 @@ class _BookingListItemState extends State<_BookingListItem> {
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
+                        horizontal: 10,
+                        vertical: 6,
                       ),
                       decoration: BoxDecoration(
                         color: _statusColor(
@@ -220,13 +381,24 @@ class _BookingListItemState extends State<_BookingListItem> {
                         ).withOpacity(0.12),
                         borderRadius: BorderRadius.circular(999),
                       ),
-                      child: Text(
-                        _statusLabel(booking.status),
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: _statusColor(context, booking.status),
-                        ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _statusIcon(booking.status),
+                            size: 14,
+                            color: _statusColor(context, booking.status),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            _statusLabel(booking.status),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: _statusColor(context, booking.status),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const Spacer(),
@@ -294,59 +466,83 @@ class _BookingListItemState extends State<_BookingListItem> {
                   ],
                 ),
 
+                if (status == 'in_store') ...[
+                  const SizedBox(height: 10),
+                  _buildInStoreReminder(
+                    context,
+                    dropoff: booking.plannedDropoffLocal,
+                    pickup: booking.plannedPickupLocal,
+                  ),
+                ],
+
                 const SizedBox(height: 8),
 
                 // Bottoni: Riepilogo + QR code
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: partner == null
-                            ? null
-                            : () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => BookingRecapScreen(
-                                      partner: partner,
-                                      booking: booking,
-                                    ),
+                // Bottoni: se completed -> solo riepilogo finale
+                if (isCompleted) ...[
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: partner == null
+                          ? null
+                          : () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => BookingFinalRecapScreen(
+                                    partner: partner,
+                                    booking: booking,
                                   ),
-                                );
-                              },
-                        icon: const Icon(Icons.receipt_long_outlined, size: 18),
-                        label: const Text('Riepilogo'),
-                      ),
+                                ),
+                              );
+                            },
+                      icon: const Icon(Icons.fact_check_outlined, size: 18),
+                      label: const Text('Riepilogo finale'),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: (partner == null || !qrAvailable)
-                            ? null
-                            : () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => BookingQrScreen(
-                                      bookingId: booking.id,
-                                      bookingCode: booking.bookingCode,
+                  ),
+                ] else ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: partner == null
+                              ? null
+                              : () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => BookingRecapScreen(
+                                        partner: partner,
+                                        booking: booking,
+                                      ),
                                     ),
-                                  ),
-                                );
-                              },
-                        icon: const Icon(Icons.qr_code_2, size: 18),
-                        label: const Text('QR code'),
+                                  );
+                                },
+                          icon: const Icon(
+                            Icons.receipt_long_outlined,
+                            size: 18,
+                          ),
+                          label: const Text('Riepilogo'),
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-
-                if (!qrAvailable) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'Il QR code sarà disponibile quando la prenotazione sarà confermata.',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: cs.onSurface.withOpacity(0.6),
-                    ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: (partner == null || !qrAvailable)
+                              ? null
+                              : () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => BookingQrScreen(
+                                        bookingId: booking.id,
+                                        bookingCode: booking.bookingCode,
+                                      ),
+                                    ),
+                                  );
+                                },
+                          icon: const Icon(Icons.qr_code_2, size: 18),
+                          label: const Text('QR code'),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ],
