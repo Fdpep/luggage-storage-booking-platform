@@ -4,6 +4,8 @@
 	<dict>
 		<key>NSLocationWhenInUseUsageDescription</key>
 		<string>Usiamo la tua posizione per mostrarti i depositi bagagli vicini.</string>
+		<key>NSCameraUsageDescription</key>
+		<string>Serve la fotocamera per scansionare i QR delle prenotazioni.</string>
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleDisplayName</key>

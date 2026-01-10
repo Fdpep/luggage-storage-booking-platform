@@ -920,7 +920,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Prenotazione creata! (Pagamento/QR in arrivo 😉)'),
+          content: Text('Prenotazione creata!'),
         ),
       );
 
@@ -2091,11 +2091,13 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
             ),
           ),
         ],
+        /*
         const SizedBox(height: 12),
         const Text(
           'Pagamento e QR code per il check-in saranno integrati in una fase successiva.',
           style: TextStyle(fontSize: 12),
         ),
+        */
       ],
     );
   }

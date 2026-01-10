@@ -5,6 +5,7 @@ import 'package:BagDrop/models/partner_booking.dart';
 import 'package:BagDrop/models/partner.dart';
 import 'package:BagDrop/services/supabase/partner_booking_repo.dart';
 import 'package:BagDrop/services/supabase/partner_repo.dart';
+import 'package:BagDrop/schermate/user/bookings/booking_qr_screen.dart';
 
 class UserBookingsPage extends StatefulWidget {
   const UserBookingsPage({super.key});
@@ -192,7 +193,7 @@ class _BookingListItemState extends State<_BookingListItem> {
             : (partner?.name ?? 'Attività non disponibile');
 
         final status = booking.status.toLowerCase();
-        final isConfirmed = status == 'confirmed';
+        final qrAvailable = status == 'confirmed' || status == 'in_store';
 
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
@@ -213,8 +214,10 @@ class _BookingListItemState extends State<_BookingListItem> {
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: _statusColor(context, booking.status)
-                            .withOpacity(0.12),
+                        color: _statusColor(
+                          context,
+                          booking.status,
+                        ).withOpacity(0.12),
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
@@ -317,14 +320,14 @@ class _BookingListItemState extends State<_BookingListItem> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: (partner == null || !isConfirmed)
+                        onPressed: (partner == null || !qrAvailable)
                             ? null
                             : () {
-                                // Placeholder: QR code verrà implementato in seguito
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'QR code in arrivo in uno step successivo.',
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => BookingQrScreen(
+                                      bookingId: booking.id,
+                                      bookingCode: booking.bookingCode,
                                     ),
                                   ),
                                 );
@@ -336,7 +339,7 @@ class _BookingListItemState extends State<_BookingListItem> {
                   ],
                 ),
 
-                if (!isConfirmed) ...[
+                if (!qrAvailable) ...[
                   const SizedBox(height: 4),
                   Text(
                     'Il QR code sarà disponibile quando la prenotazione sarà confermata.',
@@ -353,7 +356,6 @@ class _BookingListItemState extends State<_BookingListItem> {
       },
     );
   }
-
 }
 
 /// Versione light di SectionTitle / HintCard per riusare lo stile in questa pagina.
@@ -384,10 +386,7 @@ class _HintCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Text(text),
-      ),
+      child: Padding(padding: const EdgeInsets.all(16), child: Text(text)),
     );
   }
 }

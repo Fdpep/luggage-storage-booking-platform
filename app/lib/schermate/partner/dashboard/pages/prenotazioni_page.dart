@@ -245,7 +245,6 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
   bool _canReject(PartnerBooking b) {
     final s = (b.status).toLowerCase();
     return ![
-      'rejected',
       'completed',
       'cancelled',
       'cancelled_by_user',

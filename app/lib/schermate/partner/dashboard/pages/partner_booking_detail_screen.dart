@@ -30,7 +30,6 @@ class _PartnerBookingDetailScreenState
   bool get _canReject {
     final s = (booking.status).toLowerCase();
     return ![
-      'rejected',
       'completed',
       'cancelled',
       'cancelled_by_user',
@@ -490,7 +489,8 @@ class _StatusUI {
         icon: Icons.hourglass_bottom,
       );
     }
-    if (st == 'rejected') {
+    // ✅ Rifiutata = cancelled_by_partner (irreversibile + reason)
+    if (st == 'cancelled_by_partner') {
       return _StatusUI(
         kind: _StatusKind.rejected,
         label: 'Rifiutata',
@@ -511,7 +511,7 @@ class _StatusUI {
     if (st == 'cancelled' ||
         st == 'canceled' ||
         st == 'cancelled_by_user' ||
-        st == 'cancelled_by_partner') {
+        st == 'expired') {
       return _StatusUI(
         kind: _StatusKind.cancelled,
         label: 'Annullata',

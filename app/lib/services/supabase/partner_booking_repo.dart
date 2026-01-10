@@ -173,7 +173,7 @@ class PartnerBookingRepo {
         .from('partner_bookings')
         .select('bags_s, bags_m, bags_l, status')
         .eq('partner_id', partnerId)
-        .neq('status', 'cancelled');
+        .inFilter('status', ['pending', 'confirmed', 'in_store']);
 
     int usedS = 0;
     int usedM = 0;
@@ -395,7 +395,7 @@ class PartnerBookingRepo {
         .select('id')
         .eq('user_id', userId)
         .eq('partner_id', partnerId)
-        .neq('status', 'cancelled')
+        .inFilter('status', ['pending', 'confirmed', 'in_store'])
         .gte('created_at', startOfDayUtc.toIso8601String())
         .lt('created_at', endOfDayUtc.toIso8601String());
 
@@ -415,7 +415,7 @@ class PartnerBookingRepo {
         .from('partner_bookings')
         .select('id')
         .eq('partner_id', partnerId)
-        .neq('status', 'cancelled')
+        .inFilter('status', ['pending', 'confirmed', 'in_store'])
         .gte('booking_date', todayStr)
         .limit(1);
 
@@ -468,5 +468,27 @@ class PartnerBookingRepo {
   ) {
     // [aStart, aEnd) e [bStart, bEnd) si sovrappongono se:
     return aStart.isBefore(bEnd) && bStart.isBefore(aEnd);
+  }
+
+  Future<Map<String, dynamic>> processBookingCode({
+    required String code,
+    bool force = false,
+  }) async {
+    final res = await client.rpc(
+      'process_booking_code',
+      params: {'p_code': code, 'p_force': force},
+    );
+    return Map<String, dynamic>.from(res as Map);
+  }
+
+  Future<PartnerBooking?> getBookingById(String bookingId) async {
+    final row = await client
+        .from('partner_bookings')
+        .select()
+        .eq('id', bookingId)
+        .maybeSingle();
+
+    if (row == null) return null;
+    return PartnerBooking.fromMap(row as Map<String, dynamic>);
   }
 }

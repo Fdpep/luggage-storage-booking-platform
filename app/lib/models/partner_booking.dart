@@ -51,6 +51,9 @@ class PartnerBooking {
   final DateTime? dropoffEffectiveAt;
   final DateTime? pickupEffectiveAt;
 
+  final String bookingCode; // BDXXXXXXXXXX
+
+
   const PartnerBooking({
     required this.id,
     required this.partnerId,
@@ -72,6 +75,7 @@ class PartnerBooking {
     this.endDate,
     required this.startTime,
     required this.endTime,
+    required this.bookingCode,
     this.dropoffPlannedAt,
     this.pickupPlannedAt,
     this.dropoffEffectiveAt,
@@ -168,6 +172,7 @@ class PartnerBooking {
       endDate: map['end_date'] != null ? parseDate(map['end_date']) : null,
       startTime: parseTime(map['start_time'], fallback: '00:00:00'),
       endTime: parseTime(map['end_time'], fallback: '23:59:00'),
+      bookingCode: (map['booking_code'] as String?) ?? '',
       dropoffPlannedAt: parseDateTime(map['dropoff_planned_at']),
       pickupPlannedAt: parseDateTime(map['pickup_planned_at']),
       dropoffEffectiveAt: parseDateTime(map['dropoff_effective_at']),
@@ -207,6 +212,7 @@ class PartnerBooking {
           : null,
       'start_time': startTime,
       'end_time': endTime,
+      'booking_code': bookingCode,
       'dropoff_planned_at': dropoffPlannedAt?.toUtc().toIso8601String(),
       'pickup_planned_at': pickupPlannedAt?.toUtc().toIso8601String(),
       'dropoff_effective_at': dropoffEffectiveAt?.toUtc().toIso8601String(),
