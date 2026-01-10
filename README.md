@@ -124,7 +124,7 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
 
   * Dashboard (stato attività)
   * Prenotazioni
-  * Scanner (placeholder)
+  * Scanner (QR / Codici)
   * Spazi (placeholder)
   * Profilo partner
 
@@ -259,6 +259,63 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
   * `is_active` (attivo/sospeso su mappa)
   * `accepting_bookings` (boolean, default true) → abilita/disabilita la possibilità di ricevere nuove prenotazioni
 
+## ✅ STEP QR / CHECK-IN / CHECK-OUT (Partner)
+
+### Codice prenotazione (manuale + QR)
+
+Ogni prenotazione è associata a un codice nel formato:
+
+**BD + 10 caratteri HEX** (12 caratteri totali)  
+dove i 10 caratteri sono `0-9` e `A-F`.
+
+Esempio: `BD1A2B3C4D5E`
+
+Questo codice:
+
+* può essere contenuto in un **QR Code** mostrato dall’utente
+* può essere inserito **manualmente** dal partner (fallback se scanner non funziona)
+
+### Scanner partner: HUB (non apre camera subito)
+
+Lo scanner partner **non apre più subito la fotocamera**.  
+Mostra invece una pagina “hub” con:
+
+* **Scansiona QR** → apre la camera (`mobile_scanner`)
+* **Inserisci codice manualmente** → dialog con input `BD...`
+* **Area esito** (success/errore)
+* **Paga ora (placeholder)** → per ora simula un pagamento e “forza” l’operazione (mock)
+
+> Nota emulatore: se scansionando ti appare una “stanza 3D con gatto” e ti chiede **ALT** per muoverti, è la **Virtual Scene** della camera dell’Android Emulator. Su telefono reale vedrai la fotocamera vera.
+
+### RPC server-side: `process_booking_code(p_code, p_force)`
+
+Per registrare check-in / check-out in modo robusto (e bypassare limitazioni RLS lato client) usiamo una RPC:
+
+`public.process_booking_code(p_code text, p_force boolean default false)`
+
+Comportamento (alto livello):
+
+* verifica che l’utente sia **owner del partner** (o admin)
+* trova la prenotazione tramite `booking_code`
+* se `dropoff_effective_at` è `NULL` → **check-in**
+* altrimenti → **check-out**
+* se il check-out supera `pickup_planned_at + 15 minuti`:
+  * risponde `require_payment = true`
+  * la UI mostra “**Paga ora**”
+  * premendo “Paga ora (mock)” richiama la stessa RPC con `p_force = true`
+
+### Tolleranza e supplemento (checkout)
+
+* Tolleranza: **15 minuti**
+* Se oltre tolleranza:
+  * il sistema richiede “Paga ora” (placeholder)
+  * una volta premuto, si procede al check-out comunque (mock payment / force)
+
+### Stato `rejected` nello scanner
+
+Nel flusso check-in/out (scanner) lo stato `rejected` viene trattato come `cancelled`: **non è processabile**.
+> N.B.: la parte “rejected irreversibile” lato prenotazioni partner rimane invariata come già descritta.
+
 
 * **Blocco modifiche orari/capacità con prenotazioni future**:
 
@@ -361,7 +418,7 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
   * `opening_hours` (JSON `weekly_v1` + `exceptions`)
   * `is_active`, `status` (approved/pending/rejected)
 * `partner_photos` → foto locali partner
-* `partner_bookings` → prenotazioni bagagli:
+  * `partner_bookings` → prenotazioni bagagli:
 
   ```sql
   create table if not exists public.partner_bookings (
@@ -369,11 +426,14 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
     partner_id uuid not null references public.partners(id) on delete cascade,
     user_id uuid not null references auth.users(id) on delete cascade,
 
+    -- codice per QR / inserimento manuale (formato BD + 10 HEX)
+    booking_code text unique,
+
     status text not null default 'confirmed' check (
-      status in ('pending', 'confirmed', 'cancelled', 'completed')
+      status in ('pending', 'confirmed', 'cancelled', 'completed', 'rejected')
     ),
 
-      -- rifiuto partner (definitivo)
+    -- rifiuto partner (definitivo)
     reject_reason text,
     rejected_at timestamptz,
 
@@ -388,15 +448,27 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
 
     notes text,
 
-    -- gestione fasce orarie / giorni
+    -- gestione fasce orarie / giorni (input user)
     booking_date date,   -- giorno di consegna
     start_time   time,   -- orario di consegna
     end_date     date,   -- giorno di ritiro
     end_time     time,   -- orario di ritiro
 
+    -- timestamp completi (calcolati via trigger)
+    dropoff_planned_at   timestamptz,
+    pickup_planned_at    timestamptz,
+    dropoff_effective_at timestamptz, -- check-in effettivo
+    pickup_effective_at  timestamptz, -- check-out effettivo
+
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
   );
+
+
+```md
+> La determinazione di `dropoff_planned_at` e `pickup_planned_at` avviene via trigger SQL (es. `sync_booking_interval`),
+> sincronizzando i campi `booking_date/start_time/end_date/end_time` con i timestamp completi.
+
   ```
 
 > Il sistema usa questi campi per:
@@ -411,6 +483,34 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
 * Policy: gli utenti autenticati possono caricare e leggere le foto dei partner (con RLS sul `partner_id` dove necessario).
 
 ---
+
+## 🔒 RLS / RPC importanti
+
+* `partner_bookings` ha RLS attiva per lettura (utente, owner, admin)
+* Per aggiornare i campi di check-in/out dal partner usiamo una RPC `SECURITY DEFINER`:
+
+  * `public.process_booking_code(p_code, p_force)`
+
+---
+
+# 📷 Permessi Fotocamera
+
+
+
+## Android
+
+In `android/app/src/main/AndroidManifest.xml`:
+
+```xml
+<uses-permission android:name="android.permission.CAMERA" />
+```
+## IOS 
+In `ios/Runner/Info.plist`:
+
+```<key>NSCameraUsageDescription</key>
+<string>Serve la fotocamera per scansionare i QR delle prenotazioni.</string>
+```
+
 
 # 📁 Struttura delle Cartelle (Flutter)
 
@@ -466,6 +566,8 @@ lib/
 │     │     │     │     ├── scanner_page.dart
 │     │     │     │     ├── spaces_page.dart
 │     │     │     │     └── profile_page.dart
+│     │     │     |     ├── scanner_page.dart
+│     │     │     |     ├── partner_scan_camera_screen.dart
 │     │     │     │
 │     │     │     └── widgets/
 │     │     │            └── partner_status_icon.dart
@@ -529,6 +631,24 @@ lib/
     * chiama `supabase.rpc('delete_my_account')`
     * se la funzione SQL solleva errore (es. prenotazioni attive) → mostra messaggio
     * se va a buon fine → `auth.signOut()` + snackbar + pop verso root
+
+
+
+## 🏬 schermate/partner/dashboard/pages/scanner_page.dart
+
+* Pagina HUB con:
+  * bottoni “Scansiona QR” e “Inserisci codice”
+  * area esito (success/errore)
+  * pulsante “Paga ora (mock)” se `require_payment = true`
+
+## 📷 schermate/partner/dashboard/pages/partner_scan_camera_screen.dart
+
+* Schermata camera con `mobile_scanner` che:
+  * legge un QR
+  * estrae un codice `BD[0-9A-F]{10}`
+  * ritorna il codice alla pagina HUB
+
+
 
 ## 🧳 schermate/user/bookings/
 
@@ -825,6 +945,13 @@ lib/
     * usa `booking_date` / `end_date` per capire se l’intervallo è futuro/attivo
     * usato per bloccare modifiche orari/capacità in `partner_edit_screen.dart`
 
+  * `processBookingCode({required String code, bool force = false})`:
+    * chiama la RPC `public.process_booking_code(p_code, p_force)`
+    * gestisce check-in / check-out e risposta `require_payment`
+
+  * `getBookingById(String bookingId)`:
+    * recupera una prenotazione specifica (utile per mostrare dettagli dopo esito)
+
 ---
 
 # 🔄 Flussi Principali
@@ -944,6 +1071,10 @@ lib/
 
 * ✔ AdminShell base
 
+* ✔ Scanner partner con HUB + camera + inserimento manuale codice
+* ✔ Check-in / check-out via RPC `process_booking_code` con tolleranza 15 minuti e “Paga ora” (mock payment / force)
+
+
 * ✔ **Flusso prenotazione con slot base + disponibilità per intervallo**:
 
   * `BookingFlowScreen` lato utente:
@@ -1005,12 +1136,12 @@ lib/
 
   * stagionalità prezzo
   * sovrapprezzi per notte, ecc.
+## 2️⃣ QR Code / Codici (stato attuale)
 
-## 2️⃣ QR Code
-
-* Generazione QR dalla prenotazione (`partner_bookings.id`).
-* Scanner lato partner.
-* Stati aggiuntivi (es. `checked_in`, `checked_out`).
+* ✅ Scanner partner con HUB + camera + inserimento manuale
+* ✅ Check-in/out con tolleranza e supplemento (mock payment)
+* ⏳ Generazione/mostra codice lato utente dentro “Le mie prenotazioni” (UI completa)
+* ⏳ Pagamento reale (Stripe) + gestione supplementi reali
 
 ## 3️⃣ Pagamenti
 
