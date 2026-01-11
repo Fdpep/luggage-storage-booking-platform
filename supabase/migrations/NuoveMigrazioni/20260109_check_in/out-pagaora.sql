@@ -84,9 +84,11 @@ begin
         'message', 'Orario di ritiro già passato: check-in non consentito.');
     end if;
 
-    update public.partner_bookings
-    set dropoff_effective_at = coalesce(dropoff_effective_at, v_now)
-    where id = v_booking.id;
+update public.partner_bookings
+set dropoff_effective_at = coalesce(dropoff_effective_at, v_now),
+    status = 'in_store',
+    updated_at = now()
+where id = v_booking.id;
 
     return jsonb_build_object('ok', true, 'action', v_action, 'booking_id', v_booking.id,
       'message', 'Check-in registrato.');
@@ -108,10 +110,12 @@ begin
       );
     end if;
 
-    update public.partner_bookings
-    set pickup_effective_at = coalesce(pickup_effective_at, v_now),
-        status = 'completed'
-    where id = v_booking.id;
+update public.partner_bookings
+set pickup_effective_at = coalesce(pickup_effective_at, v_now),
+    status = 'completed',
+    updated_at = now()
+where id = v_booking.id;
+
 
     return jsonb_build_object(
       'ok', true,

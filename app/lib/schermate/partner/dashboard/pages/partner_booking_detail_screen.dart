@@ -30,6 +30,7 @@ class _PartnerBookingDetailScreenState
   bool get _canReject {
     final s = (booking.status).toLowerCase();
     return ![
+      'in_store',
       'completed',
       'cancelled',
       'cancelled_by_user',

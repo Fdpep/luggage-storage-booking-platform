@@ -108,7 +108,31 @@ class PartnerBooking {
   DateTime? get effectiveDropoffAtLocal => dropoffEffectiveAt?.toLocal();
   DateTime? get effectivePickupAtLocal => pickupEffectiveAt?.toLocal();
 
-  bool get isCompleted => status.toLowerCase() == 'completed';
+  /// Status “logico” usato per UI (uguale lato utente e lato partner)
+  String get uiStatus {
+    final s = status.toLowerCase();
+
+    // cancellate / scadute
+    if (s == 'cancelled' ||
+        s == 'canceled' ||
+        s == 'cancelled_by_user' ||
+        s == 'cancelled_by_partner' ||
+        s == 'expired') {
+      return 'cancelled';
+    }
+
+    // rifiutata dal partner: vogliamo mantenerla distinta
+    if (s == 'rejected') return 'rejected';
+
+    // derivati dagli effettivi
+    if (pickupEffectiveAt != null) return 'completed';
+    if (dropoffEffectiveAt != null) return 'in_store';
+
+    return s; // pending / confirmed
+  }
+
+  bool get isInStore => uiStatus == 'in_store';
+  bool get isCompleted => uiStatus == 'completed';
 
   /// Helper per combinare data + stringa ora "HH:MM[:SS]"
   static DateTime _combineDateAndTime(DateTime date, String timeStr) {

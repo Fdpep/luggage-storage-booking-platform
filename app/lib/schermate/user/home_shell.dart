@@ -149,11 +149,12 @@ class _HomeShellState extends State<HomeShell> {
                           Navigator.of(c).pop();
                           Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (_) => const _UserBookingsScreen(),
+                              builder: (_) => const UserBookingsPage(),
                             ),
                           );
                         },
                       ),
+
                       _ItemTile(
                         icon: Icons.person_outline,
                         label: 'Profilo',
@@ -1433,19 +1434,11 @@ class _InfoTile extends StatelessWidget {
 }
 
 class _UserBookingsScreen extends StatelessWidget {
-  const _UserBookingsScreen();
+  const _UserBookingsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: cs.primary,
-        foregroundColor: cs.onPrimary,
-        title: const _LogoTitle(),
-      ),
-      body: const UserBookingsPage(),
-    );
+    return const UserBookingsPage(); // <-- NO Scaffold qui
   }
 }
 

@@ -32,6 +32,7 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
   _StatusFilter _mapToFilter(String status) {
     final st = _normStatus(status);
     //if (st == 'pending') return _StatusFilter.pending;
+    if (st == 'in_store') return _StatusFilter.inStore;
     if (st == 'rejected') return _StatusFilter.rejected;
     if (st == 'completed') return _StatusFilter.completed;
     /*if (st == 'cancelled' ||
@@ -55,7 +56,7 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
 
     if (_statusFilter != _StatusFilter.all) {
       list = list
-          .where((b) => _mapToFilter(b.status) == _statusFilter)
+          .where((b) => _mapToFilter(b.uiStatus) == _statusFilter)
           .toList();
     }
     if (_dateRange != null) {
@@ -245,6 +246,7 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
   bool _canReject(PartnerBooking b) {
     final s = (b.status).toLowerCase();
     return ![
+      'in_store',
       'completed',
       'cancelled',
       'cancelled_by_user',
@@ -258,15 +260,17 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
       case _StatusFilter.all:
         return 'Tutte';
       //case _StatusFilter.pending:
-       // return 'In attesa';
+      // return 'In attesa';
       case _StatusFilter.confirmed:
         return 'Confermate';
+      case _StatusFilter.inStore:
+        return 'In deposito';
       case _StatusFilter.rejected:
         return 'Rifiutate';
       case _StatusFilter.completed:
         return 'Completate';
-     // case _StatusFilter.cancelled:
-       // return 'Annullate';
+      // case _StatusFilter.cancelled:
+      // return 'Annullate';
     }
   }
 
@@ -495,13 +499,13 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
           ),
         ),
       ),
-      
+
       body: RefreshIndicator(
         onRefresh: _loadBookings,
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
-           /* SliverToBoxAdapter(
+            /* SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                 child: _FiltersBar(
@@ -529,7 +533,7 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
             ),
           ],
         ),
-      ),   
+      ),
     );
   }
 
@@ -902,7 +906,7 @@ class _FiltersBar extends StatelessWidget {
   }
 }
 
-enum _StatusFilter { all, confirmed, rejected, completed }
+enum _StatusFilter { all, confirmed, inStore, rejected, completed }
 
 enum _BookingSort { dropoffAsc, dropoffDesc, createdAsc, createdDesc }
 
@@ -932,10 +936,12 @@ class _BookingCardModern extends StatelessWidget {
         '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')} '
         '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 
-    final statusUi = _StatusUI.from(booking.status);
+    final statusUi = _StatusUI.from(booking.uiStatus);
     final showRejectReason =
         statusUi.kind == _StatusKind.rejected &&
         (booking.rejectReason ?? '').trim().isNotEmpty;
+
+    final isInStore = statusUi.kind == _StatusKind.inStore;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -1030,6 +1036,14 @@ class _BookingCardModern extends StatelessWidget {
                   ],
                 ),
 
+                if (isInStore) ...[
+                  const SizedBox(height: 12),
+                  _InStoreReminder(
+                    dropoff: booking.plannedDropoffLocal,
+                    pickup: booking.plannedPickupAtLocal,
+                  ),
+                ],
+
                 // Motivo rifiuto (callout bello)
                 if (showRejectReason) ...[
                   const SizedBox(height: 12),
@@ -1058,7 +1072,7 @@ class _BookingCardModern extends StatelessWidget {
   }
 }
 
-enum _StatusKind { pending, confirmed, rejected, cancelled, completed }
+enum _StatusKind { pending, confirmed, inStore, rejected, cancelled, completed }
 
 class _StatusUI {
   final _StatusKind kind;
@@ -1115,6 +1129,16 @@ class _StatusUI {
         bg: Colors.grey.withOpacity(0.14),
         fg: Colors.grey.shade800,
         icon: Icons.cancel_outlined,
+      );
+    }
+
+    if (st == 'in_store') {
+      return _StatusUI(
+        kind: _StatusKind.inStore,
+        label: 'In deposito',
+        bg: Colors.blue.withOpacity(0.12),
+        fg: Colors.blue.shade800,
+        icon: Icons.lock_clock_outlined,
       );
     }
 
@@ -1356,6 +1380,165 @@ class _ChipMini extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(label, style: tt.labelSmall),
+    );
+  }
+}
+
+class _InStoreReminder extends StatelessWidget {
+  final DateTime dropoff;
+  final DateTime pickup;
+
+  const _InStoreReminder({required this.dropoff, required this.pickup});
+
+  String _formatDate(DateTime dt) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${two(dt.day)}/${two(dt.month)}/${dt.year} ${two(dt.hour)}:${two(dt.minute)}';
+  }
+
+  String _formatCountdown(Duration diff, {String prefix = 'Manca'}) {
+    final isNeg = diff.isNegative;
+    final d = diff.abs();
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+
+    if (h > 0) {
+      return isNeg ? 'In ritardo di ${h}h ${m}m' : '$prefix ${h}h ${m}m';
+    }
+    final mins = d.inMinutes;
+    return isNeg ? 'In ritardo di ${mins} min' : '$prefix ${mins} min';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final now = DateTime.now();
+
+    const tolerance = Duration(minutes: 15);
+    final deadline = pickup.add(tolerance);
+
+    final diffToPickup = pickup.difference(now);
+    final diffToDeadline = deadline.difference(now);
+
+    final bool beforePickup = diffToPickup > Duration.zero;
+    final bool inTolerance = !beforePickup && diffToDeadline > Duration.zero;
+
+    final Color accent = beforePickup
+        ? Colors.blue.shade600
+        : (inTolerance ? Colors.orange.shade700 : Colors.red.shade600);
+
+    final String title = beforePickup
+        ? 'Ritiro previsto'
+        : (inTolerance ? 'Ritiro scaduto (tolleranza)' : 'Checkout scaduto');
+
+    final String pillText = beforePickup
+        ? _formatCountdown(diffToPickup, prefix: 'Manca')
+        : (inTolerance
+              ? _formatCountdown(diffToDeadline, prefix: 'Tolleranza')
+              : _formatCountdown(deadline.difference(now)));
+
+    final String note = beforePickup
+        ? 'Ricorda di fare il check-out entro l’orario previsto.'
+        : (inTolerance
+              ? 'Se il cliente fa il check-out entro la tolleranza, non dovrebbe esserci sovrapprezzo.'
+              : '⚠️ Oltre la tolleranza: potrebbe essere richiesto un sovrapprezzo al check-out.');
+
+    final totalSec = pickup.difference(dropoff).inSeconds;
+    double? progress;
+    if (totalSec > 0) {
+      final elapsedSec = now.difference(dropoff).inSeconds;
+      progress = (elapsedSec / totalSec).clamp(0.0, 1.0);
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: accent.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accent.withOpacity(0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.timer_outlined, size: 18, color: accent),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    color: cs.onSurface.withOpacity(0.85),
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: accent.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  pillText,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: accent,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          Text(
+            _formatDate(pickup),
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+              color: cs.onSurface.withOpacity(0.9),
+            ),
+          ),
+
+          if (!beforePickup) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Scadenza tolleranza: ${_formatDate(deadline)}',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: cs.onSurface.withOpacity(0.65),
+              ),
+            ),
+          ],
+
+          if (progress != null) ...[
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                minHeight: 7,
+                value: progress,
+                backgroundColor: cs.onSurface.withOpacity(0.08),
+                valueColor: AlwaysStoppedAnimation<Color>(accent),
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 6),
+          Text(
+            note,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: cs.onSurface.withOpacity(0.65),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
