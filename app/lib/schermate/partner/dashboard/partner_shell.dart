@@ -17,6 +17,8 @@ import 'pages/profilo_page.dart';
 import '../auth_partner/partner_registration_screen.dart';
 import '../auth_partner/partner_waiting_screen.dart';
 import '../../autenticazione/auth_actions.dart';
+import '../auth_partner/partner_application_screen.dart';
+
 
 // ✅ NUOVO: drawer condiviso + scope
 import '../user_view/partner_drawer.dart';
@@ -68,20 +70,12 @@ class _PartnerShellState extends State<PartnerShell> {
     final p = _partner;
     final user = Supabase.instance.client.auth.currentUser;
 
-    // Nessun partner → deve ancora registrare l’attività
+    // Nessun partner: non esiste alcuna attività collegata => non mostro la dashboard partner
+    // (da qui in poi la richiesta verrà fatta dal sito)
     if (p == null) {
-      return _buildShell(
-        user: user,
-        partner: null,
-        pages: [
-          DashboardPage(partner: null, onPartnerChanged: _reload),
-          PrenotazioniPage(partner: null),
-          const ScannerPage(),
-          const SpaziPage(),
-          ProfiloPage(partner: null, onPartnerChanged: _reload),
-        ],
-      );
+      return const PartnerApplicationScreen();
     }
+
 
     // Pending / Rejected
     if (p.isPending || p.isRejected) {

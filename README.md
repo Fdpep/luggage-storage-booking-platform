@@ -51,11 +51,16 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
     * **data/ora di consegna** (`booking_date`, `start_time`)
     * **data/ora di ritiro** (`end_date`, `end_time`)
     * timestamp di creazione (`created_at`)
-  * **controllo di disponibilità dinamico per intervallo**:
+  * **controllo di disponibilità dinamico per intervallo (v2)**:
 
-    * uso delle capacità del partner (`capacity_s/m/l` + `capacity` totale)
-    * logica di equivalenza **1 S = 1 • 1 M = 2 • 1 L = 4** unità
-    * verifica sia per **taglia** (S/M/L) sia per **spazio totale equivalente**
+    * source of truth dal partner: `base_capacity_u` + `extra_capacity_s/m/l` + `accept_s/m/l`
+    * logica unità equivalenti: **1 S = 1u • 1 M = 2u • 1 L = 4u**
+    * per una richiesta (S/M/L) calcoliamo `need_u = S*1 + M*2 + L*4`
+    * la disponibilità viene verificata:
+      * per taglia (rispettando `accept_*`)
+      * e sullo **spazio generale** (`base_capacity_u`) consumato dalle prenotazioni sovrapposte
+    * la creazione prenotazione salva anche l’allocazione (quanto viene preso da base vs extra dedicati)
+
 
 * **Step “Bagagli” con barra dinamica di capacità**:
 
@@ -107,7 +112,7 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
 > N.B.: esiste un **motore di disponibilità per intervallo “base”**:
 >
 > * controlla sovrapposizioni tra intervallo richiesto e prenotazioni `pending/confirmed`
-> * usa capacità S/M/L + **capacità totale equivalente**
+> * usa come source of truth: `base_capacity_u` + `extra_capacity_s/m/l` + `accept_s/m/l`
 >   Non è ancora presente un sistema di scheduling avanzato (slot generati automaticamente, regole complesse per “alto carico”, ecc.) né il pagamento online.
 
 ---
@@ -135,34 +140,33 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
     * **Account** (solo signup)
     * **Dati attività + indirizzo**
     * **Capacità bagagli**
-  * Nello step “Capacità bagagli”:
 
-    * il partner dichiara lo **spazio generale** in termini di **bagagli M** (es. “posso tenere 10 M”)
-    * il sistema calcola automaticamente lo spazio equivalente:
+### ✅ Modello capacità partner (v2 – base condivisa + extra dedicati)
 
-      * `1 M = 2 S = 0.5 L`
-      * da cui si ricava:
+Nel wizard “Capacità bagagli” il partner inserisce **una sola capacità generale** in bagagli **M** (es. “posso tenere 10 M”).
 
-        * `S_base = M * 2`
-        * `M_base = M`
-        * `L_base = floor(M * 0.5)`
-    * per ogni taglia S/M/L il partner può:
+#### Unità equivalenti (u)
+Per rendere coerenti le taglie usiamo unità equivalenti:
+- `1 S = 1u`
+- `1 M = 2u`
+- `1 L = 4u`
 
-      * **abilitare/disabilitare** la taglia (es. non accettare L)
-      * **ridurre** la capacità generale con uno slider fino al massimo calcolato
-    * lo step chiede anche se esiste **spazio extra dedicato per singola taglia**:
+#### Salvataggio su DB (source of truth)
+Non salviamo 3 capacità “da sommare”. Salviamo:
 
-      * es. “armadietti solo per S”, “zona solo per L”
-      * questo extra:
+- `base_capacity_u` → capacità generale in unità equivalenti (u)  
+  - UI: input `baseM`  
+  - DB: `base_capacity_u = baseM * 2`
 
-        * si somma solo alla taglia corrispondente
-        * **non riduce** la capacità delle altre taglie
-  * I valori finali usati per il salvataggio sono:
+- `extra_capacity_s`, `extra_capacity_m`, `extra_capacity_l` → extra dedicati per taglia  
+  (armadietti, attaccapanni, zone dedicate…)
 
-    * `capacity_s = capacity_generale_s + extra_s`
-    * `capacity_m = capacity_generale_m + extra_m`
-    * `capacity_l = capacity_generale_l + extra_l`
-    * `capacity = capacity_s + capacity_m + capacity_l` (ridondante, per riassunto/filtri)
+- `accept_s`, `accept_m`, `accept_l` → taglie accettate (toggle)
+
+> Nota: i campi `capacity_s`, `capacity_m`, `capacity_l` e `capacity` vengono **derivati automaticamente via trigger** per UI/filtri.  
+> La logica vera di prenotazione usa sempre `base_capacity_u` + extra.
+
+
 
 * **Scheda del locale modificabile** (`PartnerEditScreen`):
 
@@ -212,11 +216,15 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
       }
       ```
 
-  * **capacità bagagli per taglia**:
+  * **capacità bagagli (v2)**:
 
-    * `capacity_s`, `capacity_m`, `capacity_l`
-    * `capacity` totale = somma S+M+L
-    * usate dal motore di disponibilità per intervallo
+    * source of truth:
+      * `base_capacity_u` (capacità generale condivisa, in unità equivalenti)
+      * `extra_capacity_s`, `extra_capacity_m`, `extra_capacity_l` (extra dedicati)
+      * `accept_s`, `accept_m`, `accept_l`
+    * campi derivati (per UI/filtri, calcolati via trigger):
+      * `capacity_s`, `capacity_m`, `capacity_l`, `capacity`
+
 
   * **prezzi (vista, non configurazione)**:
 
@@ -411,7 +419,11 @@ Nel flusso check-in/out (scanner) lo stato `rejected` viene trattato come `cance
 
   * id, owner_id
   * nome, indirizzo, lat/lng
-  * `capacity_s`, `capacity_m`, `capacity_l`, `capacity` totale
+  * Capacità (v2):
+    * `base_capacity_u` (int) → capacità generale condivisa in unità equivalenti (u)
+    * `extra_capacity_s`, `extra_capacity_m`, `extra_capacity_l` (int) → extra dedicati per taglia
+    * `accept_s`, `accept_m`, `accept_l` (bool) → taglie accettate
+    * campi derivati via trigger (per UI/filtri): `capacity_s`, `capacity_m`, `capacity_l`, `capacity`
   * regole, description, phone
   * eventuali campi di supporto per mostrare i **prezzi globali** (testi di vetrina),
     ma le tariffe reali sono definite esternamente in `BagDropPricing`
@@ -741,17 +753,23 @@ lib/
       * rispetto degli orari di apertura (`opening_hours` + eccezioni)
       * durata massima 7 giorni
 
-  * **Disponibilità per intervallo**:
+  * **Disponibilità per intervallo (v2)**:
 
     * dopo aver scelto data/ora, viene chiamato:
 
       * `PartnerBookingRepo.getPartnerAvailabilityForInterval(...)`
     * la funzione:
 
-      * legge `capacity_s/m/l` e `capacity` dal partner
-      * calcola la capacità totale in **unità equivalenti** (1S = 1, 1M = 2, 1L = 4)
-      * considera le prenotazioni `pending/confirmed` che **si sovrappongono** all’intervallo richiesto
-      * somma i bagagli S/M/L di quelle prenotazioni in unità equivalenti
+      * legge dal partner la source of truth:
+        * `base_capacity_u`, `extra_capacity_s/m/l`, `accept_s/m/l`
+      * calcola la richiesta utente in unità equivalenti:
+        * `need_u = S*1 + M*2 + L*4`
+      * considera le prenotazioni `pending/confirmed` che **si sovrappongono** all’intervallo
+      * calcola quanto spazio **base** e **extra** è già consumato nell’intervallo
+      * restituisce:
+        * `availableS/M/L` (per taglia, rispettando accept + extra)
+        * `availableTotal` (sulla base condivisa in unità equivalenti)
+
 
   * **Step bagagli**:
 
@@ -978,11 +996,12 @@ lib/
    * **Dati account** (solo signup)
    * **Dati attività + indirizzo** (con geocoding/coordinate)
    * **Capacità bagagli** tramite nuovo flusso basato su M → S/L + extra
-3. Vengono calcolati i valori “effettivi”:
+3. Vengono salvati i valori **source of truth**:
 
-   * `capacity_s`, `capacity_m`, `capacity_l`
-   * `capacity` (somma)
-4. Viene creata/aggiornata una riga in `partners` con capacità finali + dati base.
+   * `base_capacity_u` (base condivisa in unità equivalenti)
+   * `extra_capacity_s/m/l`
+   * `accept_s/m/l`
+4. `capacity_s/m/l` e `capacity` vengono **derivati via trigger** (per UI/filtri), non sono più input primari.
 5. Viene (ri)creata una riga in `partner_requests` con `status = 'pending'`.
 6. Finché non è approvato:
 
@@ -1082,11 +1101,13 @@ lib/
     * Step: Contatto → Data e orario → Bagagli S/M/L → Riepilogo
     * selezione giorno/ora di consegna e ritiro (3h o durata personalizzata)
     * validazione con orari di apertura + limiti 7 giorni
-  * **Motore di disponibilità per intervallo**:
+  * **Motore di disponibilità per intervallo (v2)**:
 
     * `PartnerBookingRepo.getPartnerAvailabilityForInterval`
-    * uso di `capacity_s/m/l` + `capacity` e unità equivalenti (1S=1, 1M=2, 1L=4)
-    * controllo S/M/L + spazio totale
+    * source of truth: `base_capacity_u` + `extra_capacity_s/m/l` + `accept_s/m/l`
+    * unità equivalenti: `1S=1u, 1M=2u, 1L=4u`
+    * controllo sia per taglia (accept + extra) sia per base condivisa (`base_capacity_u`)
+
   * **UI capacità**:
 
     * riga per taglia con massimo disponibili

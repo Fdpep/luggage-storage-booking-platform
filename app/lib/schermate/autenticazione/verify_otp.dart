@@ -200,13 +200,7 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
           return;
         }
 
-        // 5a) Imposta ruolo 'partner' in user_profiles
-        await supabase
-            .from('user_profiles')
-            .update({'role': 'partner'})
-            .eq('id', userId);
-
-        // 5b) Crea la richiesta partner (partners + partner_requests)
+        // 5a) Crea la richiesta partner (partners + partner_requests)
         final repo = PartnerRepo(supabase);
         await repo.submitPartnerApplication(
           userId: userId,
@@ -219,9 +213,15 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
           message: message,
           lat: lat,
           lng: lng,
-          // 👇 NUOVO
-          openingHours: openingHours, // 👈 NUOVO
+          openingHours: openingHours,
         );
+
+        // 5b) SOLO ORA imposta ruolo 'partner' in user_profiles
+        await supabase
+            .from('user_profiles')
+            .update({'role': 'partner'})
+            .eq('id', userId);
+
 
         // 5c) Ora che abbiamo usato i dati, puliamo partner_signup dai metadati
         final newMeta = Map<String, dynamic>.from(
