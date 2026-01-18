@@ -99,7 +99,7 @@ class _AdminDashboardPage extends StatelessWidget {
     final pendingReqData = await supabase
         .from('partner_requests')
         .select('id')
-        .eq('status', 'pending') as List<dynamic>;
+        .inFilter('status', ['submitted']) as List<dynamic>;
     final pendingRequests = pendingReqData.length;
 
     // Partner: approvati e attivi

@@ -119,27 +119,61 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
 
 ## 🏬 Partner
 
-* Registrazione come attività (flusso dedicato)
+### Flusso ufficiale (Sito Web)
+La registrazione partner avviene tramite **wizard sul sito** (non più dall’app), perché app e sito condividono lo stesso database Supabase.
 
-* Verifica OTP e creazione richiesta partner (`partner_requests`)
+Workflow `partner_requests.status` (ENUM `partner_request_status`):
+- `draft` → bozza creata/riusata dal sito
+- `submitted` → richiesta inviata (in revisione)
+- `awaiting_payment` → documenti approvati, pagamento richiesto
+- `paid` → pagamento completato, ruolo `partner` e accesso alla `PartnerShell`
+- `rejected` → richiesta rifiutata con motivazione
 
-* Stato richiesta: `pending` → `approved` → `rejected`
+### UX lato App (gating)
+Dopo login + OTP:
+- `role = user` → app utente normale
+- `role = partner_candidate` → schermate dedicate in base a `partner_requests.status`:
+  - `draft` → schermata “Completa dal sito”
+  - `submitted` → schermata “In revisione”
+  - `awaiting_payment` → schermata “Pagamento richiesto” (con link al sito)
+  - `rejected` → schermata “Rifiutato” con motivazione
+- `role = partner` → accesso alla `PartnerShell`
 
-* Dashboard partner (`PartnerShell`) con bottom navigation:
+### 📱 Schermate Partner Candidate (App)
 
-  * Dashboard (stato attività)
-  * Prenotazioni
-  * Scanner (QR / Codici)
-  * Spazi (placeholder)
-  * Profilo partner
+Quando `user_profiles.role = partner_candidate`, l’utente NON entra nella PartnerShell.
+L’accesso è gestito da `AuthGate` in base allo stato della richiesta `partner_requests.status`.
 
-* **Onboarding partner a step (wizard)**
+Schermate dedicate (cartella `schermate/partner/auth_partner/`):
 
-  * `PartnerSignUpScreen` (utente non loggato) e `PartnerRegistrationScreen` (utente già loggato) sono ora strutturati a step:
+- `PartnerOnboardingStartScreen`
+  - mostrata quando:
+    - non esiste ancora una richiesta
+    - oppure `status = draft`
+  - mostra messaggio:
+    > “Completa la registrazione dal sito BagDrop”
+  - contiene link/bottone verso il wizard web
 
-    * **Account** (solo signup)
-    * **Dati attività + indirizzo**
-    * **Capacità bagagli**
+- `PartnerWaitingScreen`
+  - mostrata quando `status = submitted`
+  - stato: documenti in revisione
+
+- `PartnerPaymentRequiredScreen`
+  - mostrata quando `status = awaiting_payment`
+  - invita a controllare l’email o aprire il link di pagamento
+  - dopo il pagamento e refresh session → accesso partner
+
+- `PartnerRejectedScreen`
+  - mostrata quando `status = rejected`
+  - mostra `reject_reason` se presente
+
+Solo quando:
+- `status = paid`
+- **e** `user_profiles.role = partner`
+
+l’utente accede alla `PartnerShell`.
+
+
 
 ### ✅ Modello capacità partner (v2 – base condivisa + extra dedicati)
 
@@ -165,6 +199,35 @@ Non salviamo 3 capacità “da sommare”. Salviamo:
 
 > Nota: i campi `capacity_s`, `capacity_m`, `capacity_l` e `capacity` vengono **derivati automaticamente via trigger** per UI/filtri.  
 > La logica vera di prenotazione usa sempre `base_capacity_u` + extra.
+
+
+## 🌐 Onboarding Partner (Sito Web) — flusso ufficiale
+
+La registrazione partner avviene tramite **wizard sul sito** (non più dall’app), perché app e sito condividono lo stesso database Supabase.
+
+### Step del wizard
+1. **Account** (signup/login + OTP)
+2. **Attività** (nome, indirizzo, lat/lng da Maps)
+3. **Orari** (formato `opening_hours.weekly_v1` + eccezioni)
+4. **Capacità** (v2: base in M → unità equivalenti + extra per taglia)
+5. **Riepilogo + Contratto firmato (PDF)**
+
+### Cosa salva il sito (DB)
+- Upsert su `partners` con:
+  - dati attività + posizione
+  - `opening_hours` (`weekly_v1`)
+  - capacità v2:
+    - `base_capacity_u`
+    - `extra_capacity_s/m/l`
+    - `accept_s/m/l`
+- Creazione/riuso riga in `partner_requests` con **stato iniziale `draft`**
+- Upload del contratto firmato su Storage bucket `partner-contracts`
+- Collegamento del contratto alla richiesta (`partner_requests.contract_signed_url`, `contract_signed_at`)
+- Invio richiesta → `partner_requests.status = submitted`
+- Cambio ruolo utente → `user_profiles.role = partner_candidate`
+
+> Importante: il client NON fa update diretti su `partner_requests` (RLS).  
+> Tutto il flusso “request + submit + pagamento” passa da RPC `SECURITY DEFINER`.
 
 
 
@@ -353,9 +416,80 @@ Nel flusso check-in/out (scanner) lo stato `rejected` viene trattato come `cance
   * lista utenti
   * log di sistema
 
+
+## 📩 Approve Admin → Email → Pagamento (Stripe / mock)
+
+### Obiettivo di business
+Quando l’admin approva i documenti, il partner **NON entra subito** nell’area partner.
+Deve prima completare il pagamento.
+
+### Flusso
+1. Partner invia richiesta (`submitted`)
+2. Admin approva documenti → `awaiting_payment`
+3. Il sistema invia una email al partner con:
+   - link a una pagina pagamento (Stripe in futuro)
+4. Partner completa pagamento:
+   - in test: bottone “Simula pagamento”
+   - in produzione: Stripe checkout
+5. Dopo pagamento → `paid` + ruolo `partner` + `partners` attivato
+
+### UX lato app
+Se `role = partner_candidate`:
+- se status = `submitted` → schermata “In revisione”
+- se status = `awaiting_payment` → schermata “Pagamento richiesto”
+  con invito a controllare email + link alla pagina pagamento
+- se status = `rejected` → schermata “Rifiutato”
+Solo dopo `paid` l’utente accede alla `PartnerShell`.
+
+
+### 🧠 Implementazione tecnica (attuale)
+
+- La pagina di pagamento è una **pagina web custom (WordPress / HTML + React)**.
+- L’utente deve autenticarsi con **lo stesso account Supabase** usato nel wizard.
+- Il bottone di pagamento (mock o Stripe) chiama la RPC:
+
+```sql
+public.confirm_partner_payment(
+  p_request_id uuid,
+  p_payment_reference text
+)
+
+Effetti della RPC:
+
+partner_requests.status: awaiting_payment → paid
+
+user_profiles.role: partner_candidate → partner
+
+partners.is_active = true
+
+partners.status = 'approved'
+
+Dopo il pagamento:
+
+l’utente riapre l’app
+
+AuthGate rilegge ruolo + stato
+
+accesso automatico alla PartnerShell
 ---
 
 # ⚙️ Architettura Backend (Supabase)
+
+
+### AuthGate (Flutter)
+
+L’accesso all’app è centralizzato in `routes/auth_gate.dart`.
+
+Responsabilità:
+- verifica sessione Supabase
+- verifica OTP (`otp_verified`)
+- carica `user_profiles.role`
+- se `partner_candidate`, carica anche `partner_requests.status`
+- gestisce polling automatico (20s) per aggiornamenti stato
+- invalida correttamente polling su logout / resume app
+
+È la **source of truth UX** per il routing post-login.
+
 
 ## 👥 Autenticazione
 
@@ -410,11 +544,24 @@ Nel flusso check-in/out (scanner) lo stato `rejected` viene trattato come `cance
   * `avatar_url`
   * `kyc_status` (`none` | `basic` | `verified`)
   * `role` (`user` | `partner` | `admin`)
-* `partner_requests` → richieste partner:
-
-  * `user_id`
-  * `status` (`pending` | `approved` | `rejected`)
+* `partner_requests` → richieste di onboarding partner (workflow)
+  * `id`
+  * `user_id` (owner della richiesta)
+  * `partner_id` (collega l’attività in `partners`)
+  * `status` (ENUM `partner_request_status`):
+    * `draft` → bozza creata/riusata dal sito
+    * `submitted` → inviata (in review)
+    * `awaiting_payment` → documenti approvati, pagamento richiesto
+    * `paid` → pagamento confermato, partner attivato
+    * `rejected` → rifiutata (con motivazione)
+  * `docs_approved_at`
+  * `payment_required` (bool)
+  * `paid_at`
+  * `payment_reference` (test/stripe id)
+  * `contract_signed_url` (path su Storage)
+  * `contract_signed_at`
   * `reject_reason`
+  * `updated_at` (auto aggiornato via trigger)
 * `partners` → attività partner:
 
   * id, owner_id
@@ -505,6 +652,34 @@ Nel flusso check-in/out (scanner) lo stato `rejected` viene trattato come `cance
 
 ---
 
+## 🔒 RLS / RPC — Onboarding Partner (nuovo)
+
+### RLS (partner_requests)
+- SELECT: l’utente può leggere solo la propria richiesta (`user_id = auth.uid()`)
+- INSERT: consentito solo per creare `draft/submitted` (ma idealmente si crea via RPC)
+- UPDATE: **bloccato lato client** (nessuna policy update)  
+  → ogni transizione di stato avviene via RPC `SECURITY DEFINER`
+
+### RPC principali (server-side)
+- `upsert_partner_request_draft(p_partner_id uuid) -> uuid`  
+  Crea o riusa la richiesta “attiva” (`draft/submitted/awaiting_payment`) per l’utente e ritorna `request_id`.
+
+- `submit_partner_request() -> void`  
+  Porta `draft → submitted` e imposta `user_profiles.role = partner_candidate`.
+
+- `admin_approve_partner_docs(p_request_id uuid) -> void`  
+  Solo admin: porta a `awaiting_payment`, imposta `docs_approved_at`, `payment_required=true`.
+
+- `confirm_partner_payment(p_request_id uuid, p_payment_reference text) -> void`  
+  L’utente conferma il pagamento della PROPRIA richiesta:
+  - `awaiting_payment → paid`
+  - ruolo `user_profiles.role = partner`
+  - attiva `partners` (`status=approved`, `is_active=true`, `activated_at=now()`)
+
+> Nota: il pagamento Stripe reale verrà aggiunto dopo.  
+> Per test esiste una pagina “pagamento finto” con un bottone che chiama `confirm_partner_payment(...)`.
+
+
 # 📷 Permessi Fotocamera
 
 
@@ -564,6 +739,9 @@ lib/
 │     │     │      ├── partner_signup_screen.dart
 │     │     │      ├── partner_registration_screen.dart
 │     │     │      ├── partner_application_screen.dart
+│     │     │      ├── partner_onboarding_start_screen.dart
+│     │     │      ├── partner_payment_required_screen.dart
+│     │     │      ├── partner_rejected_screen.dart
 │     │     │      └── partner_waiting_screen.dart
 │     │     │
 │     │     ├── user_view/
@@ -605,6 +783,8 @@ lib/
             └── partner_photo/
                    └── partner_photo_repo.dart
 ```
+
+NOTA BENE : partner signup , registration ed application sono deprecate. Ora si fa da sito.
 
 ---
 
@@ -1067,6 +1247,13 @@ lib/
     * può **rifiutare** una prenotazione con **motivazione** → stato `rejected` (definitivo)
 
 > Il sistema implementa un **motore di disponibilità per intervallo di livello base**: controlla overlap e capacità, ma non genera ancora slot “a griglia” né ha logiche di overbooking avanzate.
+
+
+### ✅ Prenotazione riprendibile (requirement)
+Il flusso prenotazione deve essere **riprendibile in qualsiasi stato**:
+- se l’utente chiude l’app durante lo stepper, al riavvio deve poter riprendere
+- la bozza può vivere lato client (storage) e/o lato DB (estensione futura)
+- la conferma finale resta vincolata a disponibilità e validazioni dell’intervallo
 
 ---
 

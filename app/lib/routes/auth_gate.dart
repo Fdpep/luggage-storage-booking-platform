@@ -36,7 +36,7 @@ class AuthGate extends StatefulWidget {
   State<AuthGate> createState() => _AuthGateState();
 }
 
-class _AuthGateState extends State<AuthGate> {
+class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   final _supabase = Supabase.instance.client;
 
   Session? _session;
@@ -51,11 +51,14 @@ class _AuthGateState extends State<AuthGate> {
   bool _caricandoCandidate = false;
 
   bool _shownIncompleteWarning = false;
+  String? _candidateRejectReason;
+  Timer? _candidatePoll;
 
   @override
   void initState() {
     super.initState();
 
+    WidgetsBinding.instance.addObserver(this);
     _session = _supabase.auth.currentSession;
     if (_session != null) {
       _loadRoleAndMaybeCandidate();
@@ -63,6 +66,8 @@ class _AuthGateState extends State<AuthGate> {
 
     _sub = _supabase.auth.onAuthStateChange.listen((s) {
       if (!mounted) return;
+      _candidatePoll?.cancel();
+      _candidatePoll = null;
       setState(() {
         _session = s.session;
         _role = null;
@@ -70,6 +75,7 @@ class _AuthGateState extends State<AuthGate> {
         _caricandoRuolo = false;
         _caricandoCandidate = false;
         _shownIncompleteWarning = false;
+        _candidateRejectReason = null;
       });
 
       if (s.session != null) {
@@ -86,8 +92,40 @@ class _AuthGateState extends State<AuthGate> {
   @override
   void dispose() {
     _sub?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _candidatePoll?.cancel();
     super.dispose();
   }
+
+  @override
+void didChangeAppLifecycleState(AppLifecycleState state) {
+  if (state == AppLifecycleState.resumed) {
+    // quando torni dal browser/pagamento:
+    _reloadAuthState();
+  }
+}
+
+Future<void> _reloadAuthState() async {
+  try {
+    await _supabase.auth.refreshSession();
+  } catch (_) {}
+
+  final s = _supabase.auth.currentSession;
+  if (!mounted) return;
+
+  setState(() {
+    _session = s;
+    _caricandoRuolo = true;
+    _caricandoCandidate = false;
+  });
+
+  _candidatePoll?.cancel();
+  _candidatePoll = null;
+  if (s != null) {
+    await _loadRoleAndMaybeCandidate();
+  }
+}
+
 
   @override
   Widget build(BuildContext context) {
@@ -168,7 +206,7 @@ class _AuthGateState extends State<AuthGate> {
           return widget.signedInBuilder(context);
 
         case 'rejected':
-          return const PartnerRejectedScreen();
+          return PartnerRejectedScreen(reason: _candidateRejectReason);
 
         default:
           // nessuna richiesta -> lo mando a iniziare dal sito
@@ -210,11 +248,21 @@ class _AuthGateState extends State<AuthGate> {
         _caricandoRuolo = false;
       });
 
+      _candidatePoll?.cancel();
+if (role == 'partner_candidate') {
+  _candidatePoll = Timer.periodic(const Duration(seconds: 20), (_) async {
+    final uid = _session?.user.id;
+    if (uid != null) await _loadCandidateStatus(uid, showLoader: false);
+  });
+}
+
       // Se è partner_candidate carico anche lo stato della richiesta
       if (role == 'partner_candidate') {
         await _loadCandidateStatus(uid);
       }
     } catch (e) {
+      _candidatePoll?.cancel();
+      _candidatePoll = null;
       if (!mounted) return;
       setState(() {
         _caricandoRuolo = false;
@@ -222,24 +270,26 @@ class _AuthGateState extends State<AuthGate> {
     }
   }
 
-  Future<void> _loadCandidateStatus(String uid) async {
-    if (mounted) setState(() => _caricandoCandidate = true);
+Future<void> _loadCandidateStatus(String uid, {bool showLoader = true}) async {
+  if (mounted && showLoader) setState(() => _caricandoCandidate = true);
 
     try {
       final req = await _supabase
           .from('partner_requests')
-          .select('status')
+          .select('status,reject_reason')
           .eq('user_id', uid)
           .order('created_at', ascending: false)
           .limit(1)
           .maybeSingle();
 
       final String? st = req?['status'] as String?;
+      final String? reason = req?['reject_reason'] as String?;
 
       if (!mounted) return;
       setState(() {
         _candidateStatus = st;
         _caricandoCandidate = false;
+        _candidateRejectReason = reason;
       });
     } catch (e) {
       if (!mounted) return;

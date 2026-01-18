@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/partner_requests.dart';
 import '../../models/partner.dart';
+import 'package:url_launcher/url_launcher.dart';
+
 
 /// Schermata principale con le richieste partner in attesa di revisione.
 class AdminPartnerRequestsScreen extends StatefulWidget {
@@ -26,6 +28,39 @@ class _AdminPartnerRequestsScreenState
     _loadRequests();
   }
 
+Future<Uri?> _getSignedContractUrl(String path) async {
+  try {
+    // 10 minuti di validità
+    final res = await _supabase.storage
+        .from('partner-contracts')
+        .createSignedUrl(path, 600);
+
+    final url = res;
+    return Uri.tryParse(url);
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<void> _openContract(String path) async {
+  final uri = await _getSignedContractUrl(path);
+  if (uri == null) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Impossibile generare link contratto.')),
+    );
+    return;
+  }
+
+  final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+  if (!ok && mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Impossibile aprire il link contratto.')),
+    );
+  }
+}
+
+
   Future<void> _loadRequests() async {
     setState(() {
       _loading = true;
@@ -37,9 +72,9 @@ class _AdminPartnerRequestsScreenState
           await _supabase
                   .from('partner_requests')
                   .select(
-                    'id,user_id,partner_id,status,message,admin_note,created_at,reviewed_at,reviewed_by',
+                    'id,user_id,partner_id,status,message,admin_note,created_at,reviewed_at,reviewed_by,contract_signed_url,contract_signed_at',
                   )
-                  .eq('status', 'pending')
+                  .inFilter('status', ['submitted', 'awaiting_payment', 'rejected', 'paid'])
                   .order('created_at')
               as List<dynamic>;
 
@@ -88,60 +123,55 @@ class _AdminPartnerRequestsScreenState
     }
   }
 
-  Future<void> _decidi({
-    required PartnerRequest req,
-    required String nuovoStatus,
-    String? adminNote,
-  }) async {
+  Future<void> _approveDocs(PartnerRequest req) async {
     try {
-      final adminId = _supabase.auth.currentUser?.id;
-      if (adminId == null) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Admin non autenticato')));
-        return;
-      }
+      // ✅ 1) RPC admin approva documenti (server-side)
+      await _supabase.rpc(
+        'admin_approve_partner_docs',
+        params: {'p_request_id': req.id},
+      );
 
-      final nowIso = DateTime.now().toIso8601String();
-
-      // Aggiorno stato partner
-      await _supabase
-          .from('partners')
-          .update({
-            'status': nuovoStatus,
-            'is_active': nuovoStatus == 'approved',
-            'reject_reason': nuovoStatus == 'rejected' ? adminNote : null,
-          })
-          .eq('id', req.partnerId);
-
-      // Aggiorno richiesta
-      await _supabase
-          .from('partner_requests')
-          .update({
-            'status': nuovoStatus,
-            'admin_note': adminNote,
-            'reviewed_at': nowIso,
-            'reviewed_by': adminId,
-          })
-          .eq('id', req.id);
-
+      // res può essere null/void: va bene
       await _loadRequests();
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Richiesta ${nuovoStatus == 'approved' ? 'approvata' : 'rifiutata'}',
-          ),
-        ),
+        const SnackBar(content: Text('Documenti approvati. In attesa di pagamento.')),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Errore nell’aggiornare richiesta: $e')),
+        SnackBar(content: Text('Errore approvazione documenti: $e')),
       );
     }
   }
+
+Future<void> _rejectRequest({
+  required PartnerRequest req,
+  required String reason,
+}) async {
+  try {
+    await _supabase.rpc(
+      'admin_reject_partner_request',
+      params: {
+        'p_request_id': req.id,
+        'p_reason': reason,
+      },
+    );
+
+    await _loadRequests();
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Richiesta rifiutata.')),
+    );
+  } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Errore rifiuto richiesta: $e')),
+    );
+  }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -211,6 +241,8 @@ class _AdminPartnerRequestsScreenState
                   final name = p?.name ?? 'Attività senza nome';
                   final address = p?.address ?? 'Indirizzo non specificato';
                   final capacity = p?.capacity ?? 0;
+                  final contractPath = r.contractSignedUrl;
+                  final canApproveDocs = r.status == 'submitted';
 
                   return _AdminRequestCard(
                     shortId: shortId,
@@ -219,16 +251,15 @@ class _AdminPartnerRequestsScreenState
                     capacity: capacity,
                     note: r.message,
                     createdAt: r.createdAt,
-                    onApprove: () => _decidi(req: r, nuovoStatus: 'approved'),
+                    onApprove: canApproveDocs ? () => _approveDocs(r) : null,
                     onReject: () async {
                       final note = await _chiediMotivo(context);
                       if (note == null) return;
-                      await _decidi(
-                        req: r,
-                        nuovoStatus: 'rejected',
-                        adminNote: note,
-                      );
+                      await _rejectRequest(req: r, reason: note);
                     },
+                    contractPath: contractPath,
+                    onOpenContract: contractPath == null ? null : () => _openContract(contractPath),
+                    status: r.status,
                   );
                 },
               ),
@@ -282,8 +313,11 @@ class _AdminRequestCard extends StatelessWidget {
 
   final String? note;
   final DateTime? createdAt;
-  final VoidCallback onApprove;
+  final VoidCallback? onApprove;
   final Future<void> Function() onReject;
+  final String? contractPath;
+  final VoidCallback? onOpenContract;
+  final String status;
 
   const _AdminRequestCard({
     Key? key,
@@ -295,6 +329,9 @@ class _AdminRequestCard extends StatelessWidget {
     required this.createdAt,
     required this.onApprove,
     required this.onReject,
+    required this.contractPath,
+    required this.onOpenContract,
+    required this.status, 
   }) : super(key: key);
 
   String _formatCreatedAt() {
@@ -311,6 +348,19 @@ class _AdminRequestCard extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
 
     final createdStr = _formatCreatedAt();
+        final statusLabel = {
+      'submitted': 'Da revisionare',
+      'awaiting_payment': 'Pagamento richiesto',
+      'paid': 'Pagato',
+      'rejected': 'Rifiutato',
+    }[status] ?? status;
+
+    final badgeColor = {
+      'submitted': cs.secondary,
+      'awaiting_payment': cs.primary,
+      'paid': Colors.green,
+      'rejected': Colors.red,
+    }[status] ?? cs.secondary;
 
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -353,18 +403,15 @@ class _AdminRequestCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: cs.secondary.withOpacity(0.15),
+                    color: badgeColor.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    'In attesa',
+                    statusLabel,
                     style: textTheme.bodySmall?.copyWith(
-                      color: cs.secondary,
+                      color: badgeColor,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -427,6 +474,28 @@ class _AdminRequestCard extends StatelessWidget {
 
             const SizedBox(height: 12),
 
+            if ((contractPath ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: onOpenContract,
+                  icon: const Icon(Icons.picture_as_pdf_outlined),
+                  label: const Text('Apri contratto firmato (PDF)'),
+                ),
+              ),
+            ] else ...[
+              const SizedBox(height: 10),
+              Text(
+                'Contratto non presente.',
+                style: textTheme.bodySmall?.copyWith(
+                  color: cs.error,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+
+
             // Bottoni Approva / Rifiuta
             Row(
               children: [
@@ -434,15 +503,13 @@ class _AdminRequestCard extends StatelessWidget {
                   child: FilledButton.icon(
                     onPressed: onApprove,
                     icon: const Icon(Icons.check),
-                    label: const Text('Approva'),
+                    label: Text(status == 'submitted' ? 'Approva documenti' : 'Approva'),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: () {
-                      onReject();
-                    },
+                    onPressed: onReject,
                     icon: const Icon(Icons.close),
                     label: const Text('Rifiuta'),
                   ),

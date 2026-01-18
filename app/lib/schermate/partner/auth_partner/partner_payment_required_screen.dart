@@ -1,6 +1,9 @@
+// ignore_for_file: unused_local_variable
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../autenticazione/auth_actions.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class PartnerPaymentRequiredScreen extends StatefulWidget {
   const PartnerPaymentRequiredScreen({super.key});
@@ -12,6 +15,7 @@ class PartnerPaymentRequiredScreen extends StatefulWidget {
 class _PartnerPaymentRequiredScreenState extends State<PartnerPaymentRequiredScreen> {
   bool _loading = false;
   String? _msg;
+  static const String kPaymentUrl = 'https://bag-drop.it/pagamento-partner/';
 
   @override
   Widget build(BuildContext context) {
@@ -67,6 +71,25 @@ class _PartnerPaymentRequiredScreenState extends State<PartnerPaymentRequiredScr
 
                   SizedBox(
                     width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _loading ? null : () async {
+                        final uri = Uri.parse(kPaymentUrl);
+                        final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        if (!ok && mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Impossibile aprire il link di pagamento.')),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.open_in_new),
+                      label: const Text('Vai alla pagina pagamento'),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+
+                  SizedBox(
+                    width: double.infinity,
                     child: ElevatedButton(
                       onPressed: _loading ? null : _simulatePayment,
                       child: _loading
@@ -97,43 +120,14 @@ class _PartnerPaymentRequiredScreenState extends State<PartnerPaymentRequiredScr
     );
   }
 
-  Future<void> _simulatePayment() async {
-    setState(() {
-      _loading = true;
-      _msg = null;
-    });
-
-    try {
-      // ✅ QUI chiameremo la RPC “security definer” che:
-      // - verifica auth.uid()
-      // - verifica status docs_approved
-      // - aggiorna stato a paid + setta role='partner'
-      //
-      // Per ora la mettiamo come “placeholder”:
-      //
-      // await Supabase.instance.client.rpc('mark_partner_paid_and_activate');
-      //
-      // Se la RPC non esiste ancora, non rompe l’app: mostra errore leggibile.
-
-      final client = Supabase.instance.client;
-
-      final res = await client.rpc('mark_partner_paid_and_activate');
-      // se la tua rpc ritorna qualcosa, puoi loggare res
-
-      setState(() {
-        _msg = 'OK: pagamento simulato completato. Ora puoi rientrare come partner.';
-      });
-
-      // forziamo refresh sessione + ricarico gate
-      await client.auth.refreshSession();
-      if (!mounted) return;
-      Navigator.of(context).popUntil((r) => r.isFirst);
-    } catch (e) {
-      setState(() {
-        _msg = 'ERRORE: $e';
-      });
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
+Future<void> _simulatePayment() async {
+  final uri = Uri.parse(kPaymentUrl);
+  final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+  if (!ok && mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Impossibile aprire il link di pagamento.')),
+    );
   }
+}
+
 }

@@ -3,12 +3,16 @@ class PartnerRequest {
   final String id;
   final String userId;
   final String partnerId;
-  final String status;        // 'pending' | 'approved' | 'rejected'
+  final String status; // 'draft' | 'submitted' | 'awaiting_payment' | 'paid' | 'rejected'
   final String? message;
   final String? adminNote;
+  final String? rejectReason;
   final DateTime createdAt;
   final DateTime? reviewedAt;
   final String? reviewedBy;   // auth.users.id admin
+  final String? contractSignedUrl;
+  final DateTime? contractSignedAt;
+
 
   PartnerRequest({
     required this.id,
@@ -18,8 +22,11 @@ class PartnerRequest {
     required this.createdAt,
     this.message,
     this.adminNote,
+    this.rejectReason,
     this.reviewedAt,
     this.reviewedBy,
+    this.contractSignedUrl,
+    this.contractSignedAt,
   });
 
   factory PartnerRequest.fromMap(Map<String, dynamic> map) {
@@ -30,11 +37,16 @@ class PartnerRequest {
       status: map['status'] as String,
       message: map['message'] as String?,
       adminNote: map['admin_note'] as String?,
+      rejectReason: map['reject_reason'] as String?,
       createdAt: DateTime.parse(map['created_at'] as String),
       reviewedAt: map['reviewed_at'] == null
           ? null
           : DateTime.tryParse(map['reviewed_at'] as String),
       reviewedBy: map['reviewed_by'] as String?,
+      contractSignedUrl: map['contract_signed_url'] as String?,
+      contractSignedAt: map['contract_signed_at'] == null
+          ? null
+          : DateTime.tryParse(map['contract_signed_at'] as String),
     );
   }
 
@@ -46,9 +58,12 @@ class PartnerRequest {
       'status': status,
       'message': message,
       'admin_note': adminNote,
+      'reject_reason': rejectReason,
       'created_at': createdAt.toIso8601String(),
       'reviewed_at': reviewedAt?.toIso8601String(),
       'reviewed_by': reviewedBy,
+      'contract_signed_url': contractSignedUrl,
+      'contract_signed_at': contractSignedAt?.toIso8601String(),
     };
   }
 }
