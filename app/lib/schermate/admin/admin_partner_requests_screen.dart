@@ -74,7 +74,7 @@ Future<void> _openContract(String path) async {
                   .select(
                     'id,user_id,partner_id,status,message,admin_note,created_at,reviewed_at,reviewed_by,contract_signed_url,contract_signed_at',
                   )
-                  .inFilter('status', ['submitted', 'awaiting_payment', 'rejected', 'paid'])
+                  .inFilter('status', ['submitted'])
                   .order('created_at')
               as List<dynamic>;
 
