@@ -276,7 +276,7 @@ Future<void> _loadCandidateStatus(String uid, {bool showLoader = true}) async {
     try {
       final req = await _supabase
           .from('partner_requests')
-          .select('status,reject_reason')
+          .select('id,status,reject_reason')
           .eq('user_id', uid)
           .order('created_at', ascending: false)
           .limit(1)

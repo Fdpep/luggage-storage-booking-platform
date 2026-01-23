@@ -1,0 +1,420 @@
+<!-- Pagamento Partner - BagDrop (WordPress Custom HTML) -->
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+  #partner-payment-root{
+    font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    line-height: 1.5;
+    color:#111827;
+    min-height: 320px;
+  }
+</style>
+
+<div id="partner-payment-root">
+  <div class="text-center py-16">
+    <div class="mx-auto w-10 h-10 rounded-full border-4 border-gray-200 border-t-blue-600 animate-spin"></div>
+    <p class="mt-4 text-gray-600 font-semibold">Caricamento Pagamento…</p>
+  </div>
+</div>
+
+<script type="text/babel">
+/************************************************
+ * CONFIG
+ ************************************************/
+const SUPABASE_URL = "https://lnwtlwucvvoqhhydkspd.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxud3Rsd3VjdnZvcWhoeWRrc3BkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzNTU1MjksImV4cCI6MjA3NzkzMTUyOX0.Iqyn6p7AOvGIQNXtry5067MGlvwMBB_gA2TQqqM8Qww";
+
+function initPayment(){
+  if(!window.React || !window.ReactDOM || !window.supabase){
+    setTimeout(initPayment, 100); return;
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const Card = ({ children }) => (
+    <div className="bg-white border border-gray-200 rounded-2xl shadow-xl p-5 md:p-7">
+      {children}
+    </div>
+  );
+
+  const Pill = ({ color="gray", children }) => {
+    const map = {
+      gray: "bg-gray-50 border-gray-200 text-gray-800",
+      blue: "bg-blue-50 border-blue-200 text-blue-800",
+      green:"bg-green-50 border-green-200 text-green-800",
+      red:  "bg-red-50 border-red-200 text-red-800",
+      amber:"bg-amber-50 border-amber-200 text-amber-800",
+    };
+    return (
+      <span className={`inline-flex items-center px-3 py-1 rounded-full border text-xs font-extrabold ${map[color]}`}>
+        {children}
+      </span>
+    );
+  };
+
+  const Alert = ({ type="info", children }) => {
+    const map = {
+      info:  "bg-blue-50 border-blue-200 text-blue-900",
+      ok:    "bg-green-50 border-green-200 text-green-900",
+      error: "bg-red-50 border-red-200 text-red-900",
+      warn:  "bg-amber-50 border-amber-200 text-amber-900",
+    };
+    return (
+      <div className={`p-4 rounded-xl border text-sm ${map[type]}`}>
+        {children}
+      </div>
+    );
+  };
+
+  function App(){
+    const [loading, setLoading] = React.useState(true);
+    const [session, setSession] = React.useState(null);
+    const [userEmail, setUserEmail] = React.useState("");
+    const [pwd, setPwd] = React.useState("");
+    const [msg, setMsg] = React.useState(null);
+
+    const [req, setReq] = React.useState(null); // {id,status,created_at,paid_at,payment_reference}
+    const [paying, setPaying] = React.useState(false);
+
+    React.useEffect(() => {
+      boot();
+      const { data: sub } = sb.auth.onAuthStateChange((_event, s) => {
+        setSession(s);
+        if (s?.user?.email) setUserEmail(s.user.email);
+        // ricarica la richiesta quando cambia auth
+        loadRequest().catch(()=>{});
+      });
+      return () => sub?.subscription?.unsubscribe?.();
+    }, []);
+
+    async function boot(){
+      setLoading(true);
+      setMsg(null);
+      try{
+        const { data } = await sb.auth.getSession();
+        setSession(data?.session ?? null);
+        if (data?.session?.user?.email) setUserEmail(data.session.user.email);
+        await loadRequest();
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function loadRequest(){
+      try{
+        const { data: sData } = await sb.auth.getSession();
+        const s = sData?.session;
+        if (!s) { setReq(null); return; }
+
+        const { data, error } = await sb
+          .from("partner_requests")
+          .select("id,status,created_at,paid_at,payment_reference")
+          .eq("user_id", s.user.id)
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        if (error) throw error;
+
+        const r = (data && data[0]) ? data[0] : null;
+        setReq(r);
+      } catch (e){
+        setReq(null);
+        setMsg({ type:"error", text: (e?.message || String(e)) });
+      }
+    }
+
+    async function login(){
+      setMsg(null);
+      if(!userEmail || !userEmail.includes("@")) {
+        setMsg({ type:"error", text:"Inserisci una email valida." }); return;
+      }
+      if(!pwd || pwd.length < 6){
+        setMsg({ type:"error", text:"Inserisci la password (min 6 caratteri)." }); return;
+      }
+
+      setLoading(true);
+      try{
+        const { error } = await sb.auth.signInWithPassword({ email: userEmail.trim(), password: pwd });
+        if (error) throw error;
+        await sb.auth.refreshSession();
+        await loadRequest();
+        setMsg(null);
+      } catch(e){
+        setMsg({ type:"error", text: (e?.message || String(e)) });
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function logout(){
+      setMsg(null);
+      setLoading(true);
+      try{
+        await sb.auth.signOut();
+        setReq(null);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function statusBadge(st){
+      if(!st) return <Pill>—</Pill>;
+      const map = {
+        draft: ["gray", "Bozza"],
+        submitted: ["blue", "In revisione"],
+        awaiting_payment: ["amber", "Pagamento richiesto"],
+        paid: ["green", "Pagato"],
+        rejected: ["red", "Rifiutato"],
+      };
+      const [c, label] = map[st] || ["gray", st];
+      return <Pill color={c}>{label}</Pill>;
+    }
+
+    async function payMock(){
+      if(!req?.id) return;
+      setPaying(true);
+      setMsg(null);
+      try{
+        const ref = "wp-mock-" + new Date().toISOString();
+        const { error } = await sb.rpc("confirm_partner_payment", {
+          p_request_id: req.id,
+          p_payment_reference: ref
+        });
+        if (error) throw error;
+
+        await loadRequest();
+
+        setMsg({
+          type:"ok",
+          text:"Pagamento completato ✅ Ora puoi aprire l’app BagDrop: entrerai come Partner."
+        });
+      } catch(e){
+        setMsg({ type:"error", text: (e?.message || String(e)) });
+      } finally {
+        setPaying(false);
+      }
+    }
+
+async function payStripe(){
+  if(!req?.id) return;
+  setPaying(true);
+  setMsg(null);
+  try{
+    const { data, error } = await sb.functions.invoke("create-partner-checkout-session", {
+      body: { request_id: req.id }
+    });
+
+    if (error) throw error;
+    if (!data?.url) throw new Error("Checkout URL missing");
+
+    window.location.href = data.url;
+  } catch(e){
+    setMsg({ type:"error", text: (e?.message || String(e)) });
+  } finally {
+    setPaying(false);
+  }
+}
+
+
+    if(loading){
+      return (
+        <div className="max-w-3xl mx-auto px-4 py-14" id="partner-payment-root-inner">
+          <div className="text-center">
+            <div className="mx-auto w-10 h-10 rounded-full border-4 border-gray-200 border-t-blue-600 animate-spin"></div>
+            <p className="mt-4 text-gray-600 font-semibold">Caricamento…</p>
+          </div>
+        </div>
+      );
+    }
+
+    const logged = !!session;
+
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-10">
+        <div className="text-center mb-6">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600 text-white text-2xl shadow-lg">💳</div>
+          <h1 className="mt-3 text-3xl font-extrabold text-gray-900">Pagamento Partner BagDrop</h1>
+          <p className="mt-2 text-gray-600">
+            Completa il pagamento per attivare il tuo profilo partner.
+          </p>
+        </div>
+
+        <div className="grid gap-4">
+          {msg && (
+            <Alert type={msg.type === "ok" ? "ok" : (msg.type === "warn" ? "warn" : (msg.type === "error" ? "error" : "info"))}>
+              {msg.text}
+            </Alert>
+          )}
+
+          <Card>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div>
+                <div className="text-sm font-extrabold text-gray-900">Stato richiesta</div>
+                <div className="mt-2">{statusBadge(req?.status)}</div>
+              </div>
+
+              {logged ? (
+                <div className="text-sm text-gray-600">
+                  Sei loggato come <span className="font-extrabold text-gray-900">{session.user.email}</span>
+                </div>
+              ) : (
+                <div className="text-sm text-gray-600">
+                  Per pagare devi fare login con lo stesso account usato nel wizard.
+                </div>
+              )}
+            </div>
+
+            {!logged && (
+              <div className="mt-5 grid gap-3">
+                <div>
+                  <label className="text-xs font-extrabold text-gray-700">Email</label>
+                  <input
+                    className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"
+                    type="email"
+                    value={userEmail}
+                    onChange={(e)=>setUserEmail(e.target.value)}
+                    placeholder="nome@esempio.com"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-extrabold text-gray-700">Password</label>
+                  <input
+                    className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"
+                    type="password"
+                    value={pwd}
+                    onChange={(e)=>setPwd(e.target.value)}
+                    placeholder="••••••••"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={login}
+                  className="w-full rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-3"
+                >
+                  Accedi
+                </button>
+
+                <div className="text-xs text-gray-500">
+                  Se non ricordi la password, rifai l’accesso dal wizard partner o contatta l’assistenza.
+                </div>
+              </div>
+            )}
+
+            {logged && (
+              <div className="mt-5 grid gap-3">
+                {!req && (
+                  <Alert type="warn">
+                    Nessuna richiesta partner trovata per questo account.
+                    Se hai appena inviato la richiesta, attendi qualche minuto e ricarica.
+                  </Alert>
+                )}
+
+                {req && req.status === "submitted" && (
+                  <Alert type="info">
+                    La tua richiesta è ancora in revisione. Riceverai una notifica quando i documenti saranno approvati.
+                  </Alert>
+                )}
+
+                {req && req.status === "rejected" && (
+                  <Alert type="error">
+                    La richiesta risulta rifiutata. Se pensi sia un errore, contatta l’assistenza.
+                  </Alert>
+                )}
+
+                {req && req.status === "paid" && (
+                  <Alert type="ok">
+                    Pagamento già completato ✅
+                    <div className="mt-2 text-sm text-gray-700">
+                      Reference: <span className="font-mono font-bold">{req.payment_reference || "—"}</span>
+                    </div>
+                    <div className="mt-3 text-sm text-gray-700">
+                      Ora apri l’app BagDrop e rientra: sarai Partner.
+                    </div>
+                  </Alert>
+                )}
+
+                {req && req.status === "awaiting_payment" && (
+                  <div className="grid gap-3">
+                    <Alert type="warn">
+                      Pagamento richiesto: clicca qui per completare l’attivazione.
+                      <div className="mt-2 text-xs text-gray-700">
+                        (Ora è in modalità test/mock. Poi lo colleghiamo a Stripe.)
+                      </div>
+                    </Alert>
+
+                    <button
+                      type="button"
+                      onClick={payMock}
+                      disabled={paying}
+                      className={`w-full rounded-xl font-extrabold py-3 text-white ${
+                        paying ? "bg-green-300 cursor-not-allowed" : "bg-green-600 hover:bg-green-700"
+                      }`}
+                    >
+                      {paying ? "Pagamento in corso…" : "Simula pagamento (TEST)"}
+                    </button>
+
+                    <button
+  type="button"
+  onClick={payStripe}
+  disabled={paying}
+  className={`w-full rounded-xl font-extrabold py-3 text-white ${
+    paying ? "bg-green-300 cursor-not-allowed" : "bg-green-600 hover:bg-green-700"
+  }`}
+>
+  {paying ? "Reindirizzamento a Stripe…" : "Paga con Stripe (TEST)"}
+</button>
+
+
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={loadRequest}
+                        className="flex-1 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 font-extrabold py-3"
+                      >
+                        Aggiorna stato
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={logout}
+                        className="flex-1 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 font-extrabold py-3"
+                      >
+                        Esci
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {req && !["awaiting_payment","paid","submitted","rejected","draft"].includes(req.status) && (
+                  <Alert type="warn">
+                    Stato non riconosciuto: <b>{req.status}</b>
+                  </Alert>
+                )}
+
+                <div className="mt-2 text-xs text-gray-500">
+                  Se hai appena completato il pagamento, torna nell’app e premi “Ho pagato: aggiorna”.
+                </div>
+              </div>
+            )}
+          </Card>
+
+          <div className="text-center text-xs text-gray-500">
+            BagDrop • Pagamento Partner • Supporto: info@bag-drop.it
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const root = document.getElementById("partner-payment-root");
+  ReactDOM.createRoot(root).render(<App />);
+}
+
+setTimeout(initPayment, 200);
+</script>

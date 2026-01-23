@@ -1,0 +1,2079 @@
+<!-- 1) Librerie -->
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDOynPiCP0uVXSmag3XcEZNHLzI9K3vzv8&libraries=places"></script>
+
+
+<style>
+  #partner-wizard-root {
+    font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    line-height: 1.5;
+    color: #111827;
+    min-height: 320px;
+  }
+  #partner-wizard-root input, #partner-wizard-root select, #partner-wizard-root textarea {
+    display:block; width:100%;
+    border-radius:.5rem; border:1px solid #d1d5db;
+    padding:.6rem .75rem; margin-top:.25rem; font-size:1rem;
+    background:#fff; color:#111827;
+  }
+  #partner-wizard-root label { font-weight:600; font-size:.85rem; color:#374151; }
+  .btn-secondary {
+    background:#f3f4f6; color:#374151; padding:.6rem 1rem; border-radius:.6rem;
+    font-weight:700; cursor:pointer; border:1px solid #d1d5db;
+  }
+
+.btn-secondary-mini{
+  background:#f3f4f6;
+  color:#374151;
+  padding:.35rem .6rem;
+  border-radius:.55rem;
+  font-weight:800;
+  cursor:pointer;
+  border:1px solid #d1d5db;
+  font-size:.78rem;
+  line-height:1.1;
+  white-space:nowrap;
+}
+.btn-secondary-mini:hover{ background:#e5e7eb; }
+
+
+  input[type=file]::file-selector-button{
+    margin-right:1rem; padding:.55rem 1rem; border-radius:9999px; border:0;
+    font-size:.875rem; font-weight:700; background:#eff6ff; color:#1d4ed8; cursor:pointer;
+  }
+  input[type=file]::file-selector-button:hover{ background:#dbeafe; }
+  .loading-spinner{ border:4px solid #f3f3f3; border-top:4px solid #2563eb; border-radius:50%;
+    width:30px; height:30px; animation:spin 1s linear infinite; margin:20px auto; }
+  @keyframes spin{0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)}}
+
+/* Modal */
+.bd-modal-backdrop{
+  position:fixed; inset:0; background:rgba(17,24,39,.55);
+  display:flex; align-items:center; justify-content:center;
+  padding:16px; z-index:9999;
+}
+.bd-modal{
+  width:min(560px, 96vw);
+  background:#fff; border:1px solid #e5e7eb; border-radius:16px;
+  box-shadow:0 30px 80px rgba(0,0,0,.25);
+  overflow:hidden;
+}
+.bd-modal-header{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 16px; border-bottom:1px solid #e5e7eb;
+}
+.bd-modal-title{ font-weight:800; color:#111827; }
+.bd-icon-btn{
+  width:36px; height:36px; display:inline-flex; align-items:center; justify-content:center;
+  border-radius:10px; border:1px solid #e5e7eb; background:#fff; cursor:pointer;
+}
+.bd-icon-btn:hover{ background:#f9fafb; }
+.bd-modal-body{ padding:16px; }
+.bd-modal-footer{
+  display:flex; gap:10px; padding:14px 16px; border-top:1px solid #e5e7eb; justify-content:flex-end;
+}
+.bd-chip{
+  display:inline-flex; align-items:center; gap:8px;
+  padding:6px 10px; border-radius:9999px; font-weight:800; font-size:12px;
+  border:1px solid #e5e7eb; background:#f9fafb; color:#111827;
+}
+
+
+</style>
+
+<div id="partner-wizard-root">
+  <div style="text-align:center; padding:40px;">
+    <div class="loading-spinner"></div>
+    <p>Caricamento Modulo Partner…</p>
+  </div>
+</div>
+
+<script type="text/babel">
+/************************************************
+ * CONFIG
+ ************************************************/
+const SUPABASE_URL = "https://lnwtlwucvvoqhhydkspd.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxud3Rsd3VjdnZvcWhoeWRrc3BkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzNTU1MjksImV4cCI6MjA3NzkzMTUyOX0.Iqyn6p7AOvGIQNXtry5067MGlvwMBB_gA2TQqqM8Qww";
+const GOOGLE_MAPS_API_KEY = "AIzaSyDOynPiCP0uVXSmag3XcEZNHLzI9K3vzv8";
+const CONTRACT_DOWNLOAD_URL = "/contratto_facsimile.pdf"; // cambia se serve
+
+function initWizard(){
+  if(!window.React || !window.ReactDOM || !window.supabase){
+    setTimeout(initWizard, 100); return;
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const dayOrder = ["mon","tue","wed","thu","fri","sat","sun"];
+  const dayLabels = { mon:"Lunedì", tue:"Martedì", wed:"Mercoledì", thu:"Giovedì", fri:"Venerdì", sat:"Sabato", sun:"Domenica" };
+
+  const Steps = ({ current }) => {
+    const labels = ["Account", "Attività", "Orari", "Capacità", "Riepilogo", "Inviato", "Stato"];
+    return (
+      <div className="flex justify-between mb-8 overflow-x-auto gap-3">
+        {labels.map((label, idx) => {
+          const n = idx + 1;
+          const active = n === current;
+          const done = n < current;
+          return (
+            <div key={n} className={`text-sm font-semibold whitespace-nowrap px-2 pb-2 border-b-2 ${active ? "text-blue-600 border-blue-600" : done ? "text-gray-700 border-gray-300" : "text-gray-400 border-transparent"}`}>
+              <span className="mr-1">{n}.</span>{label}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const Alert = ({ type, msg }) => (
+    <div className={`p-4 mb-4 rounded-lg border text-sm break-words ${type==="error" ? "bg-red-50 border-red-200 text-red-800" : "bg-green-50 border-green-200 text-green-800"}`}>
+      {msg}
+    </div>
+  );
+
+
+// --------- HELPERS CAPACITÀ (coerente con DB v2: base in M, salvataggio in unità S = "u") ----------
+function parseNonNegative(v){
+  const n = parseInt(String(v ?? "").trim(), 10);
+  if(Number.isNaN(n) || n < 0) return 0;
+  return n;
+}
+
+// Conversioni: 1M = 2S, 1L = 4S
+function computeCapacitiesV2({ baseM, extraS, extraM, extraL, acceptS=true, acceptM=true, acceptL=true }){
+  const m = parseNonNegative(baseM);
+  const exS = parseNonNegative(extraS);
+  const exM = parseNonNegative(extraM);
+  const exL = parseNonNegative(extraL);
+
+  // base in unità S (u)
+  const base_u = m * 2;
+
+  // display equivalenze della base (solo UI)
+  const baseS = base_u;                    // S
+  const baseM_disp = m;                    // M
+  const baseL = Math.floor(base_u / 4);    // L
+
+  // effective per taglia (solo UI) + rispettano accept
+  const capS = (acceptS ? (base_u + exS) : 0);
+  const capM = (acceptM ? (Math.floor(base_u / 2) + exM) : 0);
+  const capL = (acceptL ? (Math.floor(base_u / 4) + exL) : 0);
+
+  // Totale in unità equivalenti S (u) = S*1 + M*2 + L*4
+  const total_u = (capS * 1) + (capM * 2) + (capL * 4);
+
+  return {
+    baseM: m,
+    base_u,
+    baseS,
+    baseM_disp,
+    baseL,
+    capS,
+    capM,
+    capL,
+    total_u
+  };
+}
+
+  // --------- OPENING HOURS JSON FORMAT (come app) ----------
+  function emptyWeekly(){
+    const o = {};
+    dayOrder.forEach(d => o[d] = []);
+    return o;
+  }
+
+  function normalizeTimeStr(s){
+    // "H:MM" -> "HH:MM"
+    const t = String(s || "").trim();
+    if(!t.includes(":")) return "";
+    const [h, m] = t.split(":");
+    const hh = String(parseInt(h, 10)).padStart(2, "0");
+    const mm = String(parseInt(m, 10)).padStart(2, "0");
+    return `${hh}:${mm}`;
+  }
+
+  function timeToMinutes(hhmm){
+    const [h,m] = hhmm.split(":").map(x => parseInt(x,10));
+    return (h*60) + m;
+  }
+
+  function overlap(aOpen, aClose, bOpen, bClose){
+    const aS = timeToMinutes(aOpen), aE = timeToMinutes(aClose);
+    const bS = timeToMinutes(bOpen), bE = timeToMinutes(bClose);
+    return aS < bE && bS < aE;
+  }
+
+  function App(){
+    const [step, setStep] = React.useState(1);
+    const [loading, setLoading] = React.useState(false);
+    const [msg, setMsg] = React.useState(null);
+
+    // ---- OTP (Step 1 inline) ----
+    const [otpPhase, setOtpPhase] = React.useState("form"); 
+    // "form" | "verify"  (form = inserimento dati, verify = schermata OTP)
+
+    const [otpCode, setOtpCode] = React.useState("");
+    const [otpSending, setOtpSending] = React.useState(false);
+    const [otpVerifying, setOtpVerifying] = React.useState(false);
+    const [otpEmail, setOtpEmail] = React.useState(""); // email usata per OTP
+
+
+    // Address autocomplete UI
+    const [addrSuggestions, setAddrSuggestions] = React.useState([]);
+    const [addrLoading, setAddrLoading] = React.useState(false);
+
+    // ---- Address UX: keyboard nav + debounce autofocus ----
+    const [addrActiveIndex, setAddrActiveIndex] = React.useState(-1);
+    const addrInputRef = React.useRef(null);
+    const addrDebounceRef = React.useRef(null);
+
+    // ---- MAPS: refs + state (Step 2) ----
+    const mapRef = React.useRef(null);
+    const markerRef = React.useRef(null);
+    const geocoderRef = React.useRef(null);
+    const [mapReady, setMapReady] = React.useState(false);
+
+
+    // Opening hours state
+    const [weekly, setWeekly] = React.useState(emptyWeekly());
+    const [closedDates, setClosedDates] = React.useState([]);        // ["YYYY-MM-DD"]
+    const [forcedOpenDates, setForcedOpenDates] = React.useState([]); // ["YYYY-MM-DD"]
+
+    // Modal fasce
+    const [timeModalOpen, setTimeModalOpen] = React.useState(false);
+    const [timeModalDay, setTimeModalDay] = React.useState("mon");
+    const [timeModalIndex, setTimeModalIndex] = React.useState(null); // null = nuova fascia
+    const [timeOpen, setTimeOpen] = React.useState("09:00");
+    const [timeClose, setTimeClose] = React.useState("13:00");
+
+    // ---- Request status (Step 7) ----
+    const [reqLoading, setReqLoading] = React.useState(false);
+    const [reqStatus, setReqStatus] = React.useState(null); // 'draft' | 'submitted' | 'awaiting_payment' | 'paid' | 'rejected'
+    const [reqRejectReason, setReqRejectReason] = React.useState(null);
+    const [myRole, setMyRole] = React.useState(null); // cached role
+
+    const [form, setForm] = React.useState({
+      // Step 1
+      firstName: "",
+      lastName: "",
+      email: "",
+      password: "",
+      phone: "",
+      businessType: "hotel",
+
+      // Step 2
+      partnerName: "",
+      address: "",
+      lat: null,
+      lng: null,
+
+      // Step 4
+      baseM: 10,
+      extraS: 0,
+      extraM: 0,
+      extraL: 0,
+      acceptS: true,
+      acceptM: true,
+      acceptL: true,
+
+      // Step 5
+      contractFile: null
+    });
+
+    // ======================= AUTO-ROUTING: already candidate/partner =======================
+    React.useEffect(() => {
+      (async () => {
+        try {
+          // prova a vedere se c'è una sessione già attiva
+          const { data: uData } = await sb.auth.getUser();
+          const u = uData?.user;
+          if (!u) return;
+
+          // se OTP non verificato, resta su step 1/otp
+          const meta = u.user_metadata || {};
+          const otpVerified = meta.otp_verified === true;
+          if (!otpVerified) {
+            setStep(1);
+            return;
+          }
+
+          // role dal profilo (safe)
+          const role = await getMyRoleSafe(u.id);
+
+          // se partner attivo: blocca wizard
+          if (role === "partner") {
+            setMyRole("partner");
+            setStep(7);
+            return;
+          }
+
+          if (role === "partner_candidate") {
+            setMyRole("partner_candidate");
+            await loadMyRoleAndRequestStatus();
+            setStep(7);
+            return;
+          }
+
+          // role user + otp ok: se eri già loggato, vai allo step 2 (evita rifare step 1)
+          setMyRole(role);
+          setStep(2);
+        } catch (e) {
+          // silenzioso: non blocca l'utente
+        }
+      })();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+
+    React.useEffect(() => {
+      if (addrActiveIndex < 0) return;
+      const el = document.getElementById(`addr-item-${addrActiveIndex}`);
+      if (el) el.scrollIntoView({ block: "nearest" });
+    }, [addrActiveIndex]);
+
+    // ---- UI guard: se disattivi una taglia, azzera l’extra della stessa taglia ----
+    React.useEffect(() => {
+      setForm(prev => {
+        const next = { ...prev };
+        let changed = false;
+
+        if (!next.acceptS && parseNonNegative(next.extraS) !== 0) { next.extraS = 0; changed = true; }
+        if (!next.acceptM && parseNonNegative(next.extraM) !== 0) { next.extraM = 0; changed = true; }
+        if (!next.acceptL && parseNonNegative(next.extraL) !== 0) { next.extraL = 0; changed = true; }
+
+        return changed ? next : prev;
+      });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [form.acceptS, form.acceptM, form.acceptL]);
+
+    // ---- init MAP quando siamo nello Step 2 ----
+    React.useEffect(() => {
+      if (step !== 2) return;
+
+      const tryInit = () => {
+        if (!window.google || !window.google.maps) {
+          setTimeout(tryInit, 200);
+          return;
+        }
+
+        const el = document.getElementById("partner-map");
+        if (!el) {
+          setTimeout(tryInit, 100);
+          return;
+        }
+
+        const hasCoords = (form.lat != null && form.lng != null);
+        const center = hasCoords
+          ? { lat: Number(form.lat), lng: Number(form.lng) }
+          : { lat: 41.9028, lng: 12.4964 }; // Roma fallback
+
+        const IT_BOUNDS = {
+          north: 47.10,
+          south: 35.49,
+          east: 18.52,
+          west: 6.62,
+        };
+
+        mapRef.current = new window.google.maps.Map(el, {
+          center,
+          zoom: hasCoords ? 16 : 6,
+          minZoom: 5,
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: false,
+
+          restriction: {
+            latLngBounds: IT_BOUNDS,
+            strictBounds: true,
+          },
+        });
+
+
+        ensureMapsReady();
+        setMapReady(true);
+
+        if (hasCoords) {
+          setMapMarker(Number(form.lat), Number(form.lng), true);
+        }
+
+        mapRef.current.addListener("click", async (e) => {
+          try {
+            const lat = e.latLng.lat();
+            const lng = e.latLng.lng();
+
+            setMapMarker(lat, lng, true);
+
+            const addr = await reverseGeocodeLatLng(lat, lng);
+            setField("address", addr);
+            setAddrSuggestions([]);
+          } catch (err) {
+            console.warn(err);
+          }
+        });
+      };
+
+      tryInit();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [step]);
+
+
+    const fetchAddressSuggestions = async (text) => {
+      const q = (text || '').trim();
+      if (q.length < 3) {
+        setAddrSuggestions([]);
+        return;
+      }
+
+      if (!window.google || !window.google.maps || !window.google.maps.places) {
+        // Places non caricato
+        return;
+      }
+
+      setAddrLoading(true);
+
+      const service = new window.google.maps.places.AutocompleteService();
+      service.getPlacePredictions(
+        {
+          input: q,
+          types: ['address'],
+          // Facoltativo: limita ai risultati in Italia
+          componentRestrictions: { country: 'it' },
+        },
+        (predictions, status) => {
+          setAddrLoading(false);
+          if (status !== window.google.maps.places.PlacesServiceStatus.OK || !predictions) {
+            setAddrSuggestions([]);
+            return;
+          }
+            const list = predictions.map(p => p.description);
+            setAddrSuggestions(list);
+            setAddrActiveIndex(list.length ? 0 : -1);
+        }
+      );
+    };
+
+    const handleAddressChange = (e) => {
+      const value = e.target.value;
+
+      setField("address", value);
+      fetchAddressSuggestions(value);
+
+      // reset coords mentre scrive (evita lat/lng vecchie su address nuovo)
+      setField("lat", null);
+      setField("lng", null);
+
+      // Debounce autofocus mappa
+      if (addrDebounceRef.current) clearTimeout(addrDebounceRef.current);
+
+      const q = value.trim();
+      if (q.length < 6) return; // evita chiamate inutili
+
+      addrDebounceRef.current = setTimeout(async () => {
+        try {
+          const r = await geocodeAddressToLatLng(q);
+          // centra la mappa mentre scrive
+          setField("address", r.formattedAddress);
+          setMapMarker(r.lat, r.lng, true, 17);
+        } catch (err) {
+          // se non trova, non fare nulla (continua a scrivere)
+        }
+      }, 500);
+    };
+
+
+    const handleAddressKeyDown = (e) => {
+      if (!addrSuggestions.length) return;
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setAddrActiveIndex((i) => {
+          const next = i < 0 ? 0 : Math.min(i + 1, addrSuggestions.length - 1);
+          return next;
+        });
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setAddrActiveIndex((i) => Math.max(i - 1, 0));
+      } else if (e.key === "Enter") {
+        // seleziona il suggerimento evidenziato
+        e.preventDefault();
+        const idx = addrActiveIndex < 0 ? 0 : addrActiveIndex;
+        const s = addrSuggestions[idx];
+        if (s) pickSuggestion(s);
+      } else if (e.key === "Escape") {
+        setAddrSuggestions([]);
+        setAddrActiveIndex(-1);
+      }
+    };
+
+    const ensureMapsReady = () => {
+      if (!window.google || !window.google.maps) return false;
+      if (!geocoderRef.current) geocoderRef.current = new window.google.maps.Geocoder();
+      return true;
+    };
+
+    const setMapMarker = (lat, lng, pan = true, zoom = null) => {
+      if (!mapRef.current) return;
+
+      const pos = { lat, lng };
+
+      if (!markerRef.current) {
+        markerRef.current = new window.google.maps.Marker({
+          position: pos,
+          map: mapRef.current,
+          draggable: false,
+          icon: {
+            path: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z M12 6.5a2.5 2.5 0 1 1 0 5a2.5 2.5 0 0 1 0-5z",
+            fillColor: "#7C3AED",      // viola esterno
+            fillOpacity: 1,
+            strokeColor: "#D4AF37",   // contorno oro
+            strokeWeight: 2,
+            scale: 1.5,
+            anchor: new window.google.maps.Point(12, 22),
+          },
+        });
+
+      } else {
+        markerRef.current.setPosition(pos);
+      }
+
+      if (pan) mapRef.current.panTo(pos);
+
+      // Zoom opzionale: usalo quando arriviamo da un indirizzo
+      if (typeof zoom === "number") {
+        const z = Math.max(mapRef.current.getZoom() || 0, zoom); // non zoomare "indietro"
+        mapRef.current.setZoom(z);
+      }
+
+      // backend-only
+      setField("lat", lat);
+      setField("lng", lng);
+    };
+
+
+    const geocodeAddressToLatLng = (addressText) =>
+      new Promise((resolve, reject) => {
+        if (!ensureMapsReady()) return reject(new Error("Google Maps non è pronto."));
+        const italyBounds = new window.google.maps.LatLngBounds(
+          new window.google.maps.LatLng(35.49, 6.62),   // SW
+          new window.google.maps.LatLng(47.10, 18.52)   // NE
+        );
+
+        geocoderRef.current.geocode(
+          {
+            address: addressText,
+            componentRestrictions: { country: "it" },
+            bounds: italyBounds,
+            region: "it",
+          },
+          (results, status) => {
+          if (status !== "OK" || !results?.length) return reject(new Error("Indirizzo non trovato."));
+          const r = results[0];
+          const loc = r.geometry.location;
+          resolve({
+            formattedAddress: r.formatted_address,
+            lat: loc.lat(),
+            lng: loc.lng(),
+          });
+        });
+      });
+
+    const reverseGeocodeLatLng = (lat, lng) =>
+      new Promise((resolve, reject) => {
+        if (!ensureMapsReady()) return reject(new Error("Nessun geocoder."));
+        geocoderRef.current.geocode({ location: { lat, lng } }, (results, status) => {
+          if (status !== "OK" || !results?.length) return reject(new Error("Nessun indirizzo trovato qui."));
+          resolve(results[0].formatted_address);
+        });
+      });
+
+    const pickSuggestion = async (s) => {
+      setAddrSuggestions([]);
+      setAddrActiveIndex(-1);
+      setMsg(null);
+
+      setField("address", s);
+
+      try {
+        const r = await geocodeAddressToLatLng(s);
+        setField("address", r.formattedAddress); // normalizza
+        setMapMarker(r.lat, r.lng, true, 17);
+      } catch (e) {
+        console.warn(e);
+      }
+    };
+
+
+
+    const caps = computeCapacitiesV2({
+      baseM: form.baseM,
+      extraS: form.extraS,
+      extraM: form.extraM,
+      extraL: form.extraL,
+      acceptS: form.acceptS,
+      acceptM: form.acceptM,
+      acceptL: form.acceptL,
+    });
+
+
+    function setField(name, value){
+      setForm(prev => ({ ...prev, [name]: value }));
+    }
+
+    function handleChange(e){
+      const { name, value } = e.target;
+      setField(name, value);
+    }
+
+
+    async function ensureSession(){
+      const { data, error } = await sb.auth.getUser();
+      if(error) throw error;
+      if(!data?.user) throw new Error("Sessione assente. Ricarica la pagina.");
+      return data.user;
+    }
+
+    // ======================= PROFILE HELPERS (NO DOWNGRADE ROLE) =======================
+
+async function ensureUserProfileSafe({ userId, fullName }) {
+  // 1) leggi profilo esistente
+  const { data: existing, error: exErr } = await sb
+    .from("user_profiles")
+    .select("id, role, full_name")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (exErr) throw exErr;
+
+  // 2) se non esiste, crea con role=user
+  if (!existing) {
+    const { error: insErr } = await sb.from("user_profiles").insert({
+      id: userId,
+      full_name: fullName || null,
+      role: "partner_candidate",
+    });
+    if (insErr) throw insErr;
+    return { role: "user" };
+  }
+
+  // 3) se esiste, aggiorna solo full_name se vuoto o diverso (ma NON toccare role se già partner/partner_candidate/admin)
+  const currentRole = existing.role || "partner_candidate";
+  const updates = {};
+
+  if (fullName && (!existing.full_name || existing.full_name.trim() !== fullName.trim())) {
+    updates.full_name = fullName.trim();
+  }
+
+  // ruolo: se nullo -> partner_candidate; se è user -> partner_candidate (mai downgrade)
+  if (!existing.role || existing.role === "user") {
+    updates.role = "partner_candidate";
+  }
+
+  if (Object.keys(updates).length) {
+    const { error: updErr } = await sb
+      .from("user_profiles")
+      .update(updates)
+      .eq("id", userId);
+    if (updErr) throw updErr;
+  }
+
+  return { role: currentRole };
+}
+
+async function getMyRoleSafe(userId) {
+  const { data, error } = await sb
+    .from("user_profiles")
+    .select("role")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data?.role ?? "user";
+}
+
+async function loadMyRoleAndRequestStatus() {
+  setReqLoading(true);
+  try {
+    const { data: uData, error: uErr } = await sb.auth.getUser();
+    if (uErr) throw uErr;
+    const u = uData?.user;
+    if (!u) throw new Error("Sessione assente. Ricarica la pagina.");
+
+    const role = await getMyRoleSafe(u.id);
+    setMyRole(role);
+
+    // Solo se candidate: leggi ultima richiesta
+    if (role === "partner_candidate") {
+      const { data: reqRow, error: reqErr } = await sb
+        .from("partner_requests")
+        .select("status,reject_reason,created_at")
+        .eq("user_id", u.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (reqErr) throw reqErr;
+
+      setReqStatus(reqRow?.status ?? null);
+      setReqRejectReason(reqRow?.reject_reason ?? null);
+    } else {
+      setReqStatus(null);
+      setReqRejectReason(null);
+    }
+  } catch (e) {
+    setMsg({ type: "error", text: e.message || String(e) });
+  } finally {
+    setReqLoading(false);
+  }
+}
+
+async function autoRouteAfterLogin() {
+  await sb.auth.refreshSession();
+  const { data: uData, error: uErr } = await sb.auth.getUser();
+  if (uErr) throw uErr;
+  const u = uData?.user;
+  if (!u) return;
+
+  const meta = u.user_metadata || {};
+  const otpVerified = meta.otp_verified === true;
+
+  // se OTP non verificato: vai alla pagina OTP
+  if (!otpVerified) {
+    setOtpEmail(u.email || "");
+    setOtpPhase("verify");
+    setStep(1);
+    return;
+  }
+
+  // OTP ok -> vai sempre a Step 7 (stato)
+  await loadMyRoleAndRequestStatus();
+  setStep(7);
+}
+
+
+// ======================= OTP HELPERS =======================
+
+// Invia codice OTP (magic link style) -> Supabase invia email con codice
+const requestOtpCode = async () => {
+  setMsg(null);
+  const email = (otpEmail || form.email || "").trim();
+  if (!email || !email.includes("@")) {
+    setMsg({ type: "error", text: "Inserisci una email valida per inviare il codice." });
+    return;
+  }
+
+  setOtpSending(true);
+  try {
+    const { error } = await sb.auth.signInWithOtp({
+      email,
+      options: {
+        // facoltativo: puoi mettere redirectTo se vuoi gestire link, ma qui usiamo OTP code
+        shouldCreateUser: false, // IMPORTANT: non creare utenti nuovi qui (l'utente è già creato dal signUp)
+      },
+    });
+    if (error) throw error;
+
+    setMsg({ type: "success", text: "Codice inviato! Controlla la tua email." });
+  } catch (e) {
+    setMsg({ type: "error", text: e.message || String(e) });
+  } finally {
+    setOtpSending(false);
+  }
+};
+
+// Verifica OTP + set metadata otp_verified=true
+const verifyOtpCode = async () => {
+  setMsg(null);
+  const email = (otpEmail || form.email || "").trim();
+  const code = (otpCode || "").trim();
+
+  if (!email || !email.includes("@")) {
+    setMsg({ type: "error", text: "Email non valida." });
+    return;
+  }
+  if (!/^\d{6}$/.test(code)) {
+    setMsg({ type: "error", text: "Inserisci un codice a 6 cifre." });
+    return;
+  }
+
+  setOtpVerifying(true);
+  try {
+    // 1) verifica OTP -> crea/aggiorna sessione
+    const { error } = await sb.auth.verifyOtp({
+      email,
+      token: code,
+      type: "email",
+    });
+    if (error) throw error;
+
+    // 2) refresh session e leggi user
+    await sb.auth.refreshSession();
+    const { data: uData, error: uErr } = await sb.auth.getUser();
+    if (uErr) throw uErr;
+    if (!uData?.user) throw new Error("Sessione non trovata dopo verifica. Riprova il login.");
+
+// 3) update metadata otp_verified
+const { error: updErr } = await sb.auth.updateUser({ data: { otp_verified: true } });
+if (updErr) throw updErr;
+
+await sb.auth.refreshSession();
+
+const { data: after } = await sb.auth.getUser();
+console.log("META AFTER:", after?.user?.user_metadata);
+
+
+    // 4) crea/aggiorna profilo SENZA downgradare role
+    await ensureUserProfileSafe({
+      userId: uData.user.id,
+      fullName: `${(form.firstName || "").trim()} ${(form.lastName || "").trim()}`.trim(),
+    });
+
+    // GARANZIA: mai downgrade a user, sempre partner_candidate
+    const { error: candErr } = await sb.rpc("ensure_partner_candidate_role");
+    if (candErr) throw candErr;
+
+
+    setMsg({ type: "success", text: "Email verificata! Puoi continuare." });
+
+    // vai allo step 2
+    setOtpPhase("form");
+    setOtpCode("");
+    setStep(2);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } catch (e) {
+    setMsg({ type: "error", text: e.message || String(e) });
+  } finally {
+    setOtpVerifying(false);
+  }
+};
+
+// Bottone TEST: forza otp_verified=true (richiede sessione attiva)
+const forceOtpVerifiedForTesting = async () => {
+  setMsg(null);
+  setLoading(true);
+  try {
+    await sb.auth.refreshSession();
+    const { data: uData, error: uErr } = await sb.auth.getUser();
+    if (uErr) throw uErr;
+    if (!uData?.user) throw new Error("Devi essere loggato (prima fai Continua e crea sessione).");
+
+const { error: updErr } = await sb.auth.updateUser({ data: { otp_verified: true } });
+if (updErr) throw updErr;
+
+await sb.auth.refreshSession();
+
+
+await sb.auth.refreshSession();
+
+
+    setMsg({ type: "success", text: "TEST: otp_verified impostato a TRUE." });
+
+    // vai allo step 2
+    setOtpPhase("form");
+    setOtpCode("");
+    setStep(2);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } catch (e) {
+    setMsg({ type: "error", text: e.message || String(e) });
+  } finally {
+    setLoading(false);
+  }
+};
+
+
+    // ---------- STEP 1: signup/login + user_profiles upsert ----------
+const handleStep1 = async () => {
+  setLoading(true);
+  setMsg(null);
+
+  try {
+    const email = (form.email || "").trim();
+    const pwd = form.password || "";
+    const firstName = (form.firstName || "").trim();
+    const lastName = (form.lastName || "").trim();
+
+    if (!firstName) throw new Error("Inserisci il Nome.");
+    if (!lastName) throw new Error("Inserisci il Cognome.");
+    if (!email || !email.includes("@")) throw new Error("Inserisci una email valida.");
+    if (pwd.length < 6) throw new Error("Password: minimo 6 caratteri.");
+
+    // 0) blocco email esistente (a meno che sia un account creato da questo wizard)
+const { data: chk, error: chkErr } = await sb.rpc("partner_wizard_check_email", { p_email: email });
+if (chkErr) throw chkErr;
+
+const row = Array.isArray(chk) ? chk[0] : chk; // in base a come supabase-js ritorna table
+if (row?.exists_user) {
+  const flow = row.signup_flow;
+
+  // se esiste ma NON è stato creato dal wizard partner -> BLOCCO TOTALE
+  if (flow !== "partner") {
+    throw new Error("Questa email è già registrata. Questa pagina è solo per nuove registrazioni partner.");
+  }
+
+  // se è un account wizard partner, facciamo resume (login) invece di signUp
+  const { error: loginErr } = await sb.auth.signInWithPassword({ email, password: pwd });
+  if (loginErr) throw new Error("Account esistente: password errata.");
+
+  // controlla otp
+  await sb.auth.refreshSession();
+  const { data: u2 } = await sb.auth.getUser();
+  const meta = u2?.user?.user_metadata || {};
+  const otpVerified = meta.otp_verified === true;
+
+  if (!otpVerified) {
+    setOtpEmail(email);
+    setOtpPhase("verify");
+    setMsg({ type: "success", text: "Account già creato. Verifica l’OTP per continuare." });
+    return;
+  }
+
+  // se otp già verificato -> manda allo stato (step 7)
+  await autoRouteAfterLogin();
+  return;
+}
+
+
+    const { error: signUpError } = await sb.auth.signUp({
+      email,
+      password: pwd,
+      options: { data: { full_name: `${firstName} ${lastName}`, signup_flow: "partner", otp_verified: false } }
+    });
+
+    // dopo signup (anche se non errore), prova a fare login password per assicurarti sessione
+const { data: uCheck } = await sb.auth.getUser();
+if (!uCheck?.user) {
+  await sb.auth.signInWithPassword({ email, password: pwd });
+}
+
+    if (signUpError) {
+      const msgLower = (signUpError.message || "").toLowerCase();
+      const alreadyExists =
+        signUpError.status === 400 ||
+        signUpError.status === 422 ||
+        msgLower.includes("registered") ||
+        msgLower.includes("already") ||
+        msgLower.includes("exists");
+
+      if (alreadyExists) {
+        const { error: loginError } = await sb.auth.signInWithPassword({
+          email,
+          password: pwd,
+        });
+        if (loginError) throw new Error("Account già esistente: password errata.");
+      } else {
+        throw new Error(signUpError.message || "Errore registrazione.");
+      }
+    }
+
+    const { data: userData, error: userErr } = await sb.auth.getUser();
+    if (userErr) throw userErr;
+    if (userData?.user) {
+      await ensureUserProfileSafe({
+        userId: userData.user.id,
+        fullName: `${firstName} ${lastName}`,
+      });
+    }
+
+
+    // Dopo signup/login: controlla otp_verified, se non è true mostra UI OTP
+    const { data: u2, error: u2Err } = await sb.auth.getUser();
+    if (u2Err) throw u2Err;
+
+    const meta = u2?.user?.user_metadata || {};
+    const otpVerified = meta.otp_verified === true;
+
+    if (!otpVerified) {
+      // entra in fase verifica OTP nello stesso Step 1
+      setOtpEmail(email);
+      setOtpPhase("verify");
+      setMsg({ type: "success", text: "Account creato. Ora verifica la tua email con OTP." });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    // se già verificato, vai allo step 2
+    setStep(2);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } catch (err) {
+    setMsg({ type: "error", text: err.message || "Errore" });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } finally {
+    setLoading(false);
+  }
+};
+
+    // ---------- ADDRESS AUTOCOMPLETE ----------
+
+
+    // ---------- ORARI + ECCEZIONI ----------
+function openTimeModal(day, index = null){
+  setMsg(null);
+  setTimeModalDay(day);
+  setTimeModalIndex(index);
+
+  const curr = weekly[day] || [];
+  if(index !== null && curr[index]){
+    setTimeOpen(curr[index].open);
+    setTimeClose(curr[index].close);
+  } else {
+    setTimeOpen("09:00");
+    setTimeClose("13:00");
+  }
+
+  setTimeModalOpen(true);
+}
+
+function closeTimeModal(){
+  setTimeModalOpen(false);
+  setTimeModalIndex(null);
+}
+
+function upsertInterval(){
+  const day = timeModalDay;
+  const curr = weekly[day] || [];
+
+  // max 2 fasce se nuova
+  if(timeModalIndex === null && curr.length >= 2){
+    setMsg({ type:"error", text:"Puoi impostare al massimo due fasce orarie per giorno." });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return;
+  }
+
+  const o = normalizeTimeStr(timeOpen);
+  const c = normalizeTimeStr(timeClose);
+
+  if(!o || !c){
+    setMsg({ type:"error", text:"Formato orario non valido. Usa HH:MM." });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return;
+  }
+  if(timeToMinutes(o) >= timeToMinutes(c)){
+    setMsg({ type:"error", text:"La chiusura deve essere dopo l'apertura." });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return;
+  }
+
+  // overlap check (escludo se sto editando la stessa fascia)
+  for(let i=0; i<curr.length; i++){
+    if(timeModalIndex !== null && i === timeModalIndex) continue;
+    const it = curr[i];
+    if(overlap(o, c, it.open, it.close)){
+      setMsg({ type:"error", text:"Gli orari si sovrappongono a una fascia già inserita." });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+  }
+
+  const next = [...curr];
+  if(timeModalIndex === null){
+    next.push({ open:o, close:c });
+  } else {
+    next[timeModalIndex] = { open:o, close:c };
+  }
+  next.sort((a,b)=>timeToMinutes(a.open)-timeToMinutes(b.open));
+
+  setWeekly(prev => ({ ...prev, [day]: next }));
+  closeTimeModal();
+}
+
+function removeInterval(day, idx){
+  const next = [...(weekly[day]||[])];
+  next.splice(idx, 1);
+  setWeekly(prev => ({ ...prev, [day]: next }));
+}
+
+function setClosedDay(day){
+  setWeekly(prev => ({ ...prev, [day]: [] }));
+}
+
+function copyDayToTargets(fromDay, targets){
+  const src = weekly[fromDay] || [];
+  if(!src.length){
+    setMsg({ type:"error", text:`Imposta prima gli orari di ${dayLabels[fromDay]}.` });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return;
+  }
+  const patch = {};
+  targets.forEach(d => patch[d] = src.map(x => ({...x})));
+  setWeekly(prev => ({ ...prev, ...patch }));
+  setMsg(null);
+}
+
+function copyMonToWeek(){ copyDayToTargets("mon", ["mon","tue","wed","thu","fri"]); }
+function copyMonToAll(){ copyDayToTargets("mon", dayOrder); }
+function closeAllDays(){ setWeekly(emptyWeekly()); setMsg(null); }
+
+// ---------- STEP 3 helpers mancanti ----------
+function openingHoursPayload(){
+  // formato: { type:'weekly_v1', mon:[{open,close}], ..., exceptions:{...} }
+  const base = { type: "weekly_v1", ...weekly };
+
+  const exceptions = {};
+  if (closedDates.length) exceptions.closed_dates = closedDates;
+  if (forcedOpenDates.length) exceptions.forced_open_dates = forcedOpenDates;
+
+  if (Object.keys(exceptions).length) base.exceptions = exceptions;
+  return base;
+}
+
+function validateOpeningHours(){
+  // deve esserci almeno un intervallo impostato nella settimana
+  const any = dayOrder.some(d => (weekly[d] || []).length > 0);
+  if(!any) return "Imposta almeno un giorno con orari di apertura.";
+  return null;
+}
+
+
+    // ---------- CAPACITÀ ----------
+    function handleStep4Next(){
+      setMsg(null);
+      try{
+          if(parseNonNegative(form.baseM) <= 0){
+            throw new Error("Inserisci almeno 1 bagaglio M nello spazio generale.");
+          }
+          if(caps.total_u <= 0){
+            throw new Error("Capacità totale non valida (controlla i toggle S/M/L).");
+          }
+        setStep(5);
+      } catch(err){
+        setMsg({ type:"error", text: err.message || String(err) });
+      }
+    }
+
+    // ---------- FILE ----------
+    function handleFileChange(e){
+      if(e.target.files && e.target.files[0]){
+        setField("contractFile", e.target.files[0]);
+      }
+    }
+
+    // ---------- FINAL SUBMIT: upload + upsert partners + insert partner_requests ----------
+async function handleSubmit(){
+  setLoading(true); setMsg(null);
+  try{
+    const user = await ensureSession();
+
+    if(!form.contractFile) throw new Error("Devi caricare il contratto firmato (PDF).");
+
+    // 1) upload PDF
+    const fileExt = (form.contractFile.name.split(".").pop() || "pdf").toLowerCase();
+    if(fileExt !== "pdf") throw new Error("Il contratto deve essere un PDF.");
+    const fileName = `${user.id}/${Date.now()}_contratto_firmato.pdf`;
+
+    const up = await sb.storage.from("partner-contracts").upload(fileName, form.contractFile, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: "application/pdf"
+    });
+    if(up.error) throw up.error;
+
+    const contractPath = up.data.path;
+
+    // 2) opening_hours json
+    const openingHours = openingHoursPayload();
+
+    // 3) capacities v2
+    const base_capacity_u = parseNonNegative(form.baseM) * 2;
+    const extra_capacity_s = parseNonNegative(form.extraS);
+    const extra_capacity_m = parseNonNegative(form.extraM);
+    const extra_capacity_l = parseNonNegative(form.extraL);
+    const accept_s = !!form.acceptS;
+    const accept_m = !!form.acceptM;
+    const accept_l = !!form.acceptL;
+
+    if(base_capacity_u <= 0) throw new Error("Capacità base non valida.");
+    if(!accept_s && !accept_m && !accept_l) throw new Error("Devi accettare almeno una taglia (S/M/L).");
+
+// 4) safety: se è già partner, non deve rifare onboarding
+const { data: profileRow, error: profErr } = await sb
+  .from("user_profiles")
+  .select("role")
+  .eq("id", user.id)
+  .maybeSingle();
+
+if (profErr) throw profErr;
+
+const currentRole = profileRow?.role ?? "user";
+
+if (currentRole === "partner") {
+  throw new Error("Il tuo account è già attivo come Partner. Non puoi inviare una nuova richiesta.");
+}
+
+if (currentRole !== "partner_candidate") {
+  throw new Error("Non puoi inviare la richiesta: questo form è riservato ai Partner (stato account non valido).");
+}
+
+// blocco extra: se esiste già una richiesta non-draft, stop subito
+const { data: lastReq, error: lastReqErr } = await sb
+  .from("partner_requests")
+  .select("status, created_at")
+  .eq("user_id", user.id)
+  .order("created_at", { ascending: false })
+  .limit(1)
+  .maybeSingle();
+
+if (lastReqErr) throw lastReqErr;
+
+if (lastReq?.status && lastReq.status !== "draft") {
+  throw new Error("Hai già inviato una richiesta. Non puoi inviarne un'altra.");
+}
+
+
+// 5) upsert partners (MAI toccare status/is_active/reject_reason da qui)
+//    Aggiorniamo solo i dati “anagrafici” + capacità/orari.
+const partnerUp = await sb
+  .from("partners")
+  .upsert(
+    {
+      owner_id: user.id,
+      name: form.partnerName.trim(),
+      address: form.address.trim(),
+      lat: form.lat,
+      lng: form.lng,
+      opening_hours: openingHours,
+
+      base_capacity_u,
+      extra_capacity_s,
+      extra_capacity_m,
+      extra_capacity_l,
+      accept_s,
+      accept_m,
+      accept_l,
+
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "owner_id" }
+  )
+  .select("id")
+  .single();
+
+if (partnerUp.error) throw partnerUp.error;
+const partnerId = partnerUp.data.id;
+
+
+    // 5) collega/crea draft request server-side
+    const { data: draftId, error: draftErr } = await sb.rpc("upsert_partner_request_draft", {
+      p_partner_id: partnerId,
+    });
+    if (draftErr) throw draftErr;
+
+    // 6) salva contract nella request (questa parte per ora la facciamo UPDATE diretto SOLO se RLS lo permette.
+    // Se RLS è chiusa (come ti ho scritto), allora spostiamo anche questo in RPC (me lo dici tu dopo aver provato).
+    const { error: attErr } = await sb.rpc("attach_contract_to_partner_request", {
+      p_request_id: draftId,
+      p_contract_path: contractPath,
+    });
+    if (attErr) throw attErr;
+
+    // 7) submit draft -> submitted + role=partner_candidate
+    const { error: subErr } = await sb.rpc("submit_partner_request");
+    if (subErr) throw subErr;
+
+    setMsg({ type:"success", text:"Richiesta inviata correttamente. Il team la revisionerà a breve." });
+    setTimeout(async () => {
+    await loadMyRoleAndRequestStatus();
+    setStep(7);
+    }, 600);
+
+  } catch(err){
+    setMsg({ type:"error", text: err.message || String(err) });
+  } finally {
+    setLoading(false);
+  }
+}
+
+
+// ======================= STEP 7: STATO RICHIESTA =======================
+if (step === 7) {
+  const statusLabel = {
+    draft: "Bozza (non inviata)",
+    submitted: "In attesa verifica documenti",
+    awaiting_payment: "Pagamento richiesto",
+    paid: "Pagamento completato",
+    rejected: "Richiesta rifiutata",
+  }[reqStatus] || (myRole === "partner" ? "Partner attivo" : "Stato non disponibile");
+
+  const statusColor = {
+    draft: "text-gray-700",
+    submitted: "text-blue-700",
+    awaiting_payment: "text-amber-700",
+    paid: "text-green-700",
+    rejected: "text-red-700",
+  }[reqStatus] || (myRole === "partner" ? "text-green-700" : "text-gray-700");
+
+  const statusBox = {
+    draft: "bg-gray-50 border-gray-200",
+    submitted: "bg-blue-50 border-blue-200",
+    awaiting_payment: "bg-amber-50 border-amber-200",
+    paid: "bg-green-50 border-green-200",
+    rejected: "bg-red-50 border-red-200",
+  }[reqStatus] || (myRole === "partner" ? "bg-green-50 border-green-200" : "bg-gray-50 border-gray-200");
+
+  return (
+    <div className="w-full max-w-2xl mx-auto p-6 bg-white shadow-xl rounded-2xl border border-gray-100 text-center">
+      <div className="text-5xl mb-3">
+        {myRole === "partner" ? "✅" : reqStatus === "awaiting_payment" ? "💳" : reqStatus === "submitted" ? "⏳" : reqStatus === "rejected" ? "⛔" : "📌"}
+      </div>
+
+      <h2 className="text-2xl font-extrabold text-gray-900 mb-2">Stato richiesta Partner</h2>
+
+      <div className={`mt-4 p-4 rounded-2xl border ${statusBox}`}>
+        <div className={`text-lg font-extrabold ${statusColor}`}>{statusLabel}</div>
+
+        {myRole === "partner" && (
+          <div className="text-sm text-gray-700 mt-2">
+            Il tuo account è già attivo come Partner.
+          </div>
+        )}
+
+        {myRole === "partner_candidate" && reqStatus === "submitted" && (
+          <div className="text-sm text-gray-700 mt-2">
+            Il team sta verificando i documenti. Riprova più tardi dall’app.
+          </div>
+        )}
+
+        {myRole === "partner_candidate" && reqStatus === "awaiting_payment" && (
+          <div className="text-sm text-gray-700 mt-2">
+            Documenti approvati ✅ Ora devi completare il pagamento per attivare il profilo.
+          </div>
+        )}
+
+        {myRole === "partner_candidate" && reqStatus === "rejected" && (
+          <div className="text-sm text-gray-700 mt-2">
+            La richiesta è stata rifiutata.
+            {reqRejectReason && reqRejectReason.trim() ? (
+              <div className="mt-2 font-semibold">Motivazione: {reqRejectReason}</div>
+            ) : null}
+          </div>
+        )}
+
+        {myRole === "partner_candidate" && reqStatus === "paid" && (
+          <div className="text-sm text-gray-700 mt-2">
+            Pagamento registrato. Se non entri come Partner dall’app, attendi qualche secondo e riprova.
+          </div>
+        )}
+      </div>
+
+      <div className="mt-5 flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={loadMyRoleAndRequestStatus}
+          disabled={reqLoading}
+          className={`w-full py-3 px-4 rounded-xl font-extrabold border ${
+            reqLoading ? "bg-gray-100 text-gray-400 cursor-not-allowed" : "bg-white hover:bg-gray-50"
+          }`}
+        >
+          {reqLoading ? "Aggiorno..." : "Aggiorna stato"}
+        </button>
+
+        {/* Se serve: link alla pagina pagamento (stesso link che usi in app) */}
+        {myRole === "partner_candidate" && reqStatus === "awaiting_payment" && (
+          <a
+            href="https://bag-drop.it/pagamento-partner/"
+            target="_blank"
+            className="w-full py-3 px-4 rounded-xl font-extrabold bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            Vai al pagamento
+          </a>
+        )}
+
+        {/* Bottone “Apri App” (placeholder) */}
+        <a
+          href="https://bag-drop.it/app/"
+          target="_blank"
+          className="w-full py-3 px-4 rounded-xl font-extrabold bg-gray-900 hover:bg-black text-white"
+        >
+          Apri l’app BagDrop
+        </a>
+
+        <button
+          type="button"
+          onClick={async () => {
+            await sb.auth.signOut();
+            setMyRole(null);
+            setReqStatus(null);
+            setReqRejectReason(null);
+            setStep(1);
+            setMsg({ type: "success", text: "Logout effettuato." });
+          }}
+          className="w-full py-3 px-4 rounded-xl font-extrabold border border-gray-200 bg-white hover:bg-gray-50"
+        >
+          Esci
+        </button>
+      </div>
+
+      <div className="text-xs text-gray-500 mt-4">
+        Nota: lo stato viene letto da <b>partner_requests</b> (ultima richiesta).
+      </div>
+    </div>
+  );
+}
+
+
+    // ---------- UI ----------
+    if(step === 6){
+      return (
+        <div className="w-full max-w-2xl mx-auto p-6 bg-white shadow-xl rounded-2xl border border-gray-100 text-center">
+          <div className="text-6xl mb-3">✅</div>
+          <h2 className="text-2xl font-extrabold text-green-700 mb-2">Richiesta inviata!</h2>
+          <p className="text-gray-700">Grazie {form.firstName}. Riceverai una mail con l’esito dopo la valutazione.</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="w-full max-w-5xl mx-auto p-4 md:p-8 bg-white shadow-xl rounded-2xl border border-gray-100">
+        <h1 className="text-2xl font-extrabold mb-2 text-center text-gray-900">Diventa Partner BagDrop</h1>
+        <p className="text-center text-sm text-gray-500 mb-6">Compila la richiesta in pochi step</p>
+
+        <Steps current={step} />
+
+        {msg && <Alert type={msg.type} msg={msg.text} />}
+
+        {/* STEP 1 */}
+        {step === 1 && (
+          <div className="space-y-4">
+
+            {otpPhase === "form" && (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div><label>Nome</label><input value={form.firstName} onChange={e=>setField("firstName", e.target.value)} required /></div>
+                  <div><label>Cognome</label><input value={form.lastName} onChange={e=>setField("lastName", e.target.value)} required /></div>
+                </div>
+
+                <div><label>Email</label><input type="email" value={form.email} onChange={e=>setField("email", e.target.value)} required /></div>
+                <div><label>Password</label><input type="password" value={form.password} onChange={e=>setField("password", e.target.value)} required /></div>
+                <div><label>Telefono</label><input type="tel" value={form.phone} onChange={e=>setField("phone", e.target.value)} required /></div>
+
+                <div>
+                  <label>Tipo Business</label>
+                  <select value={form.businessType} onChange={e=>setField("businessType", e.target.value)}>
+                    <option value="hotel">Hotel / B&B</option>
+                    <option value="shop">Negozio</option>
+                    <option value="cafe">Bar / Cafè</option>
+                    <option value="other">Altro</option>
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleStep1}
+                  disabled={loading}
+                  className={`w-full py-2 px-4 rounded font-bold transition-colors flex items-center justify-center gap-2 ${
+                    loading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'
+                  }`}
+                >
+                  <span>Continua</span>
+                  {loading && (
+                    <span className="inline-block w-4 h-4 border-2 border-white/60 border-t-white rounded-full animate-spin"></span>
+                  )}
+                </button>
+              </>
+            )}
+
+            {otpPhase === "verify" && (
+              <div className="space-y-4">
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm text-blue-900">
+                  Ti abbiamo inviato un codice OTP via email. Inseriscilo qui sotto per verificare l’account.
+                </div>
+
+                <div>
+                  <label>Email</label>
+                  <input
+                    type="email"
+                    value={otpEmail || form.email}
+                    onChange={(e)=>setOtpEmail(e.target.value)}
+                    placeholder="nome@esempio.com"
+                  />
+                  <div className="text-xs text-gray-500 mt-1">
+                    Useremo questa email per inviare/verificare il codice.
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={requestOtpCode}
+                    disabled={otpSending}
+                    className={`flex-1 py-2 px-4 rounded font-bold transition-colors ${
+                      otpSending ? "bg-blue-300 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 text-white"
+                    }`}
+                  >
+                    {otpSending ? "Invio..." : "Richiedi codice"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => { setOtpPhase("form"); setMsg(null); }}
+                    className="btn-secondary"
+                  >
+                    Indietro
+                  </button>
+                </div>
+
+                <div>
+                  <label>Codice OTP (6 cifre)</label>
+                  <input
+                    inputMode="numeric"
+                    value={otpCode}
+                    onChange={(e)=>setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    placeholder="••••••"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={verifyOtpCode}
+                  disabled={otpVerifying}
+                  className={`w-full py-2 px-4 rounded font-bold transition-colors ${
+                    otpVerifying ? "bg-green-300 cursor-not-allowed" : "bg-green-600 hover:bg-green-700 text-white"
+                  }`}
+                >
+                  {otpVerifying ? "Verifico..." : "Verifica e continua"}
+                </button>
+
+                {/* TEST ONLY */}
+                <button
+                  type="button"
+                  onClick={forceOtpVerifiedForTesting}
+                  className="w-full py-2 px-4 rounded font-extrabold border border-yellow-300 bg-yellow-50 text-yellow-800 hover:bg-yellow-100"
+                >
+                  TEST: forza otp_verified = TRUE
+                </button>
+
+                <div className="text-xs text-gray-500">
+                  (Solo test) Questo bottone imposta otp_verified=true nei metadata dell’utente loggato.
+                </div>
+              </div>
+            )}
+
+          </div>
+        )}
+
+
+        {/* STEP 2 */}
+        {step === 2 && (
+          <div className="space-y-4">
+            <div>
+              <label>Nome Attività</label>
+              <input
+                required
+                name="partnerName"
+                value={form.partnerName}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div className="relative">
+              <label>Indirizzo</label>
+              <input
+                ref={addrInputRef}
+                required
+                name="address"
+                value={form.address}
+                onChange={handleAddressChange}
+                onKeyDown={handleAddressKeyDown}
+                onBlur={async () => {
+                  if (!form.address.trim()) return;
+                  if (form.lat != null && form.lng != null) return; // già calcolato
+                  try {
+                    const r = await geocodeAddressToLatLng(form.address.trim());
+                    setField("address", r.formattedAddress);
+                    setMapMarker(r.lat, r.lng, true, 17);
+                  } catch (e) {}
+                }}
+                placeholder="Inizia a scrivere (es: Via Roma 10, Milano)"
+                autoComplete="off"
+              />
+
+              {addrLoading && (
+                <div className="mt-1 text-xs text-gray-500">Cerco suggerimenti...</div>
+              )}
+
+              {addrSuggestions.length > 0 && (
+                <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-auto">
+                  {addrSuggestions.map((s, idx) => (
+                    <button
+                      id={`addr-item-${idx}`}
+                      type="button"
+                      key={idx}
+                      onMouseEnter={() => setAddrActiveIndex(idx)}
+                      onClick={() => pickSuggestion(s)}
+                      className={`w-full text-left px-3 py-2 text-sm ${
+                        idx === addrActiveIndex ? "bg-blue-50" : "hover:bg-gray-100"
+                      }`}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-1 text-xs text-gray-500">
+                Seleziona un suggerimento dall’elenco consigliato.
+              </div>
+            </div>
+
+            {/* MAPPA (Step 2) */}
+            <div className="mt-4">
+              <div className="text-sm font-extrabold text-gray-700 mb-2">Posizione sulla mappa</div>
+
+              <div className="border border-gray-200 rounded-2xl overflow-hidden">
+                <div id="partner-map" style={{ width: "100%", height: "320px" }} />
+              </div>
+
+              <div className="mt-2 text-xs text-gray-500">
+                Puoi cliccare sulla mappa per scegliere un punto. L’indirizzo verrà compilato automaticamente.
+              </div>
+            </div>
+
+
+            <div className="flex gap-3 pt-4">
+              <button type="button" onClick={() => setStep(1)} className="btn-secondary flex-1">
+                Indietro
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!form.partnerName.trim()) {
+                    setMsg({ type: "error", text: "Inserisci il nome attività." });
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                    return;
+                  }
+                  if (!form.address.trim()) {
+                    setMsg({ type: "error", text: "Inserisci l’indirizzo (meglio se scegli un suggerimento o clicchi sulla mappa)." });
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                    return;
+                  }
+                  if (form.lat == null || form.lng == null) {
+                    setMsg({ type: "error", text: "Seleziona la posizione sulla mappa (serve per mostrare il locale sulla mappa)." });
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                    return;
+                  }
+                  setMsg(null);
+                  setStep(3);
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+                className="flex-1 py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold transition-colors"
+              >
+                Continua
+              </button>
+            </div>
+          </div>
+        )}
+
+{/* STEP 3: ORARI (NUOVO UI PRO) */}
+{step === 3 && (
+  <div className="space-y-6">
+    {/* Header */}
+    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-5 rounded-2xl border border-blue-100">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <div className="text-lg font-extrabold text-gray-900">Orari di apertura</div>
+          <div className="text-sm text-gray-600">
+            Imposta max <b>2 fasce</b> al giorno (es. mattina + pomeriggio). Puoi anche copiare gli orari con un click.
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="btn-secondary-mini" onClick={copyMonToWeek}>Copia Lun→Lun–Ven</button>
+          <button type="button" className="btn-secondary-mini" onClick={copyMonToAll}>Copia Lun→Tutti</button>
+          <button type="button" className="btn-secondary-mini" onClick={closeAllDays}>Tutti chiusi</button>
+        </div>
+
+      </div>
+    </div>
+
+    {/* Griglia giorni */}
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {dayOrder.map(day => {
+        const intervals = weekly[day] || [];
+        const closed = intervals.length === 0;
+
+        return (
+          <div key={day} className="border border-gray-200 rounded-2xl p-3 hover:shadow-sm transition-shadow bg-white">
+            <div className="flex items-center justify-between gap-3">
+              <div className="font-extrabold text-gray-900">{dayLabels[day]}</div>
+
+              <div className={`bd-chip ${closed ? "" : "bg-green-50 border-green-200 text-green-800"}`}>
+                {closed ? "Chiuso" : intervals.length === 1 ? "Orario continuato" : "Mattina + Pomeriggio"}
+              </div>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              {closed && (
+                <div className="text-sm text-gray-500">
+                  Nessuna fascia impostata.
+                </div>
+              )}
+
+              {intervals.map((it, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <div className="flex-1 px-3 py-2 rounded-xl border border-gray-200 bg-gray-50">
+                    <div className="font-mono font-extrabold text-gray-900">{it.open} – {it.close}</div>
+                    <div className="text-xs text-gray-500">Fascia {idx + 1}</div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="bd-icon-btn"
+                    title="Modifica"
+                    onClick={() => openTimeModal(day, idx)}
+                  >
+                    ✏️
+                  </button>
+
+                  <button
+                    type="button"
+                    className="bd-icon-btn"
+                    title="Rimuovi"
+                    onClick={() => removeInterval(day, idx)}
+                  >
+                    🗑️
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="btn-secondary-mini"
+                onClick={() => openTimeModal(day, null)}
+              >
+                + Fascia
+              </button>
+
+              <button
+                type="button"
+                className="btn-secondary-mini"
+                onClick={() => setClosedDay(day)}
+                disabled={closed}
+                style={{ opacity: closed ? 0.55 : 1 }}
+              >
+                Chiuso
+              </button>
+
+              <button
+                type="button"
+                className="btn-secondary-mini"
+                onClick={() => copyDayToTargets(day, dayOrder)}
+                disabled={closed}
+                style={{ opacity: closed ? 0.55 : 1 }}
+              >
+                Copia tutti
+              </button>
+            </div>
+
+          </div>
+        );
+      })}
+    </div>
+
+    {/* Eccezioni calendario (lasciato ma migliorato) */}
+    <div className="border border-gray-200 rounded-2xl p-4">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <div>
+          <div className="font-extrabold text-gray-900">Eccezioni calendario</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4">
+          <div className="font-extrabold mb-2 text-gray-900">Chiusure straordinarie</div>
+          <input type="date" onChange={(e)=>{
+            const v = e.target.value;
+            if(!v) return;
+            setClosedDates(prev => prev.includes(v) ? prev : [...prev, v].sort());
+            e.target.value = "";
+          }} />
+          <div className="mt-3 space-y-2">
+            {closedDates.length === 0 ? (
+              <div className="text-sm text-gray-500">Nessuna.</div>
+            ) : closedDates.map(d => (
+              <div key={d} className="flex items-center justify-between bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm">
+                <span className="font-semibold">{d}</span>
+                <button type="button" className="text-red-600 font-extrabold" onClick={()=>setClosedDates(prev => prev.filter(x=>x!==d))}>
+                  Rimuovi
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4">
+          <div className="font-extrabold mb-2 text-gray-900">Aperture straordinarie</div>
+          <input type="date" onChange={(e)=>{
+            const v = e.target.value;
+            if(!v) return;
+            setForcedOpenDates(prev => prev.includes(v) ? prev : [...prev, v].sort());
+            e.target.value = "";
+          }} />
+          <div className="mt-3 space-y-2">
+            {forcedOpenDates.length === 0 ? (
+              <div className="text-sm text-gray-500">Nessuna.</div>
+            ) : forcedOpenDates.map(d => (
+              <div key={d} className="flex items-center justify-between bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm">
+                <span className="font-semibold">{d}</span>
+                <button type="button" className="text-red-600 font-extrabold" onClick={()=>setForcedOpenDates(prev => prev.filter(x=>x!==d))}>
+                  Rimuovi
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div className="flex gap-3 pt-2">
+      <button type="button" onClick={() => { setStep(2); window.scrollTo({top:0, behavior:"smooth"}); }} className="btn-secondary flex-1">
+        Indietro
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          const err = validateOpeningHours();
+          if(err){
+            setMsg({ type:"error", text: err });
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            return;
+          }
+          setMsg(null);
+          setStep(4);
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
+
+        
+        className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-extrabold"
+      >
+        Continua
+      </button>
+    </div>
+
+    {/* MODAL */}
+    {timeModalOpen && (
+      <div className="bd-modal-backdrop" onMouseDown={(e)=>{ if(e.target.classList.contains("bd-modal-backdrop")) closeTimeModal(); }}>
+        <div className="bd-modal" onMouseDown={(e)=>e.stopPropagation()}>
+          <div className="bd-modal-header">
+            <div className="bd-modal-title">
+              {timeModalIndex === null ? "Aggiungi fascia" : "Modifica fascia"} • {dayLabels[timeModalDay]}
+            </div>
+            <button className="bd-icon-btn" onClick={closeTimeModal} title="Chiudi">✕</button>
+          </div>
+
+          <div className="bd-modal-body">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label>Apertura</label>
+                <input type="time" value={timeOpen} onChange={(e)=>setTimeOpen(e.target.value)} />
+              </div>
+              <div>
+                <label>Chiusura</label>
+                <input type="time" value={timeClose} onChange={(e)=>setTimeClose(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="mt-3 text-xs text-gray-500">
+              Suggerimento: puoi impostare 1 fascia (orario continuato) oppure 2 (mattina + pomeriggio).
+            </div>
+          </div>
+
+          <div className="bd-modal-footer">
+            <button className="btn-secondary" onClick={closeTimeModal}>Annulla</button>
+            <button
+              className="px-4 py-2 rounded-xl font-extrabold bg-blue-600 text-white hover:bg-blue-700"
+              onClick={upsertInterval}
+            >
+              Salva
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
+)}
+
+        {/* STEP 4: CAPACITÀ */}
+        {step === 4 && (
+          <div className="space-y-5">
+            <div className="bg-blue-50 p-4 rounded-xl text-sm text-blue-900 border border-blue-100">
+              Inserisci prima lo <b>spazio generale in bagagli M</b>.  
+              Da questo stimiamo S e L (1M = 2S = 0.5L) + eventuali extra dedicati.
+            </div>
+
+            <div>
+              <label className="text-lg font-extrabold">Spazio generale (bagagli M)</label>
+              <input type="number" min="0" value={form.baseM} onChange={e=>setField("baseM", e.target.value)}
+                className="text-2xl font-extrabold p-3 text-center border-2 border-blue-200 rounded-xl" />
+              <div className="text-xs text-gray-500 mt-1">
+                Equivalenze stimate:
+                S={form.acceptS ? caps.baseS : 0} •
+                M={form.acceptM ? caps.baseM_disp : 0} •
+                L={form.acceptL ? caps.baseL : 0}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-gray-50 p-4 rounded-xl border border-gray-200">
+              <div>
+                <label className="text-xs font-extrabold text-gray-600 uppercase">Extra S</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={form.extraS}
+                  onChange={e=>setField("extraS", e.target.value)}
+                  className="text-center font-bold"
+                  disabled={!form.acceptS}
+                  style={{ opacity: form.acceptS ? 1 : 0.5 }}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-extrabold text-gray-600 uppercase">Extra M</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={form.extraM}
+                  onChange={e=>setField("extraM", e.target.value)}
+                  className="text-center font-bold"
+                  disabled={!form.acceptM}
+                  style={{ opacity: form.acceptM ? 1 : 0.5 }}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-extrabold text-gray-600 uppercase">Extra L</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={form.extraL}
+                  onChange={e=>setField("extraL", e.target.value)}
+                  className="text-center font-bold"
+                  disabled={!form.acceptL}
+                  style={{ opacity: form.acceptL ? 1 : 0.5 }}
+                />
+              </div>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <div className="text-sm font-extrabold text-gray-700 mb-2">Accetto queste taglie</div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <label className="flex items-center gap-2 font-bold text-sm">
+                  <input
+                    type="checkbox"
+                    checked={!!form.acceptS}
+                    onChange={(e)=>setField("acceptS", e.target.checked)}
+                  />
+                  Small (S)
+                </label>
+                <label className="flex items-center gap-2 font-bold text-sm">
+                  <input
+                    type="checkbox"
+                    checked={!!form.acceptM}
+                    onChange={(e)=>setField("acceptM", e.target.checked)}
+                  />
+                  Medium (M)
+                </label>
+                <label className="flex items-center gap-2 font-bold text-sm">
+                  <input
+                    type="checkbox"
+                    checked={!!form.acceptL}
+                    onChange={(e)=>setField("acceptL", e.target.checked)}
+                  />
+                  Large (L)
+                </label>
+              </div>
+              <div className="text-xs text-gray-500 mt-2">
+                Se disattivi una taglia, la sua capacità effettiva viene considerata 0.
+              </div>
+            </div>
+
+
+            <div className="border-t pt-4">
+              <p className="text-sm font-extrabold mb-2 text-gray-700">Riepilogo capacità (salvata su DB)</p>
+              <div className="flex justify-between text-center divide-x border border-gray-200 rounded-xl overflow-hidden">
+                <div className="flex-1 p-3">
+                  <div className="text-xl font-extrabold">{caps.capS}</div>
+                  <div className="text-xs text-gray-500">Small (S)</div>
+                </div>
+                <div className="flex-1 p-3">
+                  <div className="text-xl font-extrabold text-blue-600">{caps.capM}</div>
+                  <div className="text-xs text-gray-500">Medium (M)</div>
+                </div>
+                <div className="flex-1 p-3">
+                  <div className="text-xl font-extrabold">{caps.capL}</div>
+                  <div className="text-xs text-gray-500">Large (L)</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => setStep(3)} className="btn-secondary flex-1">Indietro</button>
+              <button onClick={handleStep4Next} className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-extrabold">
+                Continua
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 5: RIEPILOGO + CONTRATTO */}
+        {step === 5 && (
+          <div className="space-y-5">
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+              <div className="font-extrabold mb-2">Riepilogo</div>
+              <div className="text-sm text-gray-700 space-y-1">
+                <div><b>Partner:</b> {form.firstName} {form.lastName} • {form.phone}</div>
+                <div><b>Attività:</b> {form.partnerName}</div>
+                <div><b>Indirizzo:</b> {form.address}</div>
+                <div><b>Capacità:</b> Base = {caps.baseM}M (DB: base_capacity_u={caps.base_u})
+                  • Extra S={parseNonNegative(form.extraS)}, Extra M={parseNonNegative(form.extraM)}, Extra L={parseNonNegative(form.extraL)}
+                </div>
+              </div>
+            </div>
+
+            <div className="text-center p-4 border-2 border-dashed border-gray-300 rounded-xl">
+              <a href={CONTRACT_DOWNLOAD_URL} target="_blank"
+                className="text-blue-700 font-extrabold underline hover:text-blue-900">
+                Scarica Contratto PDF
+              </a>
+              <div className="text-xs text-gray-500 mt-2">
+                Firma il contratto e ricaricalo qui sotto.
+              </div>
+            </div>
+
+            <div>
+              <label className="block mb-2">Carica contratto firmato (obbligatorio)</label>
+              <input type="file" accept="application/pdf" onChange={handleFileChange} />
+              {form.contractFile && (
+                <div className="mt-2 text-sm text-green-700 font-bold">✓ File selezionato: {form.contractFile.name}</div>
+              )}
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => setStep(4)} className="btn-secondary flex-1">Indietro</button>
+              <button onClick={handleSubmit} disabled={loading || !form.contractFile}
+                className={`flex-1 py-3 px-4 rounded-xl font-extrabold text-white transition-all ${
+                  loading || !form.contractFile ? "bg-blue-300 cursor-not-allowed" : "bg-green-600 hover:bg-green-700 shadow-lg"
+                }`}>
+                {loading ? "Invio in corso…" : "Conferma e invia richiesta"}
+              </button>
+            </div>
+
+            <div className="text-xs text-gray-500">
+              Inviando la richiesta, verrà creata/aggiornata la riga in <b>partners</b> e inserita una nuova riga in <b>partner_requests</b> con stato <b>submitted</b>.
+            </div>
+          </div>
+        )}
+
+      </div>
+    );
+  }
+
+  const root = document.getElementById("partner-wizard-root");
+  ReactDOM.createRoot(root).render(<App />);
+}
+
+setTimeout(initWizard, 200);
+</script>

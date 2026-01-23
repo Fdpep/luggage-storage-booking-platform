@@ -4,8 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/supabase/user_repo.dart';
 import '../../utils/last_email_store.dart';
-import '../../services/supabase/partner_repo.dart';
-import '../partner/auth_partner/partner_waiting_screen.dart';
 
 /// Verifica OTP con:
 /// - Validazione 6 cifre
@@ -54,13 +52,15 @@ class SchermataVerifyOtp extends StatefulWidget {
   State<SchermataVerifyOtp> createState() => _SchermataVerifyOtpState();
 }
 
-class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
+class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> with WidgetsBindingObserver {
   final TextEditingController _ctrlCodice = TextEditingController();
   bool _caricamento = false;
 
   // Cooldown per "Re-invia"
   int _secondsLeft = 0;
   Timer? _timer;
+  Timer? _pollTimer;
+  bool _polling = false;
 
   String? _validaCodice(String? value) {
     final v = (value ?? '').trim();
@@ -82,6 +82,27 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
       }
     });
   }
+
+Future<void> _checkOtpVerifiedAndExitIfNeeded() async {
+  final supabase = Supabase.instance.client;
+
+  try {
+    await supabase.auth.refreshSession();
+    final u = supabase.auth.currentUser;
+    if (u == null) return;
+
+    final meta = Map<String, dynamic>.from(u.userMetadata ?? {});
+    final verified = meta['otp_verified'] == true;
+
+    if (verified && mounted) {
+      // torna alla root così AuthGate ricalcola lo stato e cambia pagina
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
+  } catch (_) {
+    // silent
+  }
+}
+
 
   Future<void> _verificaOTP() async {
     final codice = _ctrlCodice.text.trim();
@@ -152,100 +173,40 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
 
       // 5) Flusso diverso in base al tipo di signup
       if (isPartnerFlowEffective) {
-        // ----- FLUSSO PARTNER -----
+        // ----- FLUSSO PARTNER (NUOVO) -----
+        // Qui NON inviamo più nessuna richiesta da app.
+        // L'app deve solo verificare OTP e poi mostrare le pagine status / rimando al sito.
+
         final userId = currentUser.id;
 
-        // Recuperiamo i dati partner: prima da widget, poi da metadati come fallback
-        final String? name =
-            widget.partnerName ?? partnerSignup?['name'] as String?;
-        final String? address =
-            widget.partnerAddress ?? partnerSignup?['address'] as String?;
-
-        // Capacità per taglia (S / M / L)
-        final int capacityS = widget.partnerCapacityS ??
-            (partnerSignup?['capacity_s'] as int? ?? 0);
-        final int capacityM = widget.partnerCapacityM ??
-            (partnerSignup?['capacity_m'] as int? ?? 0);
-        final int capacityL = widget.partnerCapacityL ??
-            (partnerSignup?['capacity_l'] as int? ?? 0);
-
-        // Capacità totale di fallback (vecchio campo)
-        final int legacyCapacity = widget.partnerCapacity ??
-            (partnerSignup?['capacity'] as int? ?? 0);
-
-        final int sumFromSizes = capacityS + capacityM + capacityL;
-        final int totalCapacity =
-            sumFromSizes > 0 ? sumFromSizes : legacyCapacity;
-        final String? message =
-            widget.partnerMessage ?? partnerSignup?['message'] as String?;
-        final double? lat = widget.partnerLat ??
-            (partnerSignup?['lat'] as num?)?.toDouble();
-        final double? lng = widget.partnerLng ??
-            (partnerSignup?['lng'] as num?)?.toDouble();
-
-        // 👇 NUOVO: opening_hours dal widget o dai metadati partner_signup
-        final Map<String, dynamic>? openingHours =
-            widget.partnerOpeningHours ??
-                (partnerSignup?['opening_hours'] as Map<String, dynamic>?);
-
-        if (name == null || address == null || lat == null || lng == null) {
-          // Mancano dati fondamentali → non possiamo completare la registrazione partner
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Dati registrazione partner mancanti. Ripeti la registrazione come partner.',
-              ),
-            ),
-          );
-          return;
+        // crea/aggiorna profilo (senza downgrade) e imposta partner_candidate
+        // (se hai la RPC anche in app: meglio, così è garantito lato DB)
+        try {
+          await supabase.rpc('ensure_partner_candidate_role');
+        } catch (_) {
+          // fallback: prova update diretto (se RLS lo consente)
+          await supabase.from('user_profiles').upsert({
+            'id': userId,
+            'role': 'partner_candidate',
+          });
         }
 
-        // 5a) Crea la richiesta partner (partners + partner_requests)
-        final repo = PartnerRepo(supabase);
-        await repo.submitPartnerApplication(
-          userId: userId,
-          name: name,
-          address: address,
-          capacity: totalCapacity,
-          capacityS: capacityS,
-          capacityM: capacityM,
-          capacityL: capacityL,
-          message: message,
-          lat: lat,
-          lng: lng,
-          openingHours: openingHours,
-        );
-
-        // 5b) SOLO ORA imposta ruolo 'partner' in user_profiles
-        await supabase
-            .from('user_profiles')
-            .update({'role': 'partner'})
-            .eq('id', userId);
-
-
-        // 5c) Ora che abbiamo usato i dati, puliamo partner_signup dai metadati
+        // pulisci eventuali campi temporanei dai metadata (opzionale)
         final newMeta = Map<String, dynamic>.from(
           supabase.auth.currentUser?.userMetadata ?? {},
         );
         newMeta.remove('partner_signup');
-        // se vuoi, puoi anche rimuovere signup_flow:
-        // newMeta.remove('signup_flow');
         await supabase.auth.updateUser(UserAttributes(data: newMeta));
         await supabase.auth.refreshSession();
 
         if (!mounted) return;
 
-        // 5d) Snack + vai alla schermata di attesa partner
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Verifica completata! Richiesta partner inviata.'),
-          ),
+          const SnackBar(content: Text('Email verificata! Continua la registrazione dal sito.')),
         );
 
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const PartnerWaitingScreen()),
-          (route) => route.isFirst,
-        );
+        // torna alla root: AuthGate mostrerà la pagina "continua dal sito" o lo stato
+        Navigator.of(context).popUntil((route) => route.isFirst);
       } else {
         // ----- FLUSSO USER NORMALE -----
         ScaffoldMessenger.of(context).showSnackBar(
@@ -253,6 +214,7 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
         );
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
+
     } on AuthException catch (e) {
       if (!mounted) return;
       final msg = e.message.toLowerCase();
@@ -305,12 +267,37 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
     }
   }
 
-  @override
-  void dispose() {
-    _timer?.cancel();
-    _ctrlCodice.dispose();
-    super.dispose();
+@override
+void initState() {
+  super.initState();
+  WidgetsBinding.instance.addObserver(this);
+
+  // check immediato
+  _checkOtpVerifiedAndExitIfNeeded();
+
+  // polling ogni 4s (più reattivo)
+  _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+    if (_polling) return;
+    _polling = true;
+    _checkOtpVerifiedAndExitIfNeeded().whenComplete(() => _polling = false);
+  });
+}
+
+@override
+void didChangeAppLifecycleState(AppLifecycleState state) {
+  if (state == AppLifecycleState.resumed) {
+    _checkOtpVerifiedAndExitIfNeeded();
   }
+}
+
+@override
+void dispose() {
+  WidgetsBinding.instance.removeObserver(this);
+  _pollTimer?.cancel();
+  _timer?.cancel();
+  _ctrlCodice.dispose();
+  super.dispose();
+}
 
   @override
   Widget build(BuildContext context) {
@@ -336,6 +323,28 @@ class _SchermataVerifyOtpState extends State<SchermataVerifyOtp> {
           backgroundColor: cs.primary,
           foregroundColor: cs.onPrimary,
           automaticallyImplyLeading: false,
+          actions: [
+            TextButton(
+              onPressed: () async {
+                final supabase = Supabase.instance.client;
+                try {
+                  await supabase.auth.signOut();
+                } catch (_) {}
+
+                if (!mounted) return;
+
+                // Reset navigazione: vai alla root dell'app (metti la tua route iniziale)
+                Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+              },
+              child: Text(
+                'Esci',
+                style: TextStyle(
+                  color: cs.onPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
         ),
         body: SafeArea(
           child: Padding(
