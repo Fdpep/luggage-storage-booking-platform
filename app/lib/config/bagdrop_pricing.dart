@@ -1,5 +1,21 @@
 // lib/config/bagdrop_pricing.dart
 
+class BagDropPricingInterval {
+  final DateTime start; // consegna effettiva
+  final DateTime userEnd; // ritiro scelto dall'utente (UI)
+  final BagDropDuration duration; // fascia tariffaria determinata
+  final DateTime effectiveEnd; // scadenza reale della fascia (da salvare a DB)
+  final bool upgraded; // true se abbiamo scalato fascia (es. 3h -> 1d)
+
+  const BagDropPricingInterval({
+    required this.start,
+    required this.userEnd,
+    required this.duration,
+    required this.effectiveEnd,
+    required this.upgraded,
+  });
+}
+
 /// Tipi di durata supportati dal listino BagDrop.
 /// (Per adesso lo teniamo pronto per il futuro calcolo prezzi nel flow.)
 enum BagDropDuration {
@@ -203,5 +219,121 @@ class BagDropPricing {
 
   static bool _isSameCalendarDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  /// Normalizza l'intervallo:
+  /// - determina la fascia (duration) a partire da start + userEnd
+  /// - calcola effectiveEnd = scadenza della fascia (quella che conta per ritardo/supplemento)
+  ///
+  /// getCloseForDay deve ritornare l'orario di chiusura del locale per quel giorno
+  /// come DateTime (stesso giorno, in locale). Se non disponibile, usa 23:59.
+  static BagDropPricingInterval normalizeBookingInterval({
+    required DateTime start,
+    required DateTime userEnd,
+    required DateTime? Function(DateTime day) getCloseForDay,
+    DateTime Function(DateTime day)? getOneAndHalfDayCutoffForDay,
+  }) {
+    // 1) Fascia tariffaria "stimata" dalla scelta utente
+    var duration = inferDuration(start: start, end: userEnd);
+
+    // 2) Calcolo scadenza reale della fascia
+    DateTime effectiveEnd = _effectiveEndForDuration(
+      start: start,
+      duration: duration,
+      getCloseForDay: getCloseForDay,
+      getOneAndHalfDayCutoffForDay: getOneAndHalfDayCutoffForDay,
+    );
+
+    bool upgraded = false;
+
+    // 3) Caso chiave: se 3h sforano la chiusura, scalo alla fascia successiva (1 giorno fino a chiusura)
+    //    Questo evita prenotazioni che diventano "in ritardo" appena scadono le 3 ore perché il locale era già chiuso.
+    if (duration == BagDropDuration.threeHours) {
+      final close = _closeOrFallback(getCloseForDay, _dateOnly(start));
+      final threeHoursEnd = start.add(const Duration(hours: 3));
+
+      if (close != null && threeHoursEnd.isAfter(close)) {
+        // scala a tutto il giorno
+        duration = BagDropDuration.oneDay;
+        effectiveEnd = _effectiveEndForDuration(
+          start: start,
+          duration: duration,
+          getCloseForDay: getCloseForDay,
+          getOneAndHalfDayCutoffForDay: getOneAndHalfDayCutoffForDay,
+        );
+        upgraded = true;
+      }
+    }
+
+    return BagDropPricingInterval(
+      start: start,
+      userEnd: userEnd,
+      duration: duration,
+      effectiveEnd: effectiveEnd,
+      upgraded: upgraded,
+    );
+  }
+
+  /// Scadenza della fascia tariffaria.
+  static DateTime _effectiveEndForDuration({
+    required DateTime start,
+    required BagDropDuration duration,
+    required DateTime? Function(DateTime day) getCloseForDay,
+    DateTime Function(DateTime day)? getOneAndHalfDayCutoffForDay,
+  }) {
+    final startDay = _dateOnly(start);
+
+    switch (duration) {
+      case BagDropDuration.threeHours:
+        return start.add(const Duration(hours: 3));
+
+      case BagDropDuration.oneDay:
+        {
+          final close = _closeOrFallback(getCloseForDay, startDay);
+          return close ?? DateTime(start.year, start.month, start.day, 23, 59);
+        }
+
+      case BagDropDuration.oneAndHalfDay:
+        {
+          final nextDay = startDay.add(const Duration(days: 1));
+
+          // default: 13:00 del giorno dopo
+          final cutoff = (getOneAndHalfDayCutoffForDay != null)
+              ? getOneAndHalfDayCutoffForDay(nextDay)
+              : DateTime(nextDay.year, nextDay.month, nextDay.day, 13, 0);
+
+          // opzionale: non oltre la chiusura di quel giorno
+          final closeNext = _closeOrFallback(getCloseForDay, nextDay);
+          if (closeNext != null && cutoff.isAfter(closeNext)) {
+            return closeNext;
+          }
+          return cutoff;
+        }
+
+      case BagDropDuration.twoDays:
+        {
+          // 2 giorni -> fino a chiusura del secondo giorno (startDay + 1)
+          final day = startDay.add(const Duration(days: 1));
+          final close = _closeOrFallback(getCloseForDay, day);
+          return close ?? DateTime(day.year, day.month, day.day, 23, 59);
+        }
+
+      case BagDropDuration.threeDays:
+        {
+          // 3 giorni -> fino a chiusura del terzo giorno (startDay + 2)
+          final day = startDay.add(const Duration(days: 2));
+          final close = _closeOrFallback(getCloseForDay, day);
+          return close ?? DateTime(day.year, day.month, day.day, 23, 59);
+        }
+    }
+  }
+
+  static DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  static DateTime? _closeOrFallback(
+    DateTime? Function(DateTime day) getCloseForDay,
+    DateTime day,
+  ) {
+    return getCloseForDay(day);
   }
 }

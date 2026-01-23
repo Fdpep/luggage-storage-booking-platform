@@ -49,6 +49,17 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   /// Orario di ritiro
   TimeOfDay? _endTime;
 
+  // Data/Ora: ritiro scelto dall'utente (quello che già hai)
+  DateTime? _userEndDate;
+  TimeOfDay? _userEndTime;
+
+  // End effettivo (scadenza fascia) - quello che salveremo a DB
+  DateTime? _effectiveEndDate;
+  TimeOfDay? _effectiveEndTime;
+
+  // per debug/UI
+  BagDropPricingInterval? _normalizedPricingInterval;
+
   /// Orari di apertura settimanali normalizzati.
   /// Per ogni giorno (mon..sun) abbiamo una lista di intervalli {open, close} "HH:MM".
   late Map<String, List<Map<String, dynamic>>> _weeklyHours;
@@ -219,6 +230,36 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     return list.isEmpty;
   }
 
+  TimeOfDay? _lastCloseTimeForDate(DateTime date) {
+    final dateKey = _dateKey(date);
+
+    if (_closedDateKeys.contains(dateKey)) return null;
+
+    final dayKey = _weekdayKey(date.weekday);
+    final list = _weeklyHours[dayKey] ?? const <Map<String, dynamic>>[];
+
+    if (list.isEmpty && !_forcedOpenDateKeys.contains(dateKey)) return null;
+    if (list.isEmpty && _forcedOpenDateKeys.contains(dateKey)) {
+      return const TimeOfDay(hour: 23, minute: 59);
+    }
+
+    TimeOfDay? best;
+    for (final m in list) {
+      final t = _parseTimeOfDay(m['close'] as String?);
+      if (t == null) continue;
+      if (best == null || _timeOfDayToMinutes(t) > _timeOfDayToMinutes(best)) {
+        best = t;
+      }
+    }
+    return best;
+  }
+
+  DateTime? _closeDateTimeForDay(DateTime day) {
+    final close = _lastCloseTimeForDate(day);
+    if (close == null) return null;
+    return DateTime(day.year, day.month, day.day, close.hour, close.minute);
+  }
+
   /// Ritorna true se l'orario [time] per la data [date]
   /// rientra in almeno uno degli intervalli di apertura del locale.
   ///
@@ -278,15 +319,18 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     }
 
     final startDt = _startDateTime;
-    final endDt = _endDateTime;
+    final endDtRequested = _endDateTime;
 
-    if (startDt == null || endDt == null) {
+    if (startDt == null || endDtRequested == null) {
       return 'Seleziona giorno e orario di consegna e di ritiro.';
     }
 
-    // Date solo "calendar" (senza orario)
     final startDateOnly = DateTime(startDt.year, startDt.month, startDt.day);
-    final endDateOnly = DateTime(endDt.year, endDt.month, endDt.day);
+    final endReqDateOnly = DateTime(
+      endDtRequested.year,
+      endDtRequested.month,
+      endDtRequested.day,
+    );
 
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -307,36 +351,56 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       return 'L\'orario di consegna non può essere nel passato.';
     }
 
-    // ❌ Orario ritiro dopo orario consegna
-    if (!startDt.isBefore(endDt)) {
+    // ❌ Requested end deve essere dopo start
+    if (!startDt.isBefore(endDtRequested)) {
       return 'L\'orario di ritiro deve essere successivo a quello di consegna.';
     }
 
-    // ❌ Giorni chiusi (weekly + eccezioni)
+    // ❌ Giorno consegna chiuso
     if (_isClosedDay(startDateOnly)) {
       return 'Nel giorno di consegna il locale è chiuso. Scegli un\'altra data.';
     }
-    if (_isClosedDay(endDateOnly)) {
-      return 'Nel giorno di ritiro il locale è chiuso. Scegli un\'altra data.';
-    }
 
-    // ❌ Orario fuori dagli orari di apertura (consegna)
+    // ❌ Orario consegna dentro apertura
     if (!_isTimeWithinOpeningHours(startDateOnly, _startTime!)) {
       return 'L\'orario di consegna è fuori dagli orari di apertura del locale.';
     }
 
-    // ❌ Orario fuori dagli orari di apertura (ritiro)
-    if (!_isTimeWithinOpeningHours(endDateOnly, _endTime!)) {
+    // ❌ Requested end: giorno/orario dentro apertura (l’utente non può scegliere un ritiro impossibile)
+    if (_isClosedDay(endReqDateOnly)) {
+      return 'Nel giorno di ritiro il locale è chiuso. Scegli un\'altra data.';
+    }
+    if (!_isTimeWithinOpeningHours(endReqDateOnly, _endTime!)) {
       return 'L\'orario di ritiro è fuori dagli orari di apertura del locale.';
     }
 
-    // Limite di durata lato business (max 7 giorni)
-    final durationHours = endDt.difference(startDt).inMinutes / 60.0;
+    // Limite durata massimo 7 giorni (basato sul requested)
+    final durationHours = endDtRequested.difference(startDt).inMinutes / 60.0;
     if (durationHours > 24.0 * 7) {
       return 'Per ora puoi prenotare al massimo per 7 giorni. Riduci l\'intervallo tra consegna e ritiro.';
     }
 
-    return null; // ✅ tutto ok
+    // ✅ NORMALIZZAZIONE FASCIA: calcolo scadenza effettiva (effective end)
+    final normalized = BagDropPricing.normalizeBookingInterval(
+      start: startDt,
+      userEnd: endDtRequested,
+      getCloseForDay: (day) {
+        final dayOnly = DateTime(day.year, day.month, day.day);
+        return _closeDateTimeForDay(dayOnly); // DateTime?
+      },
+    );
+
+    final effEnd = normalized.effectiveEnd;
+    final effEndDateOnly = DateTime(effEnd.year, effEnd.month, effEnd.day);
+    final effEndTod = TimeOfDay(hour: effEnd.hour, minute: effEnd.minute);
+
+
+    // ✅ Salviamo in stato (servirà per availability + DB + recap)
+    _normalizedPricingInterval = normalized;
+    _effectiveEndDate = effEndDateOnly;
+    _effectiveEndTime = effEndTod;
+
+    return null;
   }
 
   /// Normalizza opening_hours in formato settimanale:
@@ -697,16 +761,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
       final in7Days = today.add(const Duration(days: 7));
-      // Validazione unica data/orario (stessi controlli dello step 1)
-      final dtError = _validateDateTimeSelection();
-      if (dtError != null) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(dtError)));
-        setState(() => _busy = false);
-        return;
-      }
 
       final sel = _selectedDate!;
       final selDateOnly = DateTime(sel.year, sel.month, sel.day);
@@ -763,9 +817,9 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
       // Recuperiamo data+ora effettive da quello che ha scelto l'utente
       final startDt = _startDateTime;
-      final endDt = _endDateTime;
+      final endDtRequested = _endDateTime;
 
-      if (startDt == null || endDt == null) {
+      if (startDt == null || endDtRequested == null) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -776,50 +830,81 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         return;
       }
 
-      if (!startDt.isBefore(endDt)) {
+      // Validazione completa + calcolo scadenza fascia (setta anche _effectiveEndDate/_effectiveEndTime)
+      final dtError = _validateDateTimeSelection();
+      if (dtError != null) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'L\'orario di ritiro deve essere dopo quello di consegna.',
-            ),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(dtError)));
         setState(() => _busy = false);
         return;
       }
 
+      // Assicuriamoci che la normalizzazione sia pronta
+      final normalized =
+          _normalizedPricingInterval ??
+          BagDropPricing.normalizeBookingInterval(
+            start: startDt,
+            userEnd: endDtRequested,
+            getCloseForDay: (day) {
+              final dayOnly = DateTime(day.year, day.month, day.day);
+              return _closeDateTimeForDay(dayOnly);
+            },
+          );
+
+      final effectiveEnd = normalized.effectiveEnd;
+
+      // Date-only per DB
       final bookingStartDate = DateTime(
         startDt.year,
         startDt.month,
         startDt.day,
       );
-      final bookingEndDate = DateTime(endDt.year, endDt.month, endDt.day);
+      final bookingEndDateEffective = DateTime(
+        effectiveEnd.year,
+        effectiveEnd.month,
+        effectiveEnd.day,
+      );
 
-      // 🔹 Formato "HH:MM" per la logica di disponibilità
+      // Requested date-only per DB
+      final bookingEndDateRequested = DateTime(
+        endDtRequested.year,
+        endDtRequested.month,
+        endDtRequested.day,
+      );
+
+      // 🔹 Formato "HH:MM" per la logica di disponibilità (effective interval)
       final startStrForAvailability = _formatTimeForApi(
         TimeOfDay(hour: startDt.hour, minute: startDt.minute),
       );
-      final endStrForAvailability = _formatTimeForApi(
-        TimeOfDay(hour: endDt.hour, minute: endDt.minute),
+      final endStrForAvailabilityEffective = _formatTimeForApi(
+        TimeOfDay(hour: effectiveEnd.hour, minute: effectiveEnd.minute),
       );
 
       // 🔹 Formato "HH:MM:SS" per il DB
       final startTimeStr = _formatTimeToDb(
         TimeOfDay(hour: startDt.hour, minute: startDt.minute),
       );
-      final endTimeStr = _formatTimeToDb(
-        TimeOfDay(hour: endDt.hour, minute: endDt.minute),
+
+      // end effettivo (scadenza fascia)
+      final endTimeStrEffective = _formatTimeToDb(
+        TimeOfDay(hour: effectiveEnd.hour, minute: effectiveEnd.minute),
       );
 
-      // 2) Controllo disponibilità per questo intervallo
+      // end richiesto (scelta utente)
+      final endTimeStrRequested = _formatTimeToDb(
+        TimeOfDay(hour: endDtRequested.hour, minute: endDtRequested.minute),
+      );
+
+      // 2) Controllo disponibilità per intervallo EFFETTIVO
       final availability = await repo.getPartnerAvailabilityForInterval(
         partnerId: widget.partner.id,
         bookingDate: bookingStartDate,
         startDate: bookingStartDate,
-        endDate: bookingEndDate,
+        endDate: bookingEndDateEffective,
         startTime: startStrForAvailability,
-        endTime: endStrForAvailability,
+        endTime: endStrForAvailabilityEffective,
       );
 
       final totalRequested = _bagsS + _bagsM + _bagsL;
@@ -910,19 +995,25 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         bagsM: _bagsM,
         bagsL: _bagsL,
         notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+
+        // start
         bookingDate: bookingStartDate,
         startTime: startTimeStr,
-        endTime: endTimeStr,
-        endDate: bookingEndDate,
+
+        // end effettivo (scadenza fascia) -> DB end_date/end_time
+        endDate: bookingEndDateEffective,
+        endTime: endTimeStrEffective,
+
+        // end richiesto (scelta utente) -> DB end_date_requested/end_time_requested
+        endDateRequested: bookingEndDateRequested,
+        endTimeRequested: endTimeStrRequested,
       );
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Prenotazione creata!'),
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Prenotazione creata!')));
 
       Navigator.of(context).pop(); // torniamo al dettaglio partner
     } on AuthException catch (e) {
@@ -1018,15 +1109,12 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     return BagDropPricing.formatEuro(value);
   }
 
-//helper info tariffe
+  //helper info tariffe
   void _openPricingScreen() {
-  Navigator.of(context).push(
-    MaterialPageRoute(
-      builder: (_) => const BagDropPricingScreen(),
-    ),
-  );
-}
-
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const BagDropPricingScreen()));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2091,13 +2179,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
             ),
           ),
         ],
-        /*
-        const SizedBox(height: 12),
-        const Text(
-          'Pagamento e QR code per il check-in saranno integrati in una fase successiva.',
-          style: TextStyle(fontSize: 12),
-        ),
-        */
       ],
     );
   }

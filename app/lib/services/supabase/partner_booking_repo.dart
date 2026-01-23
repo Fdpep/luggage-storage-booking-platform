@@ -59,10 +59,12 @@ class PartnerBookingRepo {
     required int bagsM,
     required int bagsL,
     String? notes,
-    required DateTime bookingDate,
-    required String startTime,
-    required String endTime,
-    DateTime? endDate,
+    required DateTime bookingDate, // start day
+    required String startTime, // 'HH:MM:SS' o 'HH:MM'
+    required DateTime endDate, // end day EFFETTIVO
+    required String endTime, // end time EFFETTIVO
+    required DateTime endDateRequested, // end day richiesto
+    required String endTimeRequested, // end time richiesto
   }) async {
     final userId = client.auth.currentUser?.id;
     if (userId == null) {
@@ -77,9 +79,12 @@ class PartnerBookingRepo {
       bookingDate.month,
       bookingDate.day,
     );
-
-    final endDayRaw = endDate ?? bookingDate;
-    final endDay = DateTime(endDayRaw.year, endDayRaw.month, endDayRaw.day);
+    final endDay = DateTime(endDate.year, endDate.month, endDate.day);
+    final endDayReq = DateTime(
+      endDateRequested.year,
+      endDateRequested.month,
+      endDateRequested.day,
+    );
 
     await client.from('partner_bookings').insert({
       'partner_id': partnerId,
@@ -92,12 +97,18 @@ class PartnerBookingRepo {
       'bags_m': bagsM,
       'bags_l': bagsL,
       'notes': notes,
-      // nuovi campi per lo scheduling
+
+      // START
       'booking_date': startDay.toIso8601String(),
-      'end_date': endDay.toIso8601String(),
       'start_time': startTime,
+
+      // END effettivo (scadenza fascia)
+      'end_date': endDay.toIso8601String(),
       'end_time': endTime,
-      // status default: 'confirmed' come da migration
+
+      // END richiesto (scelta utente)
+      'end_date_requested': endDayReq.toIso8601String(),
+      'end_time_requested': endTimeRequested,
     });
   }
 

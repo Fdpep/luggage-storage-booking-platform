@@ -5,8 +5,6 @@ import 'package:BagDrop/models/partner_booking.dart';
 import 'package:BagDrop/schermate/partner/user_view/partner_detail_screen.dart';
 import 'package:BagDrop/theme/app_theme.dart';
 
-
-
 class BookingRecapScreen extends StatelessWidget {
   final Partner partner;
   final PartnerBooking booking;
@@ -31,15 +29,23 @@ class BookingRecapScreen extends StatelessWidget {
 
     final totalBags = booking.totalBags;
     final dropoff = booking.plannedDropoffLocal;
-    final pickup = booking.plannedPickupLocal;
+
+    // ritiro scelto dall’utente (requested)
+    final pickupRequested = booking.requestedPickupLocal;
+
+    // scadenza tariffaria (effective end, salvata in end_date/end_time)
+    final pickupEffective = booking.plannedPickupLocal;
 
     // Calcolo durata + prezzo
     BagDropDuration? duration;
     double? totalPrice;
     String durationLabel = '';
 
-    if (pickup.isAfter(dropoff)) {
-      duration = BagDropPricing.inferDuration(start: dropoff, end: pickup);
+    if (pickupEffective.isAfter(dropoff)) {
+      duration = BagDropPricing.inferDuration(
+        start: dropoff,
+        end: pickupEffective,
+      );
       totalPrice = BagDropPricing.totalFor(
         duration: duration,
         bagsS: booking.bagsS,
@@ -192,8 +198,14 @@ class BookingRecapScreen extends StatelessWidget {
                       const SizedBox(height: 4),
                       _IconLabelRow(
                         icon: Icons.logout,
-                        label: 'Ritiro previsto',
-                        value: _formatDateTime(pickup),
+                        label: 'Ritiro scelto',
+                        value: _formatDateTime(pickupRequested),
+                      ),
+                      const SizedBox(height: 4),
+                      _IconLabelRow(
+                        icon: Icons.hourglass_bottom,
+                        label: 'Scadenza fascia',
+                        value: _formatDateTime(pickupEffective),
                       ),
                       const SizedBox(height: 4),
                       _IconLabelRow(

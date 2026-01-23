@@ -87,7 +87,7 @@ class Partner {
       capacityL: (map['capacity_l'] as int?) ?? 0,
       // Prezzi legacy per-partner: non più usati a livello di logica,
       // ma ancora letti per compatibilità con il DB esistente.
-      price2h: (map['price_2h'] as num?)?.toDouble(),
+      price2h: (map['price_3h'] as num?)?.toDouble(),
       pricePerDay: (map['price_per_day'] as num?)?.toDouble(),
       isActive: (map['is_active'] as bool?) ?? true,
       acceptingBookings: (map['accepting_bookings'] as bool?) ?? true,
@@ -120,7 +120,7 @@ class Partner {
       'capacity_l': capacityL,
          // Campi prezzo legacy: non più aggiornati dall'app,
       // ma ancora presenti nel modello finché le colonne esistono nel DB.
-      'price_2h': price2h,
+      'price_3h': price2h,
       'price_per_day': pricePerDay,
       'is_active': isActive,
       'accepting_bookings': acceptingBookings,

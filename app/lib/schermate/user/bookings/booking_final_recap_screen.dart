@@ -35,9 +35,12 @@ class BookingFinalRecapScreen extends StatelessWidget {
     final effectiveDropoff = booking.effectiveDropoffAtLocal;
     final effectivePickup = booking.effectivePickupAtLocal;
 
+    final requestedPickup = booking.requestedPickupAtLocal;
+
     // Regola tolleranza checkout
     final tolerance = const Duration(minutes: 15);
-    final isLateCheckout = effectivePickup != null &&
+    final isLateCheckout =
+        effectivePickup != null &&
         effectivePickup.isAfter(plannedPickup.add(tolerance));
 
     // Prezzi: base (planned) + finale (se late allora calcolo su end effettivo, altrimenti planned)
@@ -94,7 +97,9 @@ class BookingFinalRecapScreen extends StatelessWidget {
 
           // Partner card
           Card(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
             elevation: 1.5,
             child: Padding(
               padding: const EdgeInsets.all(14),
@@ -103,18 +108,28 @@ class BookingFinalRecapScreen extends StatelessWidget {
                 children: [
                   Text(
                     partner.name,
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 18,
+                    ),
                   ),
-                  if (partner.address != null && partner.address!.trim().isNotEmpty) ...[
+                  if (partner.address != null &&
+                      partner.address!.trim().isNotEmpty) ...[
                     const SizedBox(height: 6),
                     Row(
                       children: [
-                        Icon(Icons.location_on_outlined, size: 16, color: cs.onSurface.withOpacity(0.6)),
+                        Icon(
+                          Icons.location_on_outlined,
+                          size: 16,
+                          color: cs.onSurface.withOpacity(0.6),
+                        ),
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
                             partner.address!,
-                            style: TextStyle(color: cs.onSurface.withOpacity(0.7)),
+                            style: TextStyle(
+                              color: cs.onSurface.withOpacity(0.7),
+                            ),
                           ),
                         ),
                       ],
@@ -127,11 +142,15 @@ class BookingFinalRecapScreen extends StatelessWidget {
                       onPressed: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (_) => PartnerDetailScreen(partner: partner),
+                            builder: (_) =>
+                                PartnerDetailScreen(partner: partner),
                           ),
                         );
                       },
-                      icon: const Icon(Icons.store_mall_directory_outlined, size: 18),
+                      icon: const Icon(
+                        Icons.store_mall_directory_outlined,
+                        size: 18,
+                      ),
                       label: const Text('Dettagli locale'),
                     ),
                   ),
@@ -144,7 +163,9 @@ class BookingFinalRecapScreen extends StatelessWidget {
 
           // Orari prenotati
           Card(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
             elevation: 1,
             child: Padding(
               padding: const EdgeInsets.all(14),
@@ -164,7 +185,13 @@ class BookingFinalRecapScreen extends StatelessWidget {
                   const SizedBox(height: 6),
                   _IconLabelRow(
                     icon: Icons.logout,
-                    label: 'Check-out previsto',
+                    label: 'Ritiro scelto',
+                    value: _formatDateTime(requestedPickup),
+                  ),
+                  const SizedBox(height: 6),
+                  _IconLabelRow(
+                    icon: Icons.hourglass_bottom,
+                    label: 'Scadenza fascia',
                     value: _formatDateTime(plannedPickup),
                   ),
                 ],
@@ -176,7 +203,9 @@ class BookingFinalRecapScreen extends StatelessWidget {
 
           // Orari effettivi
           Card(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
             elevation: 1,
             child: Padding(
               padding: const EdgeInsets.all(14),
@@ -203,7 +232,11 @@ class BookingFinalRecapScreen extends StatelessWidget {
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        Icon(Icons.warning_amber_rounded, size: 18, color: Colors.orange.shade700),
+                        Icon(
+                          Icons.warning_amber_rounded,
+                          size: 18,
+                          color: Colors.orange.shade700,
+                        ),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
@@ -227,7 +260,9 @@ class BookingFinalRecapScreen extends StatelessWidget {
 
           // Pagamento finale
           Card(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
             elevation: 1,
             child: Padding(
               padding: const EdgeInsets.all(14),
@@ -240,18 +275,27 @@ class BookingFinalRecapScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
 
-                  _InfoRow('Bagagli', '${booking.totalBags} (S:${booking.bagsS} M:${booking.bagsM} L:${booking.bagsL})'),
+                  _InfoRow(
+                    'Bagagli',
+                    '${booking.totalBags} (S:${booking.bagsS} M:${booking.bagsM} L:${booking.bagsL})',
+                  ),
 
                   const SizedBox(height: 8),
-                  _InfoRow('Prezzo base (prenotato)', BagDropPricing.formatEuro(plannedTotal)),
+                  _InfoRow(
+                    'Prezzo base (prenotato)',
+                    BagDropPricing.formatEuro(plannedTotal),
+                  ),
 
                   if (extraClamped > 0.0) ...[
                     const SizedBox(height: 6),
-                    _InfoRow('Sovrapprezzo (ritardo)', '+ ${BagDropPricing.formatEuro(extraClamped)}',
-                        valueStyle: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          color: Colors.orange.shade800,
-                        )),
+                    _InfoRow(
+                      'Sovrapprezzo (ritardo)',
+                      '+ ${BagDropPricing.formatEuro(extraClamped)}',
+                      valueStyle: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: Colors.orange.shade800,
+                      ),
+                    ),
                   ],
 
                   const Divider(height: 22),
@@ -259,12 +303,18 @@ class BookingFinalRecapScreen extends StatelessWidget {
                     children: [
                       const Text(
                         'Totale pagato',
-                        style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 14,
+                        ),
                       ),
                       const Spacer(),
                       Text(
                         BagDropPricing.formatEuro(finalTotal),
-                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 18,
+                        ),
                       ),
                     ],
                   ),
@@ -272,7 +322,10 @@ class BookingFinalRecapScreen extends StatelessWidget {
                   const SizedBox(height: 10),
                   Text(
                     'Nota: il totale è calcolato automaticamente in base alle tariffe BagDropPricing e agli orari effettivi (se oltre tolleranza).',
-                    style: TextStyle(fontSize: 11, color: cs.onSurface.withOpacity(0.6)),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: cs.onSurface.withOpacity(0.6),
+                    ),
                   ),
                 ],
               ),
@@ -347,7 +400,9 @@ class _InfoRow extends StatelessWidget {
         const SizedBox(width: 10),
         Text(
           value,
-          style: valueStyle ?? const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+          style:
+              valueStyle ??
+              const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
           textAlign: TextAlign.right,
         ),
       ],

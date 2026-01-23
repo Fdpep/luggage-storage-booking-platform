@@ -128,7 +128,7 @@ class PartnerRepo {
       'capacity_s': capS,
       'capacity_m': capM,
       'capacity_l': capL,
-      // 'price_2h' e 'price_per_day' non vengono più impostati.
+      // 'price_3h' e 'price_per_day' non vengono più impostati.
       'lat': lat,
       'lng': lng,
       'status': 'pending',

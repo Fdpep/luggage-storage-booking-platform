@@ -39,6 +39,9 @@ class PartnerBooking {
   final String startTime; // 'HH:MM:SS' (o 'HH:MM')
   final String endTime; // 'HH:MM:SS' (o 'HH:MM')
 
+  final DateTime? endDateRequested;
+  final String? endTimeRequested;
+
   /// Nuovo modello "timestamp completi"
   ///
   /// Calcolati via trigger su Supabase e già backfillati:
@@ -52,6 +55,10 @@ class PartnerBooking {
   final DateTime? pickupEffectiveAt;
 
   final String bookingCode; // BDXXXXXXXXXX
+
+  final bool lateFeeRequired;
+  final int? lateFeeAmountCents;
+  final DateTime? lateFeePaidAt;
 
   const PartnerBooking({
     required this.id,
@@ -74,11 +81,17 @@ class PartnerBooking {
     this.endDate,
     required this.startTime,
     required this.endTime,
+    this.endDateRequested,
+    this.endTimeRequested,
     required this.bookingCode,
     this.dropoffPlannedAt,
     this.pickupPlannedAt,
     this.dropoffEffectiveAt,
     this.pickupEffectiveAt,
+
+    this.lateFeeRequired = false,
+    this.lateFeeAmountCents,
+    this.lateFeePaidAt,
   });
 
   /// Numero totale di bagagli (S+M+L)
@@ -96,6 +109,15 @@ class PartnerBooking {
     final d = endDate ?? bookingDate;
     return _combineDateAndTime(d, endTime);
   }
+
+  //ritiro scelto dall'utente
+  DateTime get requestedPickupLocal {
+    final d = endDateRequested ?? endDate ?? bookingDate;
+    final t = endTimeRequested ?? endTime;
+    return _combineDateAndTime(d, t);
+  }
+
+  DateTime get requestedPickupAtLocal => requestedPickupLocal.toLocal();
 
   /// Planned (preferisci i timestamp completi se presenti)
   DateTime get plannedDropoffAtLocal =>
@@ -158,6 +180,8 @@ class PartnerBooking {
     return DateTime(date.year, date.month, date.day, hour, minute, second);
   }
 
+  bool get isLateFeePending => lateFeeRequired && lateFeePaidAt == null;
+
   // ---------- FROM / TO MAP ----------
 
   factory PartnerBooking.fromMap(Map<String, dynamic> map) {
@@ -208,11 +232,20 @@ class PartnerBooking {
       endDate: map['end_date'] != null ? parseDate(map['end_date']) : null,
       startTime: parseTime(map['start_time'], fallback: '00:00:00'),
       endTime: parseTime(map['end_time'], fallback: '23:59:00'),
+      endDateRequested: map['end_date_requested'] != null
+          ? parseDate(map['end_date_requested'])
+          : null,
+      endTimeRequested: map['end_time_requested'] != null
+          ? parseTime(map['end_time_requested'], fallback: '')
+          : null,
       bookingCode: (map['booking_code'] as String?) ?? '',
       dropoffPlannedAt: parseDateTime(map['dropoff_planned_at']),
       pickupPlannedAt: parseDateTime(map['pickup_planned_at']),
       dropoffEffectiveAt: parseDateTime(map['dropoff_effective_at']),
       pickupEffectiveAt: parseDateTime(map['pickup_effective_at']),
+      lateFeeRequired: (map['late_fee_required'] as bool?) ?? false,
+      lateFeeAmountCents: map['late_fee_amount_cents'] as int?,
+      lateFeePaidAt: parseDateTime(map['late_fee_paid_at']),
     );
   }
 
@@ -248,11 +281,22 @@ class PartnerBooking {
           : null,
       'start_time': startTime,
       'end_time': endTime,
+      'end_date_requested': endDateRequested != null
+          ? DateTime(
+              endDateRequested!.year,
+              endDateRequested!.month,
+              endDateRequested!.day,
+            ).toIso8601String()
+          : null,
+      'end_time_requested': endTimeRequested,
       'booking_code': bookingCode,
       'dropoff_planned_at': dropoffPlannedAt?.toUtc().toIso8601String(),
       'pickup_planned_at': pickupPlannedAt?.toUtc().toIso8601String(),
       'dropoff_effective_at': dropoffEffectiveAt?.toUtc().toIso8601String(),
       'pickup_effective_at': pickupEffectiveAt?.toUtc().toIso8601String(),
+      'late_fee_required': lateFeeRequired,
+      'late_fee_amount_cents': lateFeeAmountCents,
+      'late_fee_paid_at': lateFeePaidAt?.toUtc().toIso8601String(),
     };
   }
 }

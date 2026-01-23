@@ -91,7 +91,7 @@ Future<void> _openContract(String path) async {
             await _supabase
                     .from('partners')
                     .select(
-                      'id,name,address,capacity,price_2h,price_per_day,status,is_active,reject_reason,created_at,updated_at,owner_id,lat,lng,opening_hours',
+                      'id,name,address,capacity,price_3h,price_per_day,status,is_active,reject_reason,created_at,updated_at,owner_id,lat,lng,opening_hours',
                     )
                     .inFilter('id', partnerIds)
                 as List<dynamic>;
