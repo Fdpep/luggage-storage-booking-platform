@@ -13,7 +13,7 @@ const CANCEL_URL = Deno.env.get("PAYMENT_CANCEL_URL")!;
 const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2024-06-20" });
 
 serve(async (req) => {
-  // CORS minimale (utile se payment.html sta su localhost)
+  // CORS minimale
   if (req.method === "OPTIONS") {
     return new Response(null, {
       status: 204,
@@ -33,7 +33,7 @@ serve(async (req) => {
       });
     }
 
-    // 1) Auth user (JWT Supabase dal browser)
+    // Auth user (JWT Supabase dal browser)
     const authHeader = req.headers.get("Authorization") ?? "";
     if (!authHeader.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Missing Authorization Bearer token" }), {
@@ -56,11 +56,11 @@ serve(async (req) => {
 
     const uid = userData.user.id;
 
-    // 2) body: request_id (opzionale)
+    // body: request_id (opzionale)
     const body = await req.json().catch(() => ({}));
     const requestId: string | undefined = body?.request_id;
 
-    // 3) Carica la richiesta partner e verifica ownership + status
+    // Carica richiesta partner e verifica status
     let q = supabase
       .from("partner_requests")
       .select("id,status,user_id,created_at")
@@ -99,12 +99,19 @@ serve(async (req) => {
       });
     }
 
-    // 4) Crea Checkout Session
+    // Costruzione robusta URL (NO codice dentro l’oggetto Stripe!)
+    const success = new URL(SUCCESS_URL);
+    success.searchParams.set("success", "1");
+    success.searchParams.set("session_id", "{CHECKOUT_SESSION_ID}");
+
+    const cancel = new URL(CANCEL_URL);
+    cancel.searchParams.set("cancel", "1");
+
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: [{ price: PRICE_ID, quantity: 1 }],
-      success_url: `${SUCCESS_URL}&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${CANCEL_URL}`,
+      success_url: success.toString(),
+      cancel_url: cancel.toString(),
       client_reference_id: uid,
       customer_email: userData.user.email ?? undefined,
       metadata: {

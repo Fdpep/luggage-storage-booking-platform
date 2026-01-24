@@ -417,42 +417,54 @@ Nel flusso check-in/out (scanner) lo stato `rejected` viene trattato come `cance
   * log di sistema
 
 
-## 📩 Approve Admin → Email → Pagamento (Stripe / mock)
+## 📩 Approve Admin → Email → Pagamento (Stripe Checkout)
 
 ### Obiettivo di business
 Quando l’admin approva i documenti, il partner **NON entra subito** nell’area partner.
 Deve prima completare il pagamento.
 
-### Flusso
+### Workflow stato richiesta (partner_requests.status)
 1. Partner invia richiesta (`submitted`)
 2. Admin approva documenti → `awaiting_payment`
-3. Il sistema invia una email al partner con:
-   - link a una pagina pagamento (Stripe in futuro)
-4. Partner completa pagamento:
-   - in test: bottone “Simula pagamento”
-   - in produzione: Stripe checkout
-5. Dopo pagamento → `paid` + ruolo `partner` + `partners` attivato
+3. Il partner completa il pagamento via **Stripe Checkout**
+4. Stripe invia webhook → il sistema finalizza → `paid` + ruolo `partner`
 
 ### UX lato app
 Se `role = partner_candidate`:
-- se status = `submitted` → schermata “In revisione”
-- se status = `awaiting_payment` → schermata “Pagamento richiesto”
-  con invito a controllare email + link alla pagina pagamento
-- se status = `rejected` → schermata “Rifiutato”
+- `submitted` → schermata “In revisione”
+- `awaiting_payment` → schermata “Pagamento richiesto”
+- `rejected` → schermata “Rifiutato”
 Solo dopo `paid` l’utente accede alla `PartnerShell`.
 
+---
 
 ### 🧠 Implementazione tecnica (attuale)
 
-- La pagina di pagamento è una **pagina web custom (WordPress / HTML + React)**.
-- L’utente deve autenticarsi con **lo stesso account Supabase** usato nel wizard.
-- Il bottone di pagamento (mock o Stripe) chiama la RPC:
+#### Componenti
+- **Edge Function** `create-partner-checkout-session`  
+  Crea una sessione Stripe Checkout per la richiesta `awaiting_payment`.
+- **Edge Function** `stripe-webhook`  
+  Verifica firma Stripe e finalizza pagamento lato DB via RPC.
+- **RPC DB** `finalize_partner_payment_webhook(...)`  
+  Esegue la transizione atomica `awaiting_payment → paid` e aggiorna ruolo/partner.
 
-```sql
-public.confirm_partner_payment(
-  p_request_id uuid,
-  p_payment_reference text
-)
+#### Flow tecnico
+1. Il partner (autenticato su Supabase) apre la pagina web di pagamento.
+2. La pagina chiama `create-partner-checkout-session` passando JWT (Bearer).
+3. La function crea una Checkout Session con metadata:
+   - `partner_request_id`
+   - `supabase_user_id`
+4. Stripe a pagamento completato invia `checkout.session.completed` al webhook.
+5. `stripe-webhook` verifica la firma con `STRIPE_WEBHOOK_SECRET` e chiama:
+   - `finalize_partner_payment_webhook(p_request_id, p_stripe_session_id, p_payment_reference)`
+6. Il partner riapre l’app → `AuthGate` rilegge ruolo e sblocca `PartnerShell`.
+
+#### Requisiti di sicurezza
+- `create-partner-checkout-session` richiede **Authorization: Bearer <JWT>**
+- `stripe-webhook` NON usa JWT (Stripe non manda Authorization):
+  - sulla function **JWT verification deve essere disabilitata** (solo per webhook)
+- Firma webhook verificata con `stripe-signature` e body raw.
+
 
 Effetti della RPC:
 
@@ -678,6 +690,32 @@ Responsabilità:
 
 > Nota: il pagamento Stripe reale verrà aggiunto dopo.  
 > Per test esiste una pagina “pagamento finto” con un bottone che chiama `confirm_partner_payment(...)`.
+
+
+
+## 💳 Stripe Payments (Partner onboarding)
+
+### Secrets Supabase (Edge Functions)
+Configurati con:
+```bash
+supabase secrets set \
+  STRIPE_SECRET_KEY="sk_test_..." \
+  STRIPE_WEBHOOK_SECRET="whsec_..." \
+  STRIPE_PARTNER_PRICE_ID="price_..." \
+  PAYMENT_SUCCESS_URL="http://localhost:5500/payment.html" \
+  PAYMENT_CANCEL_URL="http://localhost:5500/payment.html"
+
+
+⚠️ In Supabase Dashboard → Edge Functions → `stripe-webhook` → **Disable JWT verification** (solo per questa function).
+
+
+### Logs Edge Functions (Supabase CLI)
+Per vedere i log:
+- via Dashboard: Project → Edge Functions → Logs
+- oppure in locale con `supabase functions serve`
+
+Nota: alcune versioni CLI non supportano `supabase functions logs --project-ref ...`.
+
 
 
 # 📷 Permessi Fotocamera
@@ -1182,7 +1220,7 @@ NOTA BENE : partner signup , registration ed application sono deprecate. Ora si 
    * `extra_capacity_s/m/l`
    * `accept_s/m/l`
 4. `capacity_s/m/l` e `capacity` vengono **derivati via trigger** (per UI/filtri), non sono più input primari.
-5. Viene (ri)creata una riga in `partner_requests` con `status = 'pending'`.
+5. Viene creata/riusata una riga in `partner_requests` con `status = 'draft'` (poi `submitted` alla conferma).
 6. Finché non è approvato:
 
    * l’utente partner vede `PartnerWaitingScreen` (e, se `rejected`, il motivo).

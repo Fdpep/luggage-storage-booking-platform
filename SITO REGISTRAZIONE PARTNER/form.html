@@ -8,82 +8,809 @@
 
 
 <style>
-  #partner-wizard-root {
-    font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-    line-height: 1.5;
-    color: #111827;
-    min-height: 320px;
-  }
-  #partner-wizard-root input, #partner-wizard-root select, #partner-wizard-root textarea {
-    display:block; width:100%;
-    border-radius:.5rem; border:1px solid #d1d5db;
-    padding:.6rem .75rem; margin-top:.25rem; font-size:1rem;
-    background:#fff; color:#111827;
-  }
-  #partner-wizard-root label { font-weight:600; font-size:.85rem; color:#374151; }
-  .btn-secondary {
-    background:#f3f4f6; color:#374151; padding:.6rem 1rem; border-radius:.6rem;
-    font-weight:700; cursor:pointer; border:1px solid #d1d5db;
-  }
+
+:root{
+  --bd-bg: #090615;
+  --bd-card: rgba(255,255,255,.08);
+  --bd-card-2: rgba(255,255,255,.06);
+  --bd-border: rgba(255,255,255,.12);
+  --bd-text: rgba(255,255,255,.92);
+  --bd-muted: rgba(255,255,255,.70);
+  --bd-faint: rgba(255,255,255,.55);
+
+  --bd-accent: #8b5cf6;
+  --bd-accent-2: #a78bfa;
+  --bd-danger: #ef4444;
+}
+
+/* =========================================================
+   BASE / PAGE
+   ========================================================= */
+
+html, body{
+  margin: 0;
+  background: linear-gradient(180deg, #0b1220 0%, #070b14 100%);
+}
+
+#partner-wizard-root{
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  color: var(--bd-text);
+  min-height: 100vh;
+  background: linear-gradient(180deg, #0b1220 0%, #070b14 100%);
+}
+
+/* shell */
+.bd-shell{
+  width: 100%;
+  min-height: 100vh;
+  padding: 28px 14px;
+  background:
+    radial-gradient(900px 360px at 18% 0%, rgba(139,92,246,.38), transparent 62%),
+    radial-gradient(780px 320px at 92% 18%, rgba(167,139,250,.22), transparent 58%),
+    radial-gradient(640px 260px at 55% 88%, rgba(99,102,241,.16), transparent 60%),
+    linear-gradient(180deg, #090615 0%, #05030d 100%);
+}
+
+/* card */
+.bd-card{
+  width: min(980px, 100%);
+  margin: 0 auto;
+  border: 1px solid var(--bd-border);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.05));
+  box-shadow: 0 28px 80px rgba(0,0,0,.55);
+  overflow: hidden;
+}
+
+.bd-card-inner{
+  padding: 22px;
+}
+
+@media (min-width: 768px){
+  .bd-card-inner{ padding: 30px; }
+}
+
+/* header */
+.bd-head{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap: 14px;
+  padding: 24px 22px 18px 22px;
+  text-align:center;
+}
+
+.bd-title{
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.bd-subtitle{
+  margin-top: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--bd-muted);
+}
+
+.bd-alert-wrap{ margin-bottom: 18px; }
+
+/* =========================================================
+   FORMS (bd-*)
+   ========================================================= */
+
+.bd-label{
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--bd-muted);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.bd-input, .bd-select, .bd-textarea{
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(0,0,0,.25);
+  color: var(--bd-text);
+  outline: none;
+  transition: border-color .15s ease, transform .15s ease, background .15s ease;
+}
+
+.bd-input::placeholder,
+.bd-textarea::placeholder{
+  color: rgba(255,255,255,.45);
+}
+
+.bd-input:focus, .bd-select:focus, .bd-textarea:focus{
+  border-color: rgba(124,58,237,.75);
+  background: rgba(0,0,0,.18);
+  transform: translateY(-1px);
+}
+
+/* checkbox */
+#partner-wizard-root input[type="checkbox"]{
+  width: 18px;
+  height: 18px;
+  accent-color: var(--bd-accent);
+}
+
+/* =========================================================
+   BUTTONS
+   ========================================================= */
+
+.bd-btn{
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  transition: transform .12s ease, filter .12s ease, background .12s ease, border-color .12s ease;
+  user-select:none;
+}
+
+.bd-btn:active{ transform: translateY(1px) scale(.99); }
+
+.bd-btn-primary{
+  background: linear-gradient(135deg, rgba(124,58,237,1), rgba(99,102,241,1));
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.14);
+  box-shadow: 0 16px 40px rgba(124,58,237,.26);
+}
+.bd-btn-primary:hover{ filter: brightness(1.06); }
+
+.bd-btn-success{
+  background: linear-gradient(135deg, rgba(34,197,94,1), rgba(16,185,129,1));
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.14);
+  box-shadow: 0 16px 40px rgba(34,197,94,.18);
+}
+.bd-btn-success:hover{ filter: brightness(1.06); }
+
+.bd-btn-ghost{
+  background: rgba(255,255,255,.06);
+  color: var(--bd-text);
+  border: 1px solid rgba(255,255,255,.14);
+}
+.bd-btn-ghost:hover{ background: rgba(255,255,255,.10); }
+
+.bd-btn-muted{
+  background: rgba(255,255,255,.04);
+  color: rgba(255,255,255,.55);
+  border: 1px solid rgba(255,255,255,.10);
+  cursor: not-allowed;
+}
+
+/* icon-like button (usato per mostra/nascondi e chiudi modale) */
+.bd-icon-btn{
+  width: auto;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-weight: 900;
+  font-size: 12px;
+  padding: 9px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.90);
+  cursor:pointer;
+}
+.bd-icon-btn:hover{ background: rgba(255,255,255,.10); }
+
+/* legacy buttons */
+.btn-secondary,
+.btn-secondary-mini{
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  user-select:none;
+  transition: transform .12s ease, filter .12s ease, background .12s ease, border-color .12s ease;
+  background: rgba(255,255,255,.06);
+  color: var(--bd-text);
+  border: 1px solid rgba(255,255,255,.14);
+}
+.btn-secondary:hover,
+.btn-secondary-mini:hover{ background: rgba(255,255,255,.10); }
+.btn-secondary:active,
+.btn-secondary-mini:active{ transform: translateY(1px) scale(.99); }
 
 .btn-secondary-mini{
-  background:#f3f4f6;
-  color:#374151;
-  padding:.35rem .6rem;
-  border-radius:.55rem;
-  font-weight:800;
-  cursor:pointer;
-  border:1px solid #d1d5db;
-  font-size:.78rem;
-  line-height:1.1;
-  white-space:nowrap;
+  padding: 9px 11px;
+  font-size: 12px;
+  border-radius: 999px;
 }
-.btn-secondary-mini:hover{ background:#e5e7eb; }
 
+/* =========================================================
+   LAYOUT HELPERS
+   ========================================================= */
 
-  input[type=file]::file-selector-button{
-    margin-right:1rem; padding:.55rem 1rem; border-radius:9999px; border:0;
-    font-size:.875rem; font-weight:700; background:#eff6ff; color:#1d4ed8; cursor:pointer;
-  }
-  input[type=file]::file-selector-button:hover{ background:#dbeafe; }
-  .loading-spinner{ border:4px solid #f3f3f3; border-top:4px solid #2563eb; border-radius:50%;
-    width:30px; height:30px; animation:spin 1s linear infinite; margin:20px auto; }
-  @keyframes spin{0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)}}
+.bd-row{
+  display:flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 
-/* Modal */
-.bd-modal-backdrop{
-  position:fixed; inset:0; background:rgba(17,24,39,.55);
-  display:flex; align-items:center; justify-content:center;
-  padding:16px; z-index:9999;
+.bd-col{
+  flex: 1 1 220px;
+  min-width: 220px;
 }
-.bd-modal{
-  width:min(560px, 96vw);
-  background:#fff; border:1px solid #e5e7eb; border-radius:16px;
-  box-shadow:0 30px 80px rgba(0,0,0,.25);
-  overflow:hidden;
+
+.bd-panel{
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.04);
+  padding: 14px;
 }
-.bd-modal-header{
-  display:flex; align-items:center; justify-content:space-between;
-  padding:14px 16px; border-bottom:1px solid #e5e7eb;
+
+.bd-divider{
+  height:1px;
+  background: rgba(255,255,255,.10);
+  width:100%;
 }
-.bd-modal-title{ font-weight:800; color:#111827; }
-.bd-icon-btn{
-  width:36px; height:36px; display:inline-flex; align-items:center; justify-content:center;
-  border-radius:10px; border:1px solid #e5e7eb; background:#fff; cursor:pointer;
+
+/* link */
+#partner-wizard-root a{
+  color: rgba(167,139,250,.95);
 }
-.bd-icon-btn:hover{ background:#f9fafb; }
-.bd-modal-body{ padding:16px; }
-.bd-modal-footer{
-  display:flex; gap:10px; padding:14px 16px; border-top:1px solid #e5e7eb; justify-content:flex-end;
+#partner-wizard-root a:hover{
+  color: rgba(196,181,253,.95);
 }
+
+/* chip (può capitare) */
 .bd-chip{
-  display:inline-flex; align-items:center; gap:8px;
-  padding:6px 10px; border-radius:9999px; font-weight:800; font-size:12px;
-  border:1px solid #e5e7eb; background:#f9fafb; color:#111827;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 10px;
+  border-radius:9999px;
+  font-weight:900;
+  font-size:12px;
+  border:1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.04);
+  color: rgba(255,255,255,.88);
+}
+
+/* =========================================================
+   STEPS (1-5)
+   ========================================================= */
+
+.bd-steps{
+  display:flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 0 22px 18px 22px;
+  justify-content:center;
+}
+
+.bd-step{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.04);
+  color: rgba(255,255,255,.72);
+  font-weight: 900;
+  font-size: 12px;
+}
+
+.bd-step-dot{
+  width: 9px; height: 9px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.18);
+}
+
+.bd-step-active{
+  border-color: rgba(124,58,237,.55);
+  background: rgba(124,58,237,.14);
+  color: rgba(255,255,255,.92);
+}
+.bd-step-active .bd-step-dot{ background: rgba(124,58,237,.95); }
+
+.bd-step-done{
+  border-color: rgba(34,197,94,.35);
+  background: rgba(34,197,94,.10);
+  color: rgba(255,255,255,.85);
+}
+.bd-step-done .bd-step-dot{ background: rgba(34,197,94,.95); }
+
+/* =========================================================
+   ALERTS
+   ========================================================= */
+
+.bd-alert{
+  border-radius: 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.88);
+  font-size: 13px;
+}
+
+.bd-alert-danger{
+  border-color: rgba(239,68,68,.35);
+  background: rgba(239,68,68,.10);
+}
+
+.bd-alert-success{
+  border-color: rgba(34,197,94,.30);
+  background: rgba(34,197,94,.10);
+}
+
+/* =========================================================
+   ANIMATION + LOADING
+   ========================================================= */
+
+.bd-animate{ animation: bdIn .28s ease both; }
+
+@keyframes bdIn{
+  from{ opacity: 0; transform: translateY(10px); }
+  to{ opacity: 1; transform: translateY(0); }
+}
+
+.bd-spin{
+  width: 18px; height: 18px;
+  border: 2px solid rgba(255,255,255,.25);
+  border-top-color: rgba(255,255,255,.92);
+  border-radius: 999px;
+  animation: bdSpin 1s linear infinite;
+}
+
+@keyframes bdSpin{ to{ transform: rotate(360deg);} }
+
+.loading-spinner{
+  border: 4px solid rgba(255,255,255,.20);
+  border-top: 4px solid rgba(255,255,255,.85);
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  animation: bdSpin 1s linear infinite;
+  margin: 20px auto;
+}
+
+/* =========================================================
+   FILE INPUT
+   ========================================================= */
+
+input[type=file]{
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px dashed rgba(255,255,255,.20);
+  background: rgba(0,0,0,.20);
+  color: rgba(255,255,255,.75);
+}
+input[type=file]::file-selector-button{
+  margin-right: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.88);
+  font-weight: 900;
+  cursor:pointer;
+}
+input[type=file]::file-selector-button:hover{
+  background: rgba(255,255,255,.10);
+}
+
+/* =========================================================
+   MAP
+   ========================================================= */
+
+.bd-map{
+  border-radius: 18px;
+  overflow:hidden;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(0,0,0,.25);
+}
+
+/* =========================================================
+   MODAL (Portal-safe)
+   IMPORTANT: il modale vive in document.body (createPortal)
+   quindi deve essere stilizzato SENZA #partner-wizard-root
+   ========================================================= */
+
+.bd-modal-backdrop{
+  position: fixed !important;
+  inset: 0 !important;
+  background: rgba(0,0,0,.78);
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  padding:16px;
+  z-index:9999;
+}
+
+.bd-modal{
+  width:min(520px, 96vw);
+  border-radius: 18px;
+  border: 1px solid rgba(167,139,250,.22);
+  background:
+    radial-gradient(900px 340px at 12% 0%, rgba(139,92,246,.22), transparent 60%),
+    radial-gradient(700px 280px at 90% 20%, rgba(99,102,241,.16), transparent 55%),
+    linear-gradient(180deg, rgba(16,12,30,.98), rgba(8,6,18,.96));
+  box-shadow: 0 32px 120px rgba(0,0,0,.75);
+  overflow:hidden;
+  color: var(--bd-text);
+}
+
+.bd-modal-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:14px 16px;
+  border-bottom:1px solid rgba(255,255,255,.10);
+}
+.bd-modal-title{
+  font-weight: 900;
+  letter-spacing: -0.01em;
+}
+
+.bd-modal-body{ padding:16px; }
+
+.bd-modal-footer{
+  display:flex;
+  gap:10px;
+  padding:14px 16px;
+  border-top:1px solid rgba(255,255,255,.10);
+  justify-content:flex-end;
+}
+
+/* Label nel modale */
+.bd-modal label{
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--bd-muted);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  display:block;
+  margin-bottom: 6px;
+}
+
+/* Input nel modale: evita “blocchi bianchi” su time/date */
+.bd-modal input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.bd-modal select,
+.bd-modal textarea{
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px 44px 12px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(167,139,250,.20);
+  background:
+    radial-gradient(520px 180px at 12% 0%, rgba(139,92,246,.14), transparent 60%),
+    rgba(0,0,0,.22);
+  color: var(--bd-text);
+  outline: none;
+  box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  appearance: none;
+  -webkit-appearance: none;
+  color-scheme: dark;
+}
+.bd-modal input:focus,
+.bd-modal select:focus,
+.bd-modal textarea:focus{
+  border-color: rgba(139,92,246,.70);
+  background:
+    radial-gradient(520px 180px at 12% 0%, rgba(139,92,246,.18), transparent 60%),
+    rgba(0,0,0,.18);
+  transform: translateY(-1px);
+}
+
+/* WebKit internals (Chrome/Safari) */
+.bd-modal input[type="time"]::-webkit-datetime-edit,
+.bd-modal input[type="date"]::-webkit-datetime-edit{
+  padding: 0;
+  color: var(--bd-text);
+}
+.bd-modal input[type="time"]::-webkit-datetime-edit-text,
+.bd-modal input[type="date"]::-webkit-datetime-edit-text{
+  color: rgba(255,255,255,.55);
+  padding: 0 4px;
+}
+.bd-modal input[type="time"]::-webkit-datetime-edit-hour-field,
+.bd-modal input[type="time"]::-webkit-datetime-edit-minute-field{
+  color: var(--bd-text);
+  background: transparent;
+}
+.bd-modal input[type="time"]::-webkit-calendar-picker-indicator,
+.bd-modal input[type="date"]::-webkit-calendar-picker-indicator{
+  opacity: .85;
+  filter: invert(1) brightness(1.05);
+  cursor: pointer;
+}
+
+/* Layout body */
+.bd-modal-body .bd-row{ gap: 14px; }
+
+/* =========================================================
+   BRIDGE: stile coerente per elementi “legacy” nel wizard
+   (ma SENZA autofill hack)
+   ========================================================= */
+
+#partner-wizard-root label{
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--bd-muted);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+#partner-wizard-root input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+#partner-wizard-root select,
+#partner-wizard-root textarea{
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(0,0,0,.25);
+  color: var(--bd-text);
+  outline: none;
+  transition: border-color .15s ease, transform .15s ease, background .15s ease;
+}
+
+#partner-wizard-root input::placeholder,
+#partner-wizard-root textarea::placeholder{
+  color: rgba(255,255,255,.45);
+}
+
+#partner-wizard-root input:focus,
+#partner-wizard-root select:focus,
+#partner-wizard-root textarea:focus{
+  border-color: rgba(124,58,237,.75);
+  background: rgba(0,0,0,.18);
+  transform: translateY(-1px);
+}
+
+/* date/time nel wizard (non modale) */
+#partner-wizard-root input[type="date"],
+#partner-wizard-root input[type="time"]{
+  color-scheme: dark;
+}
+
+/* =========================================================
+   TAILWIND OVERRIDES (scoped) - necessari per Step 4/5 + Step 7
+   ========================================================= */
+
+#partner-wizard-root .bg-white,
+#partner-wizard-root .bg-gray-50{
+  background: rgba(255,255,255,.04) !important;
+}
+
+#partner-wizard-root .bg-blue-50,
+#partner-wizard-root .bg-indigo-50{
+  background: rgba(124,58,237,.10) !important;
+  border-color: rgba(124,58,237,.25) !important;
+}
+
+#partner-wizard-root .border,
+#partner-wizard-root .border-gray-100,
+#partner-wizard-root .border-gray-200{
+  border-color: rgba(255,255,255,.12) !important;
+}
+
+#partner-wizard-root .text-gray-900{
+  color: rgba(255,255,255,.92) !important;
+}
+#partner-wizard-root .text-gray-800,
+#partner-wizard-root .text-gray-700,
+#partner-wizard-root .text-gray-600{
+  color: rgba(255,255,255,.72) !important;
+}
+#partner-wizard-root .text-gray-500,
+#partner-wizard-root .text-gray-400{
+  color: rgba(255,255,255,.55) !important;
+}
+
+/* link tailwind */
+#partner-wizard-root .text-blue-700,
+#partner-wizard-root .text-blue-900{
+  color: rgba(167,139,250,.95) !important;
+}
+#partner-wizard-root .text-blue-700:hover,
+#partner-wizard-root .text-blue-900:hover{
+  color: rgba(196,181,253,.95) !important;
+}
+
+/* button tailwind rimasti */
+#partner-wizard-root .bg-blue-600{
+  background: linear-gradient(135deg, rgba(124,58,237,1), rgba(99,102,241,1)) !important;
+}
+#partner-wizard-root .hover\:bg-blue-700:hover{
+  filter: brightness(1.06) !important;
+}
+
+#partner-wizard-root .bg-green-600{
+  background: linear-gradient(135deg, rgba(34,197,94,1), rgba(16,185,129,1)) !important;
+}
+#partner-wizard-root .hover\:bg-green-700:hover{
+  filter: brightness(1.06) !important;
+}
+
+/* shadow tailwind */
+#partner-wizard-root .shadow,
+#partner-wizard-root .shadow-lg,
+#partner-wizard-root .shadow-xl{
+  box-shadow: 0 28px 80px rgba(0,0,0,.55) !important;
+}
+
+/* rounded tailwind */
+#partner-wizard-root .rounded-xl,
+#partner-wizard-root .rounded-2xl{
+  border-radius: 18px !important;
+}
+
+/* stati (Step 7) */
+#partner-wizard-root .bg-green-50{ background: rgba(34,197,94,.12) !important; }
+#partner-wizard-root .border-green-200{ border-color: rgba(34,197,94,.28) !important; }
+#partner-wizard-root .text-green-800,
+#partner-wizard-root .text-green-700{ color: rgba(34,197,94,.95) !important; }
+
+#partner-wizard-root .bg-amber-50{ background: rgba(245,158,11,.10) !important; }
+#partner-wizard-root .border-amber-200{ border-color: rgba(245,158,11,.28) !important; }
+#partner-wizard-root .text-amber-700{ color: rgba(245,158,11,.95) !important; }
+
+#partner-wizard-root .bg-red-50{ background: rgba(239,68,68,.10) !important; }
+#partner-wizard-root .border-red-200{ border-color: rgba(239,68,68,.28) !important; }
+#partner-wizard-root .text-red-700,
+#partner-wizard-root .text-red-600{ color: rgba(239,68,68,.95) !important; }
+
+#partner-wizard-root .border-blue-200{ border-color: rgba(99,102,241,.28) !important; }
+
+#partner-wizard-root .border-yellow-300{ border-color: rgba(234,179,8,.35) !important; }
+#partner-wizard-root .bg-yellow-50{ background: rgba(234,179,8,.10) !important; }
+#partner-wizard-root .text-yellow-800{ color: rgba(234,179,8,.95) !important; }
+
+#partner-wizard-root .border-t{
+  border-top-color: rgba(255,255,255,.10) !important;
+}
+
+/* =========================================================
+   STEP 3 - NEW LAYOUT (settimanale + eccezioni)
+   ========================================================= */
+
+.bd-s3-grid{
+  display:grid;
+  gap:14px;
+}
+@media (min-width: 900px){
+  .bd-s3-grid{
+    grid-template-columns: 1.2fr .8fr;
+    align-items:start;
+  }
+}
+
+.bd-s3-card{
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,.12);
+  background:
+    radial-gradient(700px 220px at 10% 0%, rgba(139,92,246,.18), transparent 60%),
+    rgba(255,255,255,.04);
+  padding: 14px;
+}
+
+.bd-s3-title{
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  font-size: 14px;
+  color: rgba(255,255,255,.92);
+}
+
+.bd-s3-sub{
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(255,255,255,.62);
+}
+
+.bd-day-row{
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.18);
+  padding: 12px;
+}
+
+.bd-day-top{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+
+.bd-day-name{
+  font-weight: 900;
+  color: rgba(255,255,255,.92);
+}
+
+.bd-toggle{
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06);
+}
+
+.bd-toggle-dot{
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.20);
+}
+
+.bd-toggle-on{
+  border-color: rgba(34,197,94,.28);
+  background: rgba(34,197,94,.10);
+}
+.bd-toggle-on .bd-toggle-dot{ background: rgba(34,197,94,.95); }
+
+.bd-toggle-off{
+  border-color: rgba(239,68,68,.22);
+  background: rgba(239,68,68,.08);
+}
+.bd-toggle-off .bd-toggle-dot{ background: rgba(239,68,68,.90); }
+
+.bd-intervals{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-top: 10px;
+}
+
+.bd-interval{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(0,0,0,.22);
+}
+
+.bd-interval-time{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-weight: 900;
+  font-size: 12px;
+  color: rgba(255,255,255,.92);
+}
+
+.bd-s3-actions{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-top: 10px;
+}
+
+.bd-pill-btn{
+  padding: 9px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+/* list items date */
+.bd-date-item{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.18);
+  font-size: 13px;
+  color: rgba(255,255,255,.85);
 }
 
 
 </style>
+
 
 <div id="partner-wizard-root">
   <div style="text-align:center; padding:40px;">
@@ -112,16 +839,25 @@ function initWizard(){
   const dayLabels = { mon:"Lunedì", tue:"Martedì", wed:"Mercoledì", thu:"Giovedì", fri:"Venerdì", sat:"Sabato", sun:"Domenica" };
 
   const Steps = ({ current }) => {
-    const labels = ["Account", "Attività", "Orari", "Capacità", "Riepilogo", "Inviato", "Stato"];
+    // Mostriamo SOLO 1-5 (6 e 7 sono "pagine" successive)
+    const labels = ["Account", "Attività", "Orari", "Capacità", "Riepilogo"];
+    const max = 5;
+    const safeCurrent = Math.min(Math.max(current, 1), max);
+
     return (
-      <div className="flex justify-between mb-8 overflow-x-auto gap-3">
+      <div className="bd-steps">
         {labels.map((label, idx) => {
           const n = idx + 1;
-          const active = n === current;
-          const done = n < current;
+          const active = n === safeCurrent;
+          const done = n < safeCurrent;
+
           return (
-            <div key={n} className={`text-sm font-semibold whitespace-nowrap px-2 pb-2 border-b-2 ${active ? "text-blue-600 border-blue-600" : done ? "text-gray-700 border-gray-300" : "text-gray-400 border-transparent"}`}>
-              <span className="mr-1">{n}.</span>{label}
+            <div
+              key={n}
+              className={`bd-step ${active ? "bd-step-active" : done ? "bd-step-done" : ""}`}
+            >
+              <span className="bd-step-dot" />
+              <span>{label}</span>
             </div>
           );
         })}
@@ -129,11 +865,13 @@ function initWizard(){
     );
   };
 
+
   const Alert = ({ type, msg }) => (
-    <div className={`p-4 mb-4 rounded-lg border text-sm break-words ${type==="error" ? "bg-red-50 border-red-200 text-red-800" : "bg-green-50 border-green-200 text-green-800"}`}>
+    <div className={`bd-alert ${type==="error" ? "bd-alert-danger" : "bd-alert-success"} bd-animate`}>
       {msg}
     </div>
   );
+
 
 
 // --------- HELPERS CAPACITÀ (coerente con DB v2: base in M, salvataggio in unità S = "u") ----------
@@ -221,6 +959,9 @@ function computeCapacitiesV2({ baseM, extraS, extraM, extraL, acceptS=true, acce
     const [otpVerifying, setOtpVerifying] = React.useState(false);
     const [otpEmail, setOtpEmail] = React.useState(""); // email usata per OTP
 
+    //const per password
+    const [showPwd, setShowPwd] = React.useState(false);
+    const [showPwd2, setShowPwd2] = React.useState(false);
 
     // Address autocomplete UI
     const [addrSuggestions, setAddrSuggestions] = React.useState([]);
@@ -262,8 +1003,9 @@ function computeCapacitiesV2({ baseM, extraS, extraM, extraL, acceptS=true, acce
       lastName: "",
       email: "",
       password: "",
+      confirmPassword: "",
       phone: "",
-      businessType: "hotel",
+      
 
       // Step 2
       partnerName: "",
@@ -288,41 +1030,53 @@ function computeCapacitiesV2({ baseM, extraS, extraM, extraL, acceptS=true, acce
     React.useEffect(() => {
       (async () => {
         try {
-          // prova a vedere se c'è una sessione già attiva
           const { data: uData } = await sb.auth.getUser();
           const u = uData?.user;
           if (!u) return;
 
-          // se OTP non verificato, resta su step 1/otp
           const meta = u.user_metadata || {};
           const otpVerified = meta.otp_verified === true;
+
+          // Se OTP non verificato -> Step 1 (verifica)
           if (!otpVerified) {
+            setOtpEmail(u.email || "");
+            setOtpPhase("verify");
             setStep(1);
             return;
           }
 
-          // role dal profilo (safe)
           const role = await getMyRoleSafe(u.id);
+          setMyRole(role);
 
-          // se partner attivo: blocca wizard
+          // Partner attivo -> sempre stato
           if (role === "partner") {
-            setMyRole("partner");
-            setStep(7);
-            return;
-          }
-
-          if (role === "partner_candidate") {
-            setMyRole("partner_candidate");
             await loadMyRoleAndRequestStatus();
             setStep(7);
             return;
           }
 
-          // role user + otp ok: se eri già loggato, vai allo step 2 (evita rifare step 1)
-          setMyRole(role);
+          // Partner candidate: dipende dalla request
+          if (role === "partner_candidate") {
+            const lastReq = await getLatestRequestForUser(u.id);
+
+            // ✅ se NON esiste request oppure è draft -> continua registrazione
+            if (!lastReq?.status || lastReq.status === "draft") {
+              setReqStatus(lastReq?.status ?? null);
+              setReqRejectReason(lastReq?.reject_reason ?? null);
+              setStep(2);
+              return;
+            }
+
+            // ✅ se esiste ed è stata inviata o è in pagamento o altro -> vai allo stato
+            await loadMyRoleAndRequestStatus();
+            setStep(7);
+            return;
+          }
+
+          // Role diverso (es. user) ma OTP ok -> wizard normale
           setStep(2);
         } catch (e) {
-          // silenzioso: non blocca l'utente
+          // silenzioso
         }
       })();
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -648,7 +1402,7 @@ async function ensureUserProfileSafe({ userId, fullName }) {
 
   if (exErr) throw exErr;
 
-  // 2) se non esiste, crea con role=user
+  // 2) se non esiste, crea come partner_candidate
   if (!existing) {
     const { error: insErr } = await sb.from("user_profiles").insert({
       id: userId,
@@ -656,8 +1410,9 @@ async function ensureUserProfileSafe({ userId, fullName }) {
       role: "partner_candidate",
     });
     if (insErr) throw insErr;
-    return { role: "user" };
+    return { role: "partner_candidate" };
   }
+
 
   // 3) se esiste, aggiorna solo full_name se vuoto o diverso (ma NON toccare role se già partner/partner_candidate/admin)
   const currentRole = existing.role || "partner_candidate";
@@ -694,6 +1449,20 @@ async function getMyRoleSafe(userId) {
   return data?.role ?? "user";
 }
 
+async function getLatestRequestForUser(userId) {
+  const { data, error } = await sb
+    .from("partner_requests")
+    .select("status,reject_reason,created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data || null;
+}
+
+
 async function loadMyRoleAndRequestStatus() {
   setReqLoading(true);
   try {
@@ -717,6 +1486,7 @@ async function loadMyRoleAndRequestStatus() {
 
       if (reqErr) throw reqErr;
 
+      // ✅ fondamentale: se non esiste ancora, status = null
       setReqStatus(reqRow?.status ?? null);
       setReqRejectReason(reqRow?.reject_reason ?? null);
     } else {
@@ -748,11 +1518,36 @@ async function autoRouteAfterLogin() {
     return;
   }
 
-  // OTP ok -> vai sempre a Step 7 (stato)
-  await loadMyRoleAndRequestStatus();
-  setStep(7);
-}
+  // OTP ok -> controlla ruolo + request
+  const role = await getMyRoleSafe(u.id);
+  setMyRole(role);
 
+  if (role === "partner") {
+    await loadMyRoleAndRequestStatus();
+    setStep(7);
+    return;
+  }
+
+  if (role === "partner_candidate") {
+    const lastReq = await getLatestRequestForUser(u.id);
+
+    // ✅ può continuare SOLO se non ha ancora inviato (no request o draft)
+    if (!lastReq?.status || lastReq.status === "draft") {
+      setReqStatus(lastReq?.status ?? null);
+      setReqRejectReason(lastReq?.reject_reason ?? null);
+      setStep(2);
+      return;
+    }
+
+    // altrimenti solo stato
+    await loadMyRoleAndRequestStatus();
+    setStep(7);
+    return;
+  }
+
+  // user normale (OTP ok) -> step 2
+  setStep(2);
+}
 
 // ======================= OTP HELPERS =======================
 
@@ -892,6 +1687,7 @@ const handleStep1 = async () => {
   try {
     const email = (form.email || "").trim();
     const pwd = form.password || "";
+    const pwd2 = form.confirmPassword || "";
     const firstName = (form.firstName || "").trim();
     const lastName = (form.lastName || "").trim();
 
@@ -899,6 +1695,7 @@ const handleStep1 = async () => {
     if (!lastName) throw new Error("Inserisci il Cognome.");
     if (!email || !email.includes("@")) throw new Error("Inserisci una email valida.");
     if (pwd.length < 6) throw new Error("Password: minimo 6 caratteri.");
+    if (pwd !== pwd2) throw new Error("Le password non coincidono.");
 
     // 0) blocco email esistente (a meno che sia un account creato da questo wizard)
 const { data: chk, error: chkErr } = await sb.rpc("partner_wizard_check_email", { p_email: email });
@@ -1136,9 +1933,9 @@ function validateOpeningHours(){
           if(parseNonNegative(form.baseM) <= 0){
             throw new Error("Inserisci almeno 1 bagaglio M nello spazio generale.");
           }
-          if(caps.total_u <= 0){
-            throw new Error("Capacità totale non valida (controlla i toggle S/M/L).");
-          }
+          if(!form.acceptS && !form.acceptM && !form.acceptL){
+            throw new Error("Seleziona almeno una taglia (S / M / L).");
+          } 
         setStep(5);
       } catch(err){
         setMsg({ type:"error", text: err.message || String(err) });
@@ -1275,10 +2072,12 @@ const partnerId = partnerUp.data.id;
     if (subErr) throw subErr;
 
     setMsg({ type:"success", text:"Richiesta inviata correttamente. Il team la revisionerà a breve." });
-    setTimeout(async () => {
+
+    // subito stato (senza rimbalzi)
     await loadMyRoleAndRequestStatus();
     setStep(7);
-    }, 600);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+
 
   } catch(err){
     setMsg({ type:"error", text: err.message || String(err) });
@@ -1315,100 +2114,117 @@ if (step === 7) {
   }[reqStatus] || (myRole === "partner" ? "bg-green-50 border-green-200" : "bg-gray-50 border-gray-200");
 
   return (
-    <div className="w-full max-w-2xl mx-auto p-6 bg-white shadow-xl rounded-2xl border border-gray-100 text-center">
-      <div className="text-5xl mb-3">
-        {myRole === "partner" ? "✅" : reqStatus === "awaiting_payment" ? "💳" : reqStatus === "submitted" ? "⏳" : reqStatus === "rejected" ? "⛔" : "📌"}
-      </div>
-
-      <h2 className="text-2xl font-extrabold text-gray-900 mb-2">Stato richiesta Partner</h2>
-
-      <div className={`mt-4 p-4 rounded-2xl border ${statusBox}`}>
-        <div className={`text-lg font-extrabold ${statusColor}`}>{statusLabel}</div>
-
-        {myRole === "partner" && (
-          <div className="text-sm text-gray-700 mt-2">
-            Il tuo account è già attivo come Partner.
+    <div className="bd-shell">
+      <div className="bd-card">
+        <div className="bd-head" style={{ paddingBottom: 8 }}>
+          <div>
+            <div className="bd-title">Stato richiesta Partner</div>
+            <div className="bd-subtitle">Qui vedi lo stato della tua ultima richiesta.</div>
           </div>
-        )}
+        </div>
 
-        {myRole === "partner_candidate" && reqStatus === "submitted" && (
-          <div className="text-sm text-gray-700 mt-2">
-            Il team sta verificando i documenti. Riprova più tardi dall’app.
+        <div className="bd-card-inner bd-animate">
+          {msg && (<div className="bd-alert-wrap"><Alert type={msg.type} msg={msg.text} /></div>)}
+
+          <div className="bd-panel" style={{textAlign:"center"}}>
+            <div style={{fontSize:12, fontWeight:900, color:"rgba(255,255,255,.65)", textTransform:"uppercase", letterSpacing:".08em"}}>
+              Stato attuale
+            </div>
+
+            <div style={{marginTop:8, fontSize:20, fontWeight:900}}>
+              {statusLabel}
+            </div>
+
+            {myRole === "partner" && (
+              <div style={{marginTop:10, fontSize:13, color:"rgba(255,255,255,.70)"}}>
+                Il tuo account è già attivo come Partner.
+              </div>
+            )}
+
+            {myRole === "partner_candidate" && reqStatus === "submitted" && (
+              <div style={{marginTop:10, fontSize:13, color:"rgba(255,255,255,.70)"}}>
+                Il team sta verificando i documenti. Riprova più tardi dall’app.
+              </div>
+            )}
+
+            {myRole === "partner_candidate" && reqStatus === "awaiting_payment" && (
+              <div style={{marginTop:10, fontSize:13, color:"rgba(255,255,255,.70)"}}>
+                Documenti approvati. Ora completa il pagamento per attivare il profilo.
+              </div>
+            )}
+
+            {myRole === "partner_candidate" && reqStatus === "rejected" && (
+              <div style={{marginTop:10, fontSize:13, color:"rgba(255,255,255,.70)"}}>
+                La richiesta è stata rifiutata.
+                {reqRejectReason && reqRejectReason.trim() ? (
+                  <div style={{marginTop:8, fontWeight:900}}>
+                    Motivazione: {reqRejectReason}
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            {myRole === "partner_candidate" && reqStatus === "paid" && (
+              <div style={{marginTop:10, fontSize:13, color:"rgba(255,255,255,.70)"}}>
+                Pagamento registrato. Se non entri come Partner dall’app, attendi qualche secondo e riprova.
+              </div>
+            )}
+
+            <div className="bd-divider" style={{margin:"18px 0"}} />
+
+            <div style={{display:"flex", gap:10, flexWrap:"wrap", justifyContent:"center", maxWidth:720, margin:"0 auto"}}>
+              <button
+                type="button"
+                onClick={loadMyRoleAndRequestStatus}
+                disabled={reqLoading}
+                className={`bd-btn ${reqLoading ? "bd-btn-muted" : "bd-btn-ghost"}`}
+                style={{ minWidth: 220 }}
+              >
+                <span style={{display:"inline-flex", alignItems:"center", gap:10, justifyContent:"center"}}>
+                  {reqLoading ? <span className="bd-spin" /> : null}
+                  {reqLoading ? "Aggiorno..." : "Aggiorna stato"}
+                </span>
+              </button>
+
+              {myRole === "partner_candidate" && reqStatus === "awaiting_payment" && (
+                <a
+                  href="https://bag-drop.it/pagamento-partner/"
+                  target="_blank"
+                  className="bd-btn bd-btn-primary"
+                  style={{ textAlign:"center", display:"block", minWidth: 220 }}
+                >
+                  Vai al pagamento
+                </a>
+              )}
+
+              <a
+                href="https://bag-drop.it/app/"
+                target="_blank"
+                className="bd-btn bd-btn-primary"
+                style={{ textAlign:"center", display:"block", minWidth: 220 }}
+              >
+                Apri l’app BagDrop
+              </a>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  await sb.auth.signOut();
+                  setMyRole(null);
+                  setReqStatus(null);
+                  setReqRejectReason(null);
+                  setStep(1);
+                  setMsg({ type: "success", text: "Logout effettuato." });
+                }}
+                className="bd-btn bd-btn-ghost"
+                style={{ minWidth: 220 }}
+              >
+                Esci
+              </button>
+            </div>
           </div>
-        )}
 
-        {myRole === "partner_candidate" && reqStatus === "awaiting_payment" && (
-          <div className="text-sm text-gray-700 mt-2">
-            Documenti approvati ✅ Ora devi completare il pagamento per attivare il profilo.
-          </div>
-        )}
-
-        {myRole === "partner_candidate" && reqStatus === "rejected" && (
-          <div className="text-sm text-gray-700 mt-2">
-            La richiesta è stata rifiutata.
-            {reqRejectReason && reqRejectReason.trim() ? (
-              <div className="mt-2 font-semibold">Motivazione: {reqRejectReason}</div>
-            ) : null}
-          </div>
-        )}
-
-        {myRole === "partner_candidate" && reqStatus === "paid" && (
-          <div className="text-sm text-gray-700 mt-2">
-            Pagamento registrato. Se non entri come Partner dall’app, attendi qualche secondo e riprova.
-          </div>
-        )}
-      </div>
-
-      <div className="mt-5 flex flex-col gap-2">
-        <button
-          type="button"
-          onClick={loadMyRoleAndRequestStatus}
-          disabled={reqLoading}
-          className={`w-full py-3 px-4 rounded-xl font-extrabold border ${
-            reqLoading ? "bg-gray-100 text-gray-400 cursor-not-allowed" : "bg-white hover:bg-gray-50"
-          }`}
-        >
-          {reqLoading ? "Aggiorno..." : "Aggiorna stato"}
-        </button>
-
-        {/* Se serve: link alla pagina pagamento (stesso link che usi in app) */}
-        {myRole === "partner_candidate" && reqStatus === "awaiting_payment" && (
-          <a
-            href="https://bag-drop.it/pagamento-partner/"
-            target="_blank"
-            className="w-full py-3 px-4 rounded-xl font-extrabold bg-blue-600 hover:bg-blue-700 text-white"
-          >
-            Vai al pagamento
-          </a>
-        )}
-
-        {/* Bottone “Apri App” (placeholder) */}
-        <a
-          href="https://bag-drop.it/app/"
-          target="_blank"
-          className="w-full py-3 px-4 rounded-xl font-extrabold bg-gray-900 hover:bg-black text-white"
-        >
-          Apri l’app BagDrop
-        </a>
-
-        <button
-          type="button"
-          onClick={async () => {
-            await sb.auth.signOut();
-            setMyRole(null);
-            setReqStatus(null);
-            setReqRejectReason(null);
-            setStep(1);
-            setMsg({ type: "success", text: "Logout effettuato." });
-          }}
-          className="w-full py-3 px-4 rounded-xl font-extrabold border border-gray-200 bg-white hover:bg-gray-50"
-        >
-          Esci
-        </button>
-      </div>
-
-      <div className="text-xs text-gray-500 mt-4">
-        Nota: lo stato viene letto da <b>partner_requests</b> (ultima richiesta).
+        </div>
       </div>
     </div>
   );
@@ -1427,14 +2243,19 @@ if (step === 7) {
     }
 
     return (
-      <div className="w-full max-w-5xl mx-auto p-4 md:p-8 bg-white shadow-xl rounded-2xl border border-gray-100">
-        <h1 className="text-2xl font-extrabold mb-2 text-center text-gray-900">Diventa Partner BagDrop</h1>
-        <p className="text-center text-sm text-gray-500 mb-6">Compila la richiesta in pochi step</p>
+      <div className="bd-shell">
+        <div className="bd-card">
+          <div className="bd-head">
+            <div>
+              <div className="bd-title">Diventa Partner BagDrop</div>
+              <div className="bd-subtitle">Registrazione guidata — pochi passaggi, zero perdite di tempo.</div>
+            </div>
+          </div>
 
-        <Steps current={step} />
+          <Steps current={step} />
 
-        {msg && <Alert type={msg.type} msg={msg.text} />}
-
+          <div className="bd-card-inner bd-animate" key={`step-${step}-${otpPhase}`}>
+            {msg && (<div className="bd-alert-wrap"><Alert type={msg.type} msg={msg.text} /></div>)}
         {/* STEP 1 */}
         {step === 1 && (
           <div className="space-y-4">
@@ -1442,46 +2263,72 @@ if (step === 7) {
             {otpPhase === "form" && (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label>Nome</label><input value={form.firstName} onChange={e=>setField("firstName", e.target.value)} required /></div>
-                  <div><label>Cognome</label><input value={form.lastName} onChange={e=>setField("lastName", e.target.value)} required /></div>
+                  <div><label>Nome</label><input className="bd-input" value={form.firstName} onChange={e=>setField("firstName", e.target.value)} required /></div>
+                  <div><label>Cognome</label><input className="bd-input" value={form.lastName} onChange={e=>setField("lastName", e.target.value)} required /></div>
                 </div>
 
-                <div><label>Email</label><input type="email" value={form.email} onChange={e=>setField("email", e.target.value)} required /></div>
-                <div><label>Password</label><input type="password" value={form.password} onChange={e=>setField("password", e.target.value)} required /></div>
-                <div><label>Telefono</label><input type="tel" value={form.phone} onChange={e=>setField("phone", e.target.value)} required /></div>
+                <div><label>Email</label><input type="email" className="bd-input" value={form.email} onChange={e=>setField("email", e.target.value)} required /></div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Password */}
+                  <div className="relative">
+                    <label>Password</label>
+                    <input
+                      type={showPwd ? "text" : "password"}
+                      className="bd-input pr-12"
+                      value={form.password}
+                      onChange={(e)=>setField("password", e.target.value)}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPwd(v => !v)}
+                      className="bd-icon-btn"
+                      style={{ position:"absolute", right:10, top:34, padding:"8px 10px", borderRadius:9999 }}
+                      title={showPwd ? "Nascondi" : "Mostra"}
+                    >
+                      {showPwd ? "🙈" : "👁️"}
+                    </button>
+                  </div>
 
-                <div>
-                  <label>Tipo Business</label>
-                  <select value={form.businessType} onChange={e=>setField("businessType", e.target.value)}>
-                    <option value="hotel">Hotel / B&B</option>
-                    <option value="shop">Negozio</option>
-                    <option value="cafe">Bar / Cafè</option>
-                    <option value="other">Altro</option>
-                  </select>
+                  {/* Conferma Password */}
+                  <div className="relative">
+                    <label>Conferma Password</label>
+                    <input
+                      type={showPwd2 ? "text" : "password"}
+                      className="bd-input pr-12"
+                      value={form.confirmPassword}
+                      onChange={(e)=>setField("confirmPassword", e.target.value)}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPwd2(v => !v)}
+                      className="bd-icon-btn"
+                      style={{ position:"absolute", right:10, top:34, padding:"8px 10px", borderRadius:9999 }}
+                      title={showPwd2 ? "Nascondi" : "Mostra"}
+                    >
+                      {showPwd2 ? "🙈" : "👁️"}
+                    </button>
+                  </div>
                 </div>
+                <div><label>Telefono</label><input type="tel" className="bd-input" value={form.phone} onChange={e=>setField("phone", e.target.value)} required /></div>
 
                 <button
                   type="button"
                   onClick={handleStep1}
                   disabled={loading}
-                  className={`w-full py-2 px-4 rounded font-bold transition-colors flex items-center justify-center gap-2 ${
-                    loading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'
-                  }`}
+                  className={`bd-btn w-full ${loading ? "bd-btn-muted" : "bd-btn-primary"}`}
                 >
-                  <span>Continua</span>
-                  {loading && (
-                    <span className="inline-block w-4 h-4 border-2 border-white/60 border-t-white rounded-full animate-spin"></span>
-                  )}
+                  <span style={{display:"inline-flex", alignItems:"center", justifyContent:"center", gap:10}}>
+                    <span>Continua</span>
+                    {loading ? <span className="bd-spin" /> : null}
+                  </span>
                 </button>
               </>
             )}
 
             {otpPhase === "verify" && (
               <div className="space-y-4">
-                <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm text-blue-900">
-                  Ti abbiamo inviato un codice OTP via email. Inseriscilo qui sotto per verificare l’account.
-                </div>
-
                 <div>
                   <label>Email</label>
                   <input
@@ -1490,27 +2337,30 @@ if (step === 7) {
                     onChange={(e)=>setOtpEmail(e.target.value)}
                     placeholder="nome@esempio.com"
                   />
-                  <div className="text-xs text-gray-500 mt-1">
+                  <div style={{fontSize:12, color:"rgba(255,255,255,.55)", marginTop:6}}>
                     Useremo questa email per inviare/verificare il codice.
                   </div>
                 </div>
 
-                <div className="flex gap-2">
+                <div style={{display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap"}}>
                   <button
                     type="button"
                     onClick={requestOtpCode}
                     disabled={otpSending}
-                    className={`flex-1 py-2 px-4 rounded font-bold transition-colors ${
-                      otpSending ? "bg-blue-300 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 text-white"
-                    }`}
+                    className={`bd-btn ${otpSending ? "bd-btn-muted" : "bd-btn-primary"}`}
+                    style={{minWidth:220}}
                   >
-                    {otpSending ? "Invio..." : "Richiedi codice"}
+                    <span style={{display:"inline-flex", alignItems:"center", gap:10, justifyContent:"center"}}>
+                      {otpSending ? <span className="bd-spin" /> : null}
+                      {otpSending ? "Invio..." : "Richiedi codice"}
+                    </span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => { setOtpPhase("form"); setMsg(null); }}
-                    className="btn-secondary"
+                    className="bd-btn bd-btn-ghost"
+                    style={{minWidth:220}}
                   >
                     Indietro
                   </button>
@@ -1530,13 +2380,13 @@ if (step === 7) {
                   type="button"
                   onClick={verifyOtpCode}
                   disabled={otpVerifying}
-                  className={`w-full py-2 px-4 rounded font-bold transition-colors ${
-                    otpVerifying ? "bg-green-300 cursor-not-allowed" : "bg-green-600 hover:bg-green-700 text-white"
-                  }`}
+                  className={`bd-btn w-full ${otpVerifying ? "bd-btn-muted" : "bd-btn-success"}`}
                 >
-                  {otpVerifying ? "Verifico..." : "Verifica e continua"}
+                  <span style={{display:"inline-flex", alignItems:"center", gap:10, justifyContent:"center"}}>
+                    {otpVerifying ? <span className="bd-spin" /> : null}
+                    {otpVerifying ? "Verifico..." : "Verifica e continua"}
+                  </span>
                 </button>
-
                 {/* TEST ONLY */}
                 <button
                   type="button"
@@ -1545,10 +2395,6 @@ if (step === 7) {
                 >
                   TEST: forza otp_verified = TRUE
                 </button>
-
-                <div className="text-xs text-gray-500">
-                  (Solo test) Questo bottone imposta otp_verified=true nei metadata dell’utente loggato.
-                </div>
               </div>
             )}
 
@@ -1596,7 +2442,13 @@ if (step === 7) {
               )}
 
               {addrSuggestions.length > 0 && (
-                <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-auto">
+                <div className="absolute z-50 mt-2 w-full rounded-2xl overflow-auto"
+                  style={{
+                    border:"1px solid rgba(255,255,255,.14)",
+                    background:"rgba(12,18,32,.92)",
+                    boxShadow:"0 28px 80px rgba(0,0,0,.55)",
+                    maxHeight:"240px"
+                  }}>
                   {addrSuggestions.map((s, idx) => (
                     <button
                       id={`addr-item-${idx}`}
@@ -1604,9 +2456,12 @@ if (step === 7) {
                       key={idx}
                       onMouseEnter={() => setAddrActiveIndex(idx)}
                       onClick={() => pickSuggestion(s)}
-                      className={`w-full text-left px-3 py-2 text-sm ${
-                        idx === addrActiveIndex ? "bg-blue-50" : "hover:bg-gray-100"
-                      }`}
+                      className={`w-full text-left px-4 py-3 text-sm`}
+                      style={{
+                        background: idx === addrActiveIndex ? "rgba(124,58,237,.14)" : "transparent",
+                        color: "rgba(255,255,255,.88)",
+                        borderBottom: "1px solid rgba(255,255,255,.06)"
+                      }}
                     >
                       {s}
                     </button>
@@ -1623,7 +2478,7 @@ if (step === 7) {
             <div className="mt-4">
               <div className="text-sm font-extrabold text-gray-700 mb-2">Posizione sulla mappa</div>
 
-              <div className="border border-gray-200 rounded-2xl overflow-hidden">
+              <div className="bd-map">
                 <div id="partner-map" style={{ width: "100%", height: "320px" }} />
               </div>
 
@@ -1659,7 +2514,7 @@ if (step === 7) {
                   setStep(3);
                   window.scrollTo({ top: 0, behavior: "smooth" });
                 }}
-                className="flex-1 py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold transition-colors"
+                className="bd-btn bd-btn-primary flex-1"
               >
                 Continua
               </button>
@@ -1667,173 +2522,245 @@ if (step === 7) {
           </div>
         )}
 
-{/* STEP 3: ORARI (NUOVO UI PRO) */}
+{/* STEP 3: ORARI (NEW UX) */}
 {step === 3 && (
-  <div className="space-y-6">
-    {/* Header */}
-    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-5 rounded-2xl border border-blue-100">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        <div>
-          <div className="text-lg font-extrabold text-gray-900">Orari di apertura</div>
-          <div className="text-sm text-gray-600">
-            Imposta max <b>2 fasce</b> al giorno (es. mattina + pomeriggio). Puoi anche copiare gli orari con un click.
-          </div>
-        </div>
+  <div className="space-y-4">
 
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className="btn-secondary-mini" onClick={copyMonToWeek}>Copia Lun→Lun–Ven</button>
-          <button type="button" className="btn-secondary-mini" onClick={copyMonToAll}>Copia Lun→Tutti</button>
-          <button type="button" className="btn-secondary-mini" onClick={closeAllDays}>Tutti chiusi</button>
-        </div>
+    {/* Header sintetico */}
+    <div className="bd-panel">
+      <div className="bd-s3-title" style={{fontSize:16}}>Orari & calendario</div>
+      <div className="bd-s3-sub">
+        Imposta gli orari settimanali (max 2 fasce/giorno) e gestisci chiusure/aperture straordinarie.
+      </div>
 
+      <div className="bd-s3-actions" style={{marginTop:12}}>
+        <button type="button" className="bd-btn bd-btn-ghost bd-pill-btn" onClick={copyMonToWeek}>
+          Copia Lun → Lun–Ven
+        </button>
+        <button type="button" className="bd-btn bd-btn-ghost bd-pill-btn" onClick={copyMonToAll}>
+          Copia Lun → Tutti
+        </button>
+        <button type="button" className="bd-btn bd-btn-ghost bd-pill-btn" onClick={closeAllDays}>
+          Tutti chiusi
+        </button>
       </div>
     </div>
 
-    {/* Griglia giorni */}
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      {dayOrder.map(day => {
-        const intervals = weekly[day] || [];
-        const closed = intervals.length === 0;
+    <div className="bd-s3-grid">
+      {/* Colonna sinistra: settimanale */}
+      <div className="bd-s3-card">
+        <div className="bd-s3-title">Orari settimanali</div>
+        <div className="bd-s3-sub">Tocca “Aggiungi fascia” per impostare orari. Se un giorno non ha fasce, è considerato chiuso.</div>
 
-        return (
-          <div key={day} className="border border-gray-200 rounded-2xl p-3 hover:shadow-sm transition-shadow bg-white">
-            <div className="flex items-center justify-between gap-3">
-              <div className="font-extrabold text-gray-900">{dayLabels[day]}</div>
+        <div className="space-y-3" style={{marginTop:12}}>
+          {dayOrder.map(day => {
+            const intervals = weekly[day] || [];
+            const isOpen = intervals.length > 0;
 
-              <div className={`bd-chip ${closed ? "" : "bg-green-50 border-green-200 text-green-800"}`}>
-                {closed ? "Chiuso" : intervals.length === 1 ? "Orario continuato" : "Mattina + Pomeriggio"}
-              </div>
-            </div>
+            return (
+              <div key={day} className="bd-day-row">
+                <div className="bd-day-top">
+                  <div className="bd-day-name">{dayLabels[day]}</div>
 
-            <div className="mt-3 space-y-2">
-              {closed && (
-                <div className="text-sm text-gray-500">
-                  Nessuna fascia impostata.
+                  <button
+                    type="button"
+                    className={`bd-toggle ${isOpen ? "bd-toggle-on" : "bd-toggle-off"}`}
+                    onClick={() => {
+                      if (isOpen) setClosedDay(day);
+                      else openTimeModal(day, null);
+                    }}
+                    title={isOpen ? "Imposta chiuso" : "Imposta aperto"}
+                  >
+                    <span className="bd-toggle-dot" />
+                    <span style={{fontWeight:900, fontSize:12, color:"rgba(255,255,255,.86)"}}>
+                      {isOpen ? "Aperto" : "Chiuso"}
+                    </span>
+                  </button>
                 </div>
-              )}
 
-              {intervals.map((it, idx) => (
-                <div key={idx} className="flex items-center gap-2">
-                  <div className="flex-1 px-3 py-2 rounded-xl border border-gray-200 bg-gray-50">
-                    <div className="font-mono font-extrabold text-gray-900">{it.open} – {it.close}</div>
-                    <div className="text-xs text-gray-500">Fascia {idx + 1}</div>
+                {isOpen ? (
+                  <div className="bd-intervals">
+                    {intervals.map((it, idx) => (
+                      <div key={idx} className="bd-interval">
+                        <span className="bd-interval-time">{it.open} – {it.close}</span>
+                        <button
+                          type="button"
+                          className="bd-btn bd-btn-ghost bd-pill-btn"
+                          onClick={() => openTimeModal(day, idx)}
+                        >
+                          Modifica
+                        </button>
+                        <button
+                          type="button"
+                          className="bd-btn bd-btn-ghost bd-pill-btn"
+                          onClick={() => removeInterval(day, idx)}
+                        >
+                          Elimina
+                        </button>
+                      </div>
+                    ))}
                   </div>
+                ) : (
+                  <div style={{marginTop:10, fontSize:12, color:"rgba(255,255,255,.55)"}}>
+                    Nessuna fascia impostata.
+                  </div>
+                )}
 
+                <div className="bd-s3-actions">
                   <button
                     type="button"
-                    className="bd-icon-btn"
-                    title="Modifica"
-                    onClick={() => openTimeModal(day, idx)}
+                    className="bd-btn bd-btn-primary bd-pill-btn"
+                    onClick={() => openTimeModal(day, null)}
                   >
-                    ✏️
+                    + Aggiungi fascia
                   </button>
 
                   <button
                     type="button"
-                    className="bd-icon-btn"
-                    title="Rimuovi"
-                    onClick={() => removeInterval(day, idx)}
+                    className="bd-btn bd-btn-ghost bd-pill-btn"
+                    onClick={() => copyDayToTargets(day, dayOrder)}
+                    disabled={!isOpen}
+                    style={{opacity: isOpen ? 1 : 0.55}}
                   >
-                    🗑️
+                    Copia su tutti
                   </button>
                 </div>
-              ))}
-            </div>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="btn-secondary-mini"
-                onClick={() => openTimeModal(day, null)}
-              >
-                + Fascia
-              </button>
-
-              <button
-                type="button"
-                className="btn-secondary-mini"
-                onClick={() => setClosedDay(day)}
-                disabled={closed}
-                style={{ opacity: closed ? 0.55 : 1 }}
-              >
-                Chiuso
-              </button>
-
-              <button
-                type="button"
-                className="btn-secondary-mini"
-                onClick={() => copyDayToTargets(day, dayOrder)}
-                disabled={closed}
-                style={{ opacity: closed ? 0.55 : 1 }}
-              >
-                Copia tutti
-              </button>
-            </div>
-
-          </div>
-        );
-      })}
-    </div>
-
-    {/* Eccezioni calendario (lasciato ma migliorato) */}
-    <div className="border border-gray-200 rounded-2xl p-4">
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <div>
-          <div className="font-extrabold text-gray-900">Eccezioni calendario</div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4">
-          <div className="font-extrabold mb-2 text-gray-900">Chiusure straordinarie</div>
-          <input type="date" onChange={(e)=>{
-            const v = e.target.value;
-            if(!v) return;
-            setClosedDates(prev => prev.includes(v) ? prev : [...prev, v].sort());
-            e.target.value = "";
-          }} />
-          <div className="mt-3 space-y-2">
-            {closedDates.length === 0 ? (
-              <div className="text-sm text-gray-500">Nessuna.</div>
-            ) : closedDates.map(d => (
-              <div key={d} className="flex items-center justify-between bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm">
-                <span className="font-semibold">{d}</span>
-                <button type="button" className="text-red-600 font-extrabold" onClick={()=>setClosedDates(prev => prev.filter(x=>x!==d))}>
-                  Rimuovi
-                </button>
-              </div>
-            ))}
+      {/* Colonna destra: festivi + eccezioni */}
+      <div className="space-y-3">
+        {/* Festivi (helper UI -> usa closedDates) */}
+        <div className="bd-s3-card">
+          <div className="bd-s3-title">Festivi</div>
+          <div className="bd-s3-sub">
+            Se di solito sei chiuso nei festivi, puoi aggiungerli rapidamente come “chiusure” (poi puoi rimuovere singole date).
+          </div>
+
+          <div className="bd-s3-actions" style={{marginTop:12}}>
+            <button
+              type="button"
+              className="bd-btn bd-btn-ghost bd-pill-btn"
+              onClick={() => {
+                const year = new Date().getFullYear();
+                const fixed = [
+                  `${year}-01-01`, // Capodanno
+                  `${year}-01-06`, // Epifania
+                  `${year}-04-25`, // Liberazione
+                  `${year}-05-01`, // Lavoro
+                  `${year}-06-02`, // Repubblica
+                  `${year}-08-15`, // Ferragosto
+                  `${year}-11-01`, // Ognissanti
+                  `${year}-12-08`, // Immacolata
+                  `${year}-12-25`, // Natale
+                  `${year}-12-26`, // Santo Stefano
+                ];
+                setClosedDates(prev => Array.from(new Set([...prev, ...fixed])).sort());
+              }}
+            >
+              Aggiungi festivi (anno corrente)
+            </button>
+
+            <button
+              type="button"
+              className="bd-btn bd-btn-ghost bd-pill-btn"
+              onClick={() => setClosedDates([])}
+              title="Svuota tutte le chiusure (incluse quelle dei festivi)"
+            >
+              Svuota chiusure
+            </button>
+          </div>
+
+          <div style={{marginTop:12, fontSize:12, color:"rgba(255,255,255,.55)"}}>
+            Tip: se invece nei festivi apri, aggiungili sotto come “aperture straordinarie”.
           </div>
         </div>
 
-        <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4">
-          <div className="font-extrabold mb-2 text-gray-900">Aperture straordinarie</div>
-          <input type="date" onChange={(e)=>{
-            const v = e.target.value;
-            if(!v) return;
-            setForcedOpenDates(prev => prev.includes(v) ? prev : [...prev, v].sort());
-            e.target.value = "";
-          }} />
-          <div className="mt-3 space-y-2">
-            {forcedOpenDates.length === 0 ? (
-              <div className="text-sm text-gray-500">Nessuna.</div>
-            ) : forcedOpenDates.map(d => (
-              <div key={d} className="flex items-center justify-between bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm">
-                <span className="font-semibold">{d}</span>
-                <button type="button" className="text-red-600 font-extrabold" onClick={()=>setForcedOpenDates(prev => prev.filter(x=>x!==d))}>
-                  Rimuovi
-                </button>
+        {/* Eccezioni */}
+        <div className="bd-s3-card">
+          <div className="bd-s3-title">Eccezioni calendario</div>
+          <div className="bd-s3-sub">Aggiungi date specifiche (chiusure/aperture straordinarie).</div>
+
+          <div className="bd-row" style={{marginTop:12}}>
+            <div className="bd-col">
+              <label>Chiusure straordinarie</label>
+              <input
+                type="date"
+                onChange={(e)=>{
+                  const v = e.target.value;
+                  if(!v) return;
+                  setClosedDates(prev => prev.includes(v) ? prev : [...prev, v].sort());
+                  e.target.value = "";
+                }}
+              />
+              <div className="space-y-2" style={{marginTop:10}}>
+                {closedDates.length === 0 ? (
+                  <div style={{fontSize:12, color:"rgba(255,255,255,.55)"}}>Nessuna.</div>
+                ) : closedDates.map(d => (
+                  <div key={d} className="bd-date-item">
+                    <span style={{fontWeight:900}}>{d}</span>
+                    <button
+                      type="button"
+                      className="bd-btn bd-btn-ghost bd-pill-btn"
+                      onClick={()=>setClosedDates(prev => prev.filter(x=>x!==d))}
+                      style={{borderColor:"rgba(239,68,68,.28)"}}
+                    >
+                      Rimuovi
+                    </button>
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
+
+            <div className="bd-col">
+              <label>Aperture straordinarie</label>
+              <input
+                type="date"
+                onChange={(e)=>{
+                  const v = e.target.value;
+                  if(!v) return;
+                  setForcedOpenDates(prev => prev.includes(v) ? prev : [...prev, v].sort());
+                  e.target.value = "";
+                }}
+              />
+              <div className="space-y-2" style={{marginTop:10}}>
+                {forcedOpenDates.length === 0 ? (
+                  <div style={{fontSize:12, color:"rgba(255,255,255,.55)"}}>Nessuna.</div>
+                ) : forcedOpenDates.map(d => (
+                  <div key={d} className="bd-date-item">
+                    <span style={{fontWeight:900}}>{d}</span>
+                    <button
+                      type="button"
+                      className="bd-btn bd-btn-ghost bd-pill-btn"
+                      onClick={()=>setForcedOpenDates(prev => prev.filter(x=>x!==d))}
+                      style={{borderColor:"rgba(239,68,68,.28)"}}
+                    >
+                      Rimuovi
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
+
       </div>
     </div>
 
-    <div className="flex gap-3 pt-2">
-      <button type="button" onClick={() => { setStep(2); window.scrollTo({top:0, behavior:"smooth"}); }} className="btn-secondary flex-1">
+    {/* Navigazione */}
+    <div className="bd-row">
+      <button
+        type="button"
+        onClick={() => { setStep(2); window.scrollTo({top:0, behavior:"smooth"}); }}
+        className="bd-btn bd-btn-ghost"
+        style={{flex:1}}
+      >
         Indietro
       </button>
+
       <button
         type="button"
         onClick={() => {
@@ -1847,17 +2774,19 @@ if (step === 7) {
           setStep(4);
           window.scrollTo({ top: 0, behavior: "smooth" });
         }}
-
-        
-        className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-extrabold"
+        className="bd-btn bd-btn-primary"
+        style={{flex:1}}
       >
         Continua
       </button>
     </div>
 
-    {/* MODAL */}
-    {timeModalOpen && (
-      <div className="bd-modal-backdrop" onMouseDown={(e)=>{ if(e.target.classList.contains("bd-modal-backdrop")) closeTimeModal(); }}>
+    {/* MODAL (migliorata: bottoni coerenti) */}
+    {timeModalOpen && ReactDOM.createPortal(
+      <div
+        className="bd-modal-backdrop"
+        onMouseDown={(e)=>{ if(e.target.classList.contains("bd-modal-backdrop")) closeTimeModal(); }}
+      >
         <div className="bd-modal" onMouseDown={(e)=>e.stopPropagation()}>
           <div className="bd-modal-header">
             <div className="bd-modal-title">
@@ -1867,33 +2796,29 @@ if (step === 7) {
           </div>
 
           <div className="bd-modal-body">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
+            <div className="bd-row">
+              <div className="bd-col">
                 <label>Apertura</label>
                 <input type="time" value={timeOpen} onChange={(e)=>setTimeOpen(e.target.value)} />
               </div>
-              <div>
+              <div className="bd-col">
                 <label>Chiusura</label>
                 <input type="time" value={timeClose} onChange={(e)=>setTimeClose(e.target.value)} />
               </div>
             </div>
 
-            <div className="mt-3 text-xs text-gray-500">
-              Suggerimento: puoi impostare 1 fascia (orario continuato) oppure 2 (mattina + pomeriggio).
+            <div style={{marginTop:10, fontSize:12, color:"rgba(255,255,255,.55)"}}>
+              Suggerimento: 1 fascia = continuato • 2 fasce = mattina + pomeriggio.
             </div>
           </div>
 
           <div className="bd-modal-footer">
-            <button className="btn-secondary" onClick={closeTimeModal}>Annulla</button>
-            <button
-              className="px-4 py-2 rounded-xl font-extrabold bg-blue-600 text-white hover:bg-blue-700"
-              onClick={upsertInterval}
-            >
-              Salva
-            </button>
+            <button className="bd-btn bd-btn-ghost" onClick={closeTimeModal}>Annulla</button>
+            <button className="bd-btn bd-btn-primary" onClick={upsertInterval}>Salva</button>
           </div>
         </div>
-      </div>
+      </div>,
+      document.body
     )}
   </div>
 )}
@@ -2068,7 +2993,9 @@ if (step === 7) {
         )}
 
       </div>
-    );
+    </div>
+  </div>
+);
   }
 
   const root = document.getElementById("partner-wizard-root");

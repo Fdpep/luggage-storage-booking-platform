@@ -6,48 +6,66 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4?target
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2024-06-20" });
-const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+const cryptoProvider = Stripe.createSubtleCryptoProvider();
+
+const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false },
+});
 
 serve(async (req) => {
+  // Stripe manda POST
+  if (req.method !== "POST") {
+    return new Response("Use POST", { status: 405 });
+  }
+
+  const sig = req.headers.get("stripe-signature") || req.headers.get("Stripe-Signature");
+  if (!sig) return new Response("Missing stripe-signature", { status: 400 });
+
+  // ⚠️ RAW body: NON usare req.json()
+  const body = await req.text();
+
   try {
-    if (req.method !== "POST") return new Response("Use POST", { status: 405 });
+    const event = await stripe.webhooks.constructEventAsync(
+      body,
+      sig,
+      STRIPE_WEBHOOK_SECRET,
+      undefined,
+      cryptoProvider,
+    );
 
-    const sig = req.headers.get("stripe-signature");
-    if (!sig) return new Response("Missing stripe-signature", { status: 400 });
-
-    // IMPORTANTISSIMO: raw body
-    const rawBody = await req.text();
-
-    let event: Stripe.Event;
-    try {
-      event = stripe.webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET);
-    } catch (_err) {
-      return new Response("Webhook signature verification failed", { status: 400 });
-    }
+    console.log("✅ Webhook OK:", event.id, event.type);
 
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
 
       const requestId = session.metadata?.partner_request_id;
-      if (!requestId) return new Response("Missing partner_request_id in metadata", { status: 400 });
+      if (!requestId) {
+        console.error("❌ Missing partner_request_id. session.id=", session.id);
+        return new Response("Missing partner_request_id in metadata", { status: 400 });
+      }
 
       const paymentRef = (session.payment_intent as string | null) ?? session.id;
 
-      // Qui assumo che tu abbia questa RPC server-side già pronta (come nel tuo codice)
       const { error } = await admin.rpc("finalize_partner_payment_webhook", {
         p_request_id: requestId,
         p_stripe_session_id: session.id,
         p_payment_reference: paymentRef,
       });
 
-      if (error) return new Response(`RPC error: ${error.message}`, { status: 500 });
+      if (error) {
+        console.error("❌ RPC error:", error);
+        return new Response(`RPC error: ${error.message}`, { status: 500 });
+      }
+
+      console.log("✅ Partner marked PAID:", requestId);
     }
 
     return new Response("ok", { status: 200 });
-  } catch (e) {
-    return new Response(`Error: ${(e as any)?.message ?? String(e)}`, { status: 500 });
+  } catch (err) {
+    console.error("❌ Signature verify FAILED:", err);
+    return new Response("Webhook signature verification failed", { status: 400 });
   }
 });

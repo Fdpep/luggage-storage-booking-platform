@@ -6,18 +6,248 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <style>
-  #partner-payment-root{
-    font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-    line-height: 1.5;
-    color:#111827;
-    min-height: 320px;
+  :root{
+    --bd-bg: #090615;
+    --bd-card: rgba(255,255,255,.08);
+    --bd-card-2: rgba(255,255,255,.06);
+    --bd-border: rgba(255,255,255,.12);
+    --bd-text: rgba(255,255,255,.92);
+    --bd-muted: rgba(255,255,255,.70);
+    --bd-faint: rgba(255,255,255,.55);
+
+    --bd-accent: #8b5cf6;
+    --bd-accent-2: #a78bfa;
+    --bd-danger: #ef4444;
+    --bd-warn: #f59e0b;
+    --bd-ok: #22c55e;
   }
+
+  html, body{
+    margin:0;
+    background: linear-gradient(180deg, #0b1220 0%, #070b14 100%);
+  }
+
+  /* root */
+  #partner-payment-root{
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    color: var(--bd-text);
+    min-height: 100vh;
+  }
+
+  /* background shell */
+  .bd-shell{
+    width: 100%;
+    min-height: 100vh;
+    padding: 28px 14px;
+    background:
+      radial-gradient(900px 360px at 18% 0%, rgba(139,92,246,.38), transparent 62%),
+      radial-gradient(780px 320px at 92% 18%, rgba(167,139,250,.22), transparent 58%),
+      radial-gradient(640px 260px at 55% 88%, rgba(99,102,241,.16), transparent 60%),
+      linear-gradient(180deg, #090615 0%, #05030d 100%);
+  }
+
+  /* card */
+  .bd-card{
+    width: min(980px, 100%);
+    margin: 0 auto;
+    border: 1px solid var(--bd-border);
+    border-radius: 22px;
+    background: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.05));
+    box-shadow: 0 28px 80px rgba(0,0,0,.55);
+    overflow: hidden;
+  }
+
+  .bd-card-inner{
+    padding: 22px;
+  }
+  @media (min-width: 768px){
+    .bd-card-inner{ padding: 30px; }
+  }
+
+  /* header */
+  .bd-head{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    padding: 24px 22px 14px 22px;
+  }
+
+  .bd-title{
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+  }
+
+  .bd-subtitle{
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--bd-muted);
+  }
+
+  /* subtle panel */
+  .bd-panel{
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,.12);
+    background: rgba(255,255,255,.04);
+    padding: 14px;
+  }
+
+  /* labels + inputs */
+  .bd-label{
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--bd-muted);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    display:block;
+    margin-bottom: 6px;
+  }
+
+  .bd-input{
+    width: 100%;
+    padding: 12px 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,.14);
+    background: rgba(0,0,0,.25);
+    color: var(--bd-text);
+    outline: none;
+    transition: border-color .15s ease, transform .15s ease, background .15s ease;
+  }
+  .bd-input::placeholder{ color: rgba(255,255,255,.45); }
+
+  .bd-input:focus{
+    border-color: rgba(124,58,237,.75);
+    background: rgba(0,0,0,.18);
+    transform: translateY(-1px);
+  }
+
+  /* buttons */
+  .bd-btn{
+    border-radius: 14px;
+    padding: 12px 14px;
+    font-weight: 900;
+    letter-spacing: -0.01em;
+    transition: transform .12s ease, filter .12s ease, background .12s ease, border-color .12s ease;
+    user-select:none;
+  }
+  .bd-btn:active{ transform: translateY(1px) scale(.99); }
+
+  .bd-btn-primary{
+    background: linear-gradient(135deg, rgba(124,58,237,1), rgba(99,102,241,1));
+    color: #fff;
+    border: 1px solid rgba(255,255,255,.14);
+    box-shadow: 0 16px 40px rgba(124,58,237,.26);
+  }
+  .bd-btn-primary:hover{ filter: brightness(1.06); }
+
+  .bd-btn-success{
+    background: linear-gradient(135deg, rgba(34,197,94,1), rgba(16,185,129,1));
+    color:#fff;
+    border: 1px solid rgba(255,255,255,.14);
+    box-shadow: 0 16px 40px rgba(34,197,94,.18);
+  }
+  .bd-btn-success:hover{ filter: brightness(1.06); }
+
+  .bd-btn-ghost{
+    background: rgba(255,255,255,.06);
+    color: var(--bd-text);
+    border: 1px solid rgba(255,255,255,.14);
+  }
+  .bd-btn-ghost:hover{ background: rgba(255,255,255,.10); }
+
+  .bd-btn-muted{
+    background: rgba(255,255,255,.04);
+    color: rgba(255,255,255,.55);
+    border: 1px solid rgba(255,255,255,.10);
+    cursor: not-allowed;
+  }
+
+  /* pill / badge */
+  .bd-pill{
+    display:inline-flex;
+    align-items:center;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.12);
+    background: rgba(255,255,255,.04);
+    color: rgba(255,255,255,.88);
+    font-weight: 900;
+    font-size: 12px;
+    letter-spacing: -0.01em;
+  }
+
+  .bd-pill-gray{ background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.12); color: rgba(255,255,255,.80); }
+  .bd-pill-blue{ background: rgba(124,58,237,.12); border-color: rgba(124,58,237,.28); color: rgba(196,181,253,.95); }
+  .bd-pill-green{ background: rgba(34,197,94,.12); border-color: rgba(34,197,94,.28); color: rgba(34,197,94,.95); }
+  .bd-pill-red{ background: rgba(239,68,68,.10); border-color: rgba(239,68,68,.28); color: rgba(239,68,68,.95); }
+  .bd-pill-amber{ background: rgba(245,158,11,.10); border-color: rgba(245,158,11,.28); color: rgba(245,158,11,.95); }
+
+  /* alerts */
+  .bd-alert{
+    border-radius: 16px;
+    padding: 12px 14px;
+    border: 1px solid rgba(255,255,255,.14);
+    background: rgba(255,255,255,.06);
+    color: rgba(255,255,255,.88);
+    font-size: 13px;
+  }
+  .bd-alert-info{ border-color: rgba(124,58,237,.28); background: rgba(124,58,237,.10); }
+  .bd-alert-ok{ border-color: rgba(34,197,94,.30); background: rgba(34,197,94,.10); }
+  .bd-alert-warn{ border-color: rgba(245,158,11,.30); background: rgba(245,158,11,.10); }
+  .bd-alert-error{ border-color: rgba(239,68,68,.35); background: rgba(239,68,68,.10); }
+
+  /* divider */
+  .bd-divider{
+    height:1px;
+    background: rgba(255,255,255,.10);
+    width:100%;
+  }
+
+  /* rows */
+  .bd-row{
+    display:flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .bd-col{
+    flex: 1 1 220px;
+    min-width: 220px;
+  }
+
+  /* loading spinner */
+  .bd-spin{
+    width: 18px; height: 18px;
+    border: 2px solid rgba(255,255,255,.25);
+    border-top-color: rgba(255,255,255,.92);
+    border-radius: 999px;
+    animation: bdSpin 1s linear infinite;
+  }
+  @keyframes bdSpin{ to{ transform: rotate(360deg);} }
+
+  /* footer text */
+  .bd-foot{
+    text-align:center;
+    font-size: 12px;
+    color: rgba(255,255,255,.55);
+    margin-top: 14px;
+  }
+
+  /* hard override: neutralizza tailwind "light" dentro la pagina pagamento */
+  #partner-payment-root .bg-white{ background: transparent !important; }
+  #partner-payment-root .text-gray-900{ color: var(--bd-text) !important; }
+  #partner-payment-root .text-gray-700,
+  #partner-payment-root .text-gray-600,
+  #partner-payment-root .text-gray-500{ color: rgba(255,255,255,.70) !important; }
+  #partner-payment-root .border-gray-200,
+  #partner-payment-root .border-gray-300{ border-color: rgba(255,255,255,.14) !important; }
 </style>
 
 <div id="partner-payment-root">
-  <div class="text-center py-16">
-    <div class="mx-auto w-10 h-10 rounded-full border-4 border-gray-200 border-t-blue-600 animate-spin"></div>
-    <p class="mt-4 text-gray-600 font-semibold">Caricamento Pagamento…</p>
+  <div style="text-align:center; padding:40px;">
+    <div class="bd-spin" style="margin:0 auto;"></div>
+    <p style="margin-top:14px; color:rgba(255,255,255,.70); font-weight:800;">Caricamento Pagamento…</p>
   </div>
 </div>
 
@@ -36,21 +266,21 @@ function initPayment(){
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   const Card = ({ children }) => (
-    <div className="bg-white border border-gray-200 rounded-2xl shadow-xl p-5 md:p-7">
+    <div className="bd-panel">
       {children}
     </div>
   );
 
   const Pill = ({ color="gray", children }) => {
     const map = {
-      gray: "bg-gray-50 border-gray-200 text-gray-800",
-      blue: "bg-blue-50 border-blue-200 text-blue-800",
-      green:"bg-green-50 border-green-200 text-green-800",
-      red:  "bg-red-50 border-red-200 text-red-800",
-      amber:"bg-amber-50 border-amber-200 text-amber-800",
+      gray:  "bd-pill bd-pill-gray",
+      blue:  "bd-pill bd-pill-blue",
+      green: "bd-pill bd-pill-green",
+      red:   "bd-pill bd-pill-red",
+      amber: "bd-pill bd-pill-amber",
     };
     return (
-      <span className={`inline-flex items-center px-3 py-1 rounded-full border text-xs font-extrabold ${map[color]}`}>
+      <span className={map[color] || map.gray}>
         {children}
       </span>
     );
@@ -58,13 +288,13 @@ function initPayment(){
 
   const Alert = ({ type="info", children }) => {
     const map = {
-      info:  "bg-blue-50 border-blue-200 text-blue-900",
-      ok:    "bg-green-50 border-green-200 text-green-900",
-      error: "bg-red-50 border-red-200 text-red-900",
-      warn:  "bg-amber-50 border-amber-200 text-amber-900",
+      info:  "bd-alert bd-alert-info",
+      ok:    "bd-alert bd-alert-ok",
+      error: "bd-alert bd-alert-error",
+      warn:  "bd-alert bd-alert-warn",
     };
     return (
-      <div className={`p-4 rounded-xl border text-sm ${map[type]}`}>
+      <div className={map[type] || map.info}>
         {children}
       </div>
     );
@@ -76,6 +306,11 @@ function initPayment(){
     const [userEmail, setUserEmail] = React.useState("");
     const [pwd, setPwd] = React.useState("");
     const [msg, setMsg] = React.useState(null);
+
+    function getQueryParam(name){
+  const url = new URL(window.location.href);
+  return url.searchParams.get(name);
+}
 
     const [req, setReq] = React.useState(null); // {id,status,created_at,paid_at,payment_reference}
     const [paying, setPaying] = React.useState(false);
@@ -89,6 +324,7 @@ function initPayment(){
         loadRequest().catch(()=>{});
       });
       return () => sub?.subscription?.unsubscribe?.();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     async function boot(){
@@ -103,6 +339,43 @@ function initPayment(){
         setLoading(false);
       }
     }
+
+    React.useEffect(() => {
+  const success = getQueryParam("success");
+  const canceled = getQueryParam("canceled");
+  const sessionId = getQueryParam("session_id");
+
+  // Se torno da Stripe, almeno ricarico lo stato più volte (webhook può arrivare dopo qualche secondo)
+  if (success === "1" && sessionId) {
+    setMsg({ type: "info", text: "Pagamento completato su Stripe. Sto aggiornando lo stato..." });
+
+    let tries = 0;
+    const t = setInterval(async () => {
+      tries++;
+      await loadRequest();
+
+      // se diventa paid fermo
+      if (req?.status === "paid") {
+        clearInterval(t);
+        setMsg({ type: "ok", text: "Pagamento registrato. Ora apri l’app BagDrop: entrerai come Partner." });
+      }
+
+      // dopo 6 tentativi (circa 30s) mi fermo e mostro un messaggio
+      if (tries >= 6) {
+        clearInterval(t);
+        setMsg({ type: "warn", text: "Pagamento effettuato, ma lo stato non risulta ancora aggiornato. Se tra 1 minuto non cambia, c’è un problema nel webhook." });
+      }
+    }, 5000);
+
+    return () => clearInterval(t);
+  }
+
+  if (canceled === "1") {
+    setMsg({ type: "warn", text: "Pagamento annullato." });
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
+
 
     async function loadRequest(){
       try{
@@ -190,7 +463,7 @@ function initPayment(){
 
         setMsg({
           type:"ok",
-          text:"Pagamento completato ✅ Ora puoi aprire l’app BagDrop: entrerai come Partner."
+          text:"Pagamento completato. Ora puoi aprire l’app BagDrop: entrerai come Partner."
         });
       } catch(e){
         setMsg({ type:"error", text: (e?.message || String(e)) });
@@ -199,33 +472,34 @@ function initPayment(){
       }
     }
 
-async function payStripe(){
-  if(!req?.id) return;
-  setPaying(true);
-  setMsg(null);
-  try{
-    const { data, error } = await sb.functions.invoke("create-partner-checkout-session", {
-      body: { request_id: req.id }
-    });
+    async function payStripe(){
+      if(!req?.id) return;
+      setPaying(true);
+      setMsg(null);
+      try{
+        const { data, error } = await sb.functions.invoke("create-partner-checkout-session", {
+          body: { request_id: req.id }
+        });
 
-    if (error) throw error;
-    if (!data?.url) throw new Error("Checkout URL missing");
+        if (error) throw error;
+        if (!data?.url) throw new Error("Checkout URL missing");
 
-    window.location.href = data.url;
-  } catch(e){
-    setMsg({ type:"error", text: (e?.message || String(e)) });
-  } finally {
-    setPaying(false);
-  }
-}
-
+        window.location.href = data.url;
+      } catch(e){
+        setMsg({ type:"error", text: (e?.message || String(e)) });
+      } finally {
+        setPaying(false);
+      }
+    }
 
     if(loading){
       return (
-        <div className="max-w-3xl mx-auto px-4 py-14" id="partner-payment-root-inner">
-          <div className="text-center">
-            <div className="mx-auto w-10 h-10 rounded-full border-4 border-gray-200 border-t-blue-600 animate-spin"></div>
-            <p className="mt-4 text-gray-600 font-semibold">Caricamento…</p>
+        <div className="bd-shell">
+          <div className="bd-card">
+            <div className="bd-card-inner" style={{textAlign:"center", padding:"48px 22px"}}>
+              <div className="bd-spin" style={{margin:"0 auto"}}></div>
+              <p style={{marginTop:14, color:"rgba(255,255,255,.70)", fontWeight:800}}>Caricamento…</p>
+            </div>
           </div>
         </div>
       );
@@ -234,179 +508,227 @@ async function payStripe(){
     const logged = !!session;
 
     return (
-      <div className="max-w-3xl mx-auto px-4 py-10">
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600 text-white text-2xl shadow-lg">💳</div>
-          <h1 className="mt-3 text-3xl font-extrabold text-gray-900">Pagamento Partner BagDrop</h1>
-          <p className="mt-2 text-gray-600">
-            Completa il pagamento per attivare il tuo profilo partner.
-          </p>
-        </div>
-
-        <div className="grid gap-4">
-          {msg && (
-            <Alert type={msg.type === "ok" ? "ok" : (msg.type === "warn" ? "warn" : (msg.type === "error" ? "error" : "info"))}>
-              {msg.text}
-            </Alert>
-          )}
-
-          <Card>
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-              <div>
-                <div className="text-sm font-extrabold text-gray-900">Stato richiesta</div>
-                <div className="mt-2">{statusBadge(req?.status)}</div>
-              </div>
-
-              {logged ? (
-                <div className="text-sm text-gray-600">
-                  Sei loggato come <span className="font-extrabold text-gray-900">{session.user.email}</span>
-                </div>
-              ) : (
-                <div className="text-sm text-gray-600">
-                  Per pagare devi fare login con lo stesso account usato nel wizard.
-                </div>
-              )}
+      <div className="bd-shell">
+        <div className="bd-card">
+          <div className="bd-head">
+            <div>
+              <div className="bd-title">Pagamento Partner BagDrop</div>
+              <div className="bd-subtitle">Completa il pagamento per attivare il tuo profilo partner.</div>
             </div>
-
-            {!logged && (
-              <div className="mt-5 grid gap-3">
-                <div>
-                  <label className="text-xs font-extrabold text-gray-700">Email</label>
-                  <input
-                    className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"
-                    type="email"
-                    value={userEmail}
-                    onChange={(e)=>setUserEmail(e.target.value)}
-                    placeholder="nome@esempio.com"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-extrabold text-gray-700">Password</label>
-                  <input
-                    className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"
-                    type="password"
-                    value={pwd}
-                    onChange={(e)=>setPwd(e.target.value)}
-                    placeholder="••••••••"
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={login}
-                  className="w-full rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-3"
-                >
-                  Accedi
-                </button>
-
-                <div className="text-xs text-gray-500">
-                  Se non ricordi la password, rifai l’accesso dal wizard partner o contatta l’assistenza.
-                </div>
-              </div>
-            )}
-
-            {logged && (
-              <div className="mt-5 grid gap-3">
-                {!req && (
-                  <Alert type="warn">
-                    Nessuna richiesta partner trovata per questo account.
-                    Se hai appena inviato la richiesta, attendi qualche minuto e ricarica.
-                  </Alert>
-                )}
-
-                {req && req.status === "submitted" && (
-                  <Alert type="info">
-                    La tua richiesta è ancora in revisione. Riceverai una notifica quando i documenti saranno approvati.
-                  </Alert>
-                )}
-
-                {req && req.status === "rejected" && (
-                  <Alert type="error">
-                    La richiesta risulta rifiutata. Se pensi sia un errore, contatta l’assistenza.
-                  </Alert>
-                )}
-
-                {req && req.status === "paid" && (
-                  <Alert type="ok">
-                    Pagamento già completato ✅
-                    <div className="mt-2 text-sm text-gray-700">
-                      Reference: <span className="font-mono font-bold">{req.payment_reference || "—"}</span>
-                    </div>
-                    <div className="mt-3 text-sm text-gray-700">
-                      Ora apri l’app BagDrop e rientra: sarai Partner.
-                    </div>
-                  </Alert>
-                )}
-
-                {req && req.status === "awaiting_payment" && (
-                  <div className="grid gap-3">
-                    <Alert type="warn">
-                      Pagamento richiesto: clicca qui per completare l’attivazione.
-                      <div className="mt-2 text-xs text-gray-700">
-                        (Ora è in modalità test/mock. Poi lo colleghiamo a Stripe.)
-                      </div>
-                    </Alert>
-
-                    <button
-                      type="button"
-                      onClick={payMock}
-                      disabled={paying}
-                      className={`w-full rounded-xl font-extrabold py-3 text-white ${
-                        paying ? "bg-green-300 cursor-not-allowed" : "bg-green-600 hover:bg-green-700"
-                      }`}
-                    >
-                      {paying ? "Pagamento in corso…" : "Simula pagamento (TEST)"}
-                    </button>
-
-                    <button
-  type="button"
-  onClick={payStripe}
-  disabled={paying}
-  className={`w-full rounded-xl font-extrabold py-3 text-white ${
-    paying ? "bg-green-300 cursor-not-allowed" : "bg-green-600 hover:bg-green-700"
-  }`}
->
-  {paying ? "Reindirizzamento a Stripe…" : "Paga con Stripe (TEST)"}
-</button>
-
-
-                    <div className="flex gap-3">
-                      <button
-                        type="button"
-                        onClick={loadRequest}
-                        className="flex-1 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 font-extrabold py-3"
-                      >
-                        Aggiorna stato
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={logout}
-                        className="flex-1 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 font-extrabold py-3"
-                      >
-                        Esci
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {req && !["awaiting_payment","paid","submitted","rejected","draft"].includes(req.status) && (
-                  <Alert type="warn">
-                    Stato non riconosciuto: <b>{req.status}</b>
-                  </Alert>
-                )}
-
-                <div className="mt-2 text-xs text-gray-500">
-                  Se hai appena completato il pagamento, torna nell’app e premi “Ho pagato: aggiorna”.
-                </div>
-              </div>
-            )}
-          </Card>
-
-          <div className="text-center text-xs text-gray-500">
-            BagDrop • Pagamento Partner • Supporto: info@bag-drop.it
           </div>
+
+          <div className="bd-card-inner">
+            <div className="bd-row" style={{justifyContent:"center"}}>
+              <div style={{width:"min(760px, 100%)"}}>
+
+                <div className="bd-row" style={{flexDirection:"column", gap:12}}>
+                  {msg && (
+                    <Alert type={msg.type === "ok" ? "ok" : (msg.type === "warn" ? "warn" : (msg.type === "error" ? "error" : "info"))}>
+                      {msg.text}
+                    </Alert>
+                  )}
+
+                  <Card>
+                    <div className="bd-row" style={{alignItems:"center", justifyContent:"space-between"}}>
+                      <div>
+                        <div style={{fontSize:12, fontWeight:900, color:"rgba(255,255,255,.65)", textTransform:"uppercase", letterSpacing:".08em"}}>
+                          Stato richiesta
+                        </div>
+                        <div style={{marginTop:8}}>
+                          {statusBadge(req?.status)}
+                        </div>
+                      </div>
+
+                      {logged ? (
+                        <div style={{fontSize:13, color:"rgba(255,255,255,.70)"}}>
+                          Sei loggato come <span style={{fontWeight:900, color:"rgba(255,255,255,.92)"}}>{session.user.email}</span>
+                        </div>
+                      ) : (
+                        <div style={{fontSize:13, color:"rgba(255,255,255,.70)"}}>
+                          Per pagare devi fare login con lo stesso account usato nel wizard.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="bd-divider" style={{margin:"14px 0"}} />
+
+                    {!logged && (
+                      <div className="bd-row" style={{flexDirection:"column", gap:12}}>
+                        <div>
+                          <label className="bd-label">Email</label>
+                          <input
+                            className="bd-input"
+                            type="email"
+                            value={userEmail}
+                            onChange={(e)=>setUserEmail(e.target.value)}
+                            placeholder="nome@esempio.com"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="bd-label">Password</label>
+                          <input
+                            className="bd-input"
+                            type="password"
+                            value={pwd}
+                            onChange={(e)=>setPwd(e.target.value)}
+                            placeholder="••••••••"
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={login}
+                          className={`bd-btn w-full ${loading ? "bd-btn-muted" : "bd-btn-primary"}`}
+                          disabled={loading}
+                        >
+                          <span style={{display:"inline-flex", alignItems:"center", justifyContent:"center", gap:10}}>
+                            {loading ? <span className="bd-spin" /> : null}
+                            {loading ? "Accesso..." : "Accedi"}
+                          </span>
+                        </button>
+
+                        <div style={{fontSize:12, color:"rgba(255,255,255,.55)"}}>
+                          Se non ricordi la password, rifai l’accesso dal wizard partner o contatta l’assistenza.
+                        </div>
+                      </div>
+                    )}
+
+                    {logged && (
+                      <div className="bd-row" style={{flexDirection:"column", gap:12}}>
+                        {!req && (
+                          <div className="bd-row" style={{flexDirection:"column", gap:12}}>
+                            <Alert type="warn">
+                              Nessuna richiesta partner trovata per questo account.
+                              Se hai appena inviato la richiesta, attendi qualche minuto e ricarica.
+                            </Alert>
+
+                            <div className="bd-row" style={{gap:12}}>
+                              <button
+                                type="button"
+                                onClick={loadRequest}
+                                className="bd-btn bd-btn-ghost"
+                                style={{flex:1}}
+                              >
+                                Aggiorna stato
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={logout}
+                                className="bd-btn bd-btn-ghost"
+                                style={{flex:1}}
+                              >
+                                Esci
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+
+                        {req && req.status === "submitted" && (
+                          <Alert type="info">
+                            La tua richiesta è ancora in revisione. Riceverai una notifica quando i documenti saranno approvati.
+                          </Alert>
+                        )}
+
+                        {req && req.status === "rejected" && (
+                          <Alert type="error">
+                            La richiesta risulta rifiutata. Se pensi sia un errore, contatta l’assistenza.
+                          </Alert>
+                        )}
+
+                        {req && req.status === "paid" && (
+                          <Alert type="ok">
+                            Pagamento già completato.
+                            <div style={{marginTop:10, fontSize:12, color:"rgba(255,255,255,.70)"}}>
+                              Reference: <span style={{fontFamily:"ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace", fontWeight:900}}>
+                                {req.payment_reference || "—"}
+                              </span>
+                            </div>
+                            <div style={{marginTop:10, fontSize:12, color:"rgba(255,255,255,.70)"}}>
+                              Ora apri l’app BagDrop e rientra: sarai Partner.
+                            </div>
+                          </Alert>
+                        )}
+
+                        {req && req.status === "awaiting_payment" && (
+                          <div className="bd-row" style={{flexDirection:"column", gap:12}}>
+                            <Alert type="warn">
+                              Pagamento richiesto: clicca qui per completare l’attivazione.
+                              <div style={{marginTop:8, fontSize:12, color:"rgba(255,255,255,.70)"}}>
+                                (Ora è in modalità test/mock. Poi lo colleghiamo a Stripe.)
+                              </div>
+                            </Alert>
+
+                            <button
+                              type="button"
+                              onClick={payMock}
+                              disabled={paying}
+                              className={`bd-btn w-full ${paying ? "bd-btn-muted" : "bd-btn-success"}`}
+                            >
+                              <span style={{display:"inline-flex", alignItems:"center", justifyContent:"center", gap:10}}>
+                                {paying ? <span className="bd-spin" /> : null}
+                                {paying ? "Pagamento in corso…" : "Simula pagamento (TEST)"}
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={payStripe}
+                              disabled={paying}
+                              className={`bd-btn w-full ${paying ? "bd-btn-muted" : "bd-btn-success"}`}
+                            >
+                              <span style={{display:"inline-flex", alignItems:"center", justifyContent:"center", gap:10}}>
+                                {paying ? <span className="bd-spin" /> : null}
+                                {paying ? "Reindirizzamento a Stripe…" : "Paga con Stripe (TEST)"}
+                              </span>
+                            </button>
+
+                            <div className="bd-row" style={{gap:12}}>
+                              <button
+                                type="button"
+                                onClick={loadRequest}
+                                className="bd-btn bd-btn-ghost"
+                                style={{flex:1}}
+                              >
+                                Aggiorna stato
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={logout}
+                                className="bd-btn bd-btn-ghost"
+                                style={{flex:1}}
+                              >
+                                Esci
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {req && !["awaiting_payment","paid","submitted","rejected","draft"].includes(req.status) && (
+                          <Alert type="warn">
+                            Stato non riconosciuto: <b>{req.status}</b>
+                          </Alert>
+                        )}
+
+                        <div style={{marginTop:2, fontSize:12, color:"rgba(255,255,255,.55)"}}>
+                          Se hai appena completato il pagamento, torna nell’app e premi “Ho pagato: aggiorna”.
+                        </div>
+                      </div>
+                    )}
+                  </Card>
+
+                  <div className="bd-foot">
+                    BagDrop • Pagamento Partner • Supporto: info@bag-drop.it
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
     );
