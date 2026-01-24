@@ -49,7 +49,8 @@ class PartnerBookingRepo {
   ///
   /// [bookingDate] = giorno della prenotazione (obbligatorio nel nuovo flusso).
   /// [startTime], [endTime] = orari nel formato "HH:MM" (es. "10:00").
-  Future<void> createBooking({
+  
+  Future<String> createBooking({
     required String partnerId,
     required String firstName,
     required String lastName,
@@ -61,44 +62,41 @@ class PartnerBookingRepo {
     String? notes,
     required DateTime bookingDate,
     required String startTime,
+    required DateTime endDate,
     required String endTime,
-    DateTime? endDate,
+    required DateTime endDateRequested,
+    required String endTimeRequested,
   }) async {
-    final userId = client.auth.currentUser?.id;
-    if (userId == null) {
-      throw AuthException(
-        'Devi essere autenticato per creare una prenotazione.',
-      );
+    final uid = client.auth.currentUser?.id;
+    if (uid == null) {
+      throw const AuthException('Utente non autenticato');
     }
 
-    // Normalizziamo le date a "solo giorno"
-    final startDay = DateTime(
-      bookingDate.year,
-      bookingDate.month,
-      bookingDate.day,
-    );
+    final row = await client
+        .from('partner_bookings')
+        .insert({
+          'partner_id': partnerId,
+          'user_id': uid,
+          'status': 'confirmed', // o quello che usi tu come stato iniziale
+          'contact_first_name': firstName,
+          'contact_last_name': lastName,
+          'contact_phone': phone,
+          'contact_email': email,
+          'bags_s': bagsS,
+          'bags_m': bagsM,
+          'bags_l': bagsL,
+          'notes': notes,
+          'booking_date': bookingDate.toIso8601String(),
+          'start_time': startTime, // "HH:MM:SS"
+          'end_date': endDate.toIso8601String(),
+          'end_time': endTime, // "HH:MM:SS"
+          'end_date_requested': endDateRequested.toIso8601String(),
+          'end_time_requested': endTimeRequested, // "HH:MM:SS"
+        })
+        .select('id')
+        .single();
 
-    final endDayRaw = endDate ?? bookingDate;
-    final endDay = DateTime(endDayRaw.year, endDayRaw.month, endDayRaw.day);
-
-    await client.from('partner_bookings').insert({
-      'partner_id': partnerId,
-      'user_id': userId,
-      'contact_first_name': firstName,
-      'contact_last_name': lastName,
-      'contact_phone': phone,
-      'contact_email': email,
-      'bags_s': bagsS,
-      'bags_m': bagsM,
-      'bags_l': bagsL,
-      'notes': notes,
-      // nuovi campi per lo scheduling
-      'booking_date': startDay.toIso8601String(),
-      'end_date': endDay.toIso8601String(),
-      'start_time': startTime,
-      'end_time': endTime,
-      // status default: 'confirmed' come da migration
-    });
+    return row['id'] as String;
   }
 
   /// Prenotazioni dell'utente corrente (lato app utente).
@@ -220,14 +218,20 @@ class PartnerBookingRepo {
   }) async {
     final r = reason.trim();
     if (r.isEmpty) {
-      throw ArgumentError('Motivazione obbligatoria');
+      throw Exception('Motivazione obbligatoria.');
     }
 
     await client.rpc(
       'reject_partner_booking',
-      params: {'p_booking_id': bookingId, 'p_reason': r},
+      params: {
+        'p_booking_id': bookingId,
+        'p_reason': r,
+      },
     );
+
+    // TODO(REFUND): qui in futuro avvierai rimborso Stripe del pagamento base (se già incassato)
   }
+
 
   /// Calcola la disponibilità per UN INTERVALLO specifico.
   ///

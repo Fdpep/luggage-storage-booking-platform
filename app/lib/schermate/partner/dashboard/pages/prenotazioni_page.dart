@@ -505,28 +505,6 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
-            /* SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                child: _FiltersBar(
-                  status: _statusFilter,
-                  dateRange: _dateRange,
-                  onStatusChanged: (v) => setState(() => _statusFilter = v),
-                  onPickDate: () async {
-                    final now = DateTime.now();
-                    final picked = await showDateRangePicker(
-                      context: context,
-                      firstDate: DateTime(now.year - 1),
-                      lastDate: DateTime(now.year + 1),
-                      initialDateRange: _dateRange,
-                    );
-                    if (picked == null) return;
-                    setState(() => _dateRange = picked);
-                  },
-                  onClearDate: () => setState(() => _dateRange = null),
-                ),
-              ),
-            ),*/
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
               sliver: _buildBodySliver(),

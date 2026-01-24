@@ -19,8 +19,7 @@ class _ScannerPageState extends State<ScannerPage> {
   // area esito
   String? _message;
   bool _isError = false;
-  bool _requirePayment = false;
-  String? _pendingCode;
+  bool _isWarning = false; // serve supplemento, ma non è errore
   PartnerBooking? _lastBooking;
 
   PartnerBookingRepo get _repo => PartnerBookingRepo(Supabase.instance.client);
@@ -45,8 +44,7 @@ class _ScannerPageState extends State<ScannerPage> {
       setState(() {
         _message = 'Codice non valido. Formato atteso: BDXXXXXXXXXX (HEX).';
         _isError = true;
-        _requirePayment = false;
-        _pendingCode = null;
+        _isWarning = false;
         _lastBooking = null;
       });
       return;
@@ -56,7 +54,7 @@ class _ScannerPageState extends State<ScannerPage> {
       _busy = true;
       _message = null;
       _isError = false;
-      _requirePayment = false;
+      _isWarning = false;
     });
 
     try {
@@ -74,17 +72,18 @@ class _ScannerPageState extends State<ScannerPage> {
 
       setState(() {
         _message = msg;
-        _isError = !ok;
-        _requirePayment = requirePay;
-        _pendingCode = requirePay ? c : null;
+        _isWarning =
+            requirePay == true; // se la RPC dice require_payment, è warning
+        _isError =
+            !ok && !_isWarning; // errore solo se ok=false e non è warning
         _lastBooking = booking;
       });
     } catch (e) {
       setState(() {
         _message = 'Errore: $e';
         _isError = true;
-        _requirePayment = false;
-        _pendingCode = null;
+        _isWarning = false;
+        _lastBooking = null;
       });
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -101,7 +100,7 @@ class _ScannerPageState extends State<ScannerPage> {
   }
 
   Future<void> _openManualDialog() async {
-    final ctrl = TextEditingController(text: _pendingCode ?? '');
+    final ctrl = TextEditingController();
     String? error;
 
     await showDialog<void>(
@@ -164,6 +163,43 @@ class _ScannerPageState extends State<ScannerPage> {
     );
   }
 
+  Widget _buildResultRow(ColorScheme cs) {
+    if (_message == null) {
+      return Text(
+        'Nessuna operazione eseguita.',
+        style: TextStyle(color: cs.onSurface.withOpacity(0.7)),
+      );
+    }
+
+    IconData icon;
+    Color color;
+
+    if (_isError) {
+      icon = Icons.error_outline;
+      color = Colors.red;
+    } else if (_isWarning) {
+      icon = Icons.warning_amber_rounded;
+      color = Colors.orange;
+    } else {
+      icon = Icons.check_circle_outline;
+      color = Colors.green;
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: color),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            _message!,
+            style: TextStyle(fontWeight: FontWeight.w700, color: color),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -208,11 +244,6 @@ class _ScannerPageState extends State<ScannerPage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  Text(
-                    'Nota emulatore: la “stanza col gatto” è la camera virtuale. Su telefono reale si apre la fotocamera.',
-                    style: TextStyle(fontSize: 12, color: cs.onSurface.withOpacity(0.65)),
-                  ),
                 ],
               ),
             ),
@@ -234,31 +265,8 @@ class _ScannerPageState extends State<ScannerPage> {
 
                   if (_busy) ...[
                     const Center(child: CircularProgressIndicator()),
-                  ] else if (_message == null) ...[
-                    Text(
-                      'Nessuna operazione eseguita.',
-                      style: TextStyle(color: cs.onSurface.withOpacity(0.7)),
-                    ),
                   ] else ...[
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(
-                          _isError ? Icons.error_outline : Icons.check_circle_outline,
-                          color: _isError ? Colors.red : Colors.green,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _message!,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: _isError ? Colors.red.shade700 : Colors.green.shade700,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                    _buildResultRow(cs),
                   ],
 
                   if (_lastBooking != null) ...[
@@ -284,42 +292,11 @@ class _ScannerPageState extends State<ScannerPage> {
                             'Bagagli: ${_lastBooking!.bagsS}S  ${_lastBooking!.bagsM}M  ${_lastBooking!.bagsL}L',
                           ),
                           const SizedBox(height: 6),
-                          Text('Dropoff previsto: ${_fmt(_lastBooking!.plannedDropoffLocal)}'),
-                          Text('Pickup previsto:  ${_fmt(_lastBooking!.plannedPickupLocal)}'),
-                        ],
-                      ),
-                    ),
-                  ],
-
-                  if (_requirePayment && _pendingCode != null) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Supplemento necessario',
-                            style: TextStyle(fontWeight: FontWeight.w900),
+                          Text(
+                            'Dropoff previsto: ${_fmt(_lastBooking!.plannedDropoffLocal)}',
                           ),
-                          const SizedBox(height: 6),
-                          const Text(
-                            'Sforata la tolleranza di 15 minuti. Per ora puoi simulare il pagamento.',
-                          ),
-                          const SizedBox(height: 10),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: _busy
-                                  ? null
-                                  : () => _handleCode(_pendingCode!, force: true),
-                              icon: const Icon(Icons.payments_outlined),
-                              label: const Text('Paga ora (mock)'),
-                            ),
+                          Text(
+                            'Pickup previsto:  ${_fmt(_lastBooking!.plannedPickupLocal)}',
                           ),
                         ],
                       ),
