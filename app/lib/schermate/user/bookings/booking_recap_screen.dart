@@ -4,8 +4,9 @@ import 'package:BagDrop/models/partner.dart';
 import 'package:BagDrop/models/partner_booking.dart';
 import 'package:BagDrop/schermate/partner/user_view/partner_detail_screen.dart';
 import 'package:BagDrop/theme/app_theme.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-class BookingRecapScreen extends StatelessWidget {
+class BookingRecapScreen extends StatefulWidget {
   final Partner partner;
   final PartnerBooking booking;
 
@@ -15,17 +16,99 @@ class BookingRecapScreen extends StatelessWidget {
     required this.booking,
   });
 
+  @override
+  State<BookingRecapScreen> createState() => _BookingRecapScreenState();
+}
+
+class _BookingRecapScreenState extends State<BookingRecapScreen> {
+  bool _loadingPayments = true;
+  String? _paymentsError;
+  List<_BookingPaymentRow> _payments = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPayments();
+  }
+
+  Future<void> _loadPayments() async {
+    setState(() {
+      _loadingPayments = true;
+      _paymentsError = null;
+    });
+
+    try {
+      final sb = Supabase.instance.client;
+
+      final rows = await sb
+          .from('booking_payments')
+          .select()
+          .eq('booking_id', widget.booking.id)
+          .order('paid_at', ascending: true);
+
+      final list = (rows as List)
+          .cast<Map<String, dynamic>>()
+          .map(_BookingPaymentRow.fromMap)
+          .toList();
+
+      if (!mounted) return;
+      setState(() {
+        _payments = list;
+        _loadingPayments = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _paymentsError = e.toString();
+        _loadingPayments = false;
+      });
+    }
+  }
+
+  int get _totalPaidCents => _payments.fold(0, (sum, p) => sum + p.amountCents);
+
+  int _toCents(double euro) => (euro * 100).round();
+
+  String _euroCents(int cents) {
+    final s = (cents / 100).toStringAsFixed(2).replaceAll('.', ',');
+    return '€ $s';
+  }
+
+  String _durationLabel(BagDropDuration d) {
+    switch (d) {
+      case BagDropDuration.threeHours:
+        return '3 ore';
+      case BagDropDuration.oneDay:
+        return '1 giorno';
+      case BagDropDuration.oneAndHalfDay:
+        return '1,5 giorni';
+      case BagDropDuration.twoDays:
+        return '2 giorni';
+      case BagDropDuration.threeDays:
+        return '3 giorni';
+    }
+  }
+
+  /// Format semplice senza dipendenze (intl).
+  /// Output: dd/MM/yyyy • HH:mm
   String _formatDateTime(DateTime dt) {
     final local = dt.toLocal();
     String two(int v) => v.toString().padLeft(2, '0');
-    return '${two(local.day)}/${two(local.month)}/${local.year} '
-        '${two(local.hour)}:${two(local.minute)}';
+    final d = two(local.day);
+    final m = two(local.month);
+    final y = local.year.toString();
+    final hh = two(local.hour);
+    final mm = two(local.minute);
+    return '$d/$m/$y • $hh:$mm';
   }
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
+
+    final booking = widget.booking;
+    final partner = widget.partner;
 
     final totalBags = booking.totalBags;
     final dropoff = booking.plannedDropoffLocal;
@@ -46,6 +129,7 @@ class BookingRecapScreen extends StatelessWidget {
         start: dropoff,
         end: pickupEffective,
       );
+
       totalPrice = BagDropPricing.totalFor(
         duration: duration,
         bagsS: booking.bagsS,
@@ -53,23 +137,7 @@ class BookingRecapScreen extends StatelessWidget {
         bagsL: booking.bagsL,
       );
 
-      switch (duration) {
-        case BagDropDuration.threeHours:
-          durationLabel = '3 ore';
-          break;
-        case BagDropDuration.oneDay:
-          durationLabel = '1 giorno';
-          break;
-        case BagDropDuration.oneAndHalfDay:
-          durationLabel = '1,5 giorni';
-          break;
-        case BagDropDuration.twoDays:
-          durationLabel = '2 giorni';
-          break;
-        case BagDropDuration.threeDays:
-          durationLabel = '3 giorni';
-          break;
-      }
+      durationLabel = _durationLabel(duration);
     }
 
     String statusText;
@@ -93,10 +161,13 @@ class BookingRecapScreen extends StatelessWidget {
         statusColor = Colors.green;
     }
 
+    final plannedCents = totalPrice == null ? 0 : _toCents(totalPrice!);
+    final balanceCents = plannedCents - _totalPaidCents;
+
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        foregroundColor: Theme.of(context).colorScheme.onPrimary,
+        backgroundColor: cs.primary,
+        foregroundColor: cs.onPrimary,
         title: const _LogoTitle(),
       ),
       body: ListView(
@@ -313,7 +384,7 @@ class BookingRecapScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Prezzo totale',
+                    'Prezzo e pagamenti',
                     style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
                   ),
                   const SizedBox(height: 8),
@@ -340,6 +411,41 @@ class BookingRecapScreen extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 13,
                           color: cs.onSurface.withOpacity(0.7),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+
+                    // Pagato / Numero pagamenti / Saldo
+                    if (_loadingPayments) ...[
+                      const LinearProgressIndicator(minHeight: 4),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Caricamento pagamenti…',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: cs.onSurface.withOpacity(0.7),
+                        ),
+                      ),
+                    ] else if (_paymentsError != null) ...[
+                      Text(
+                        'Impossibile caricare pagamenti: $_paymentsError',
+                        style: TextStyle(fontSize: 12, color: cs.error),
+                      ),
+                    ] else ...[
+                      _InfoRow('Pagato finora', _euroCents(_totalPaidCents)),
+                      _InfoRow('Numero pagamenti', '${_payments.length}'),
+                      const SizedBox(height: 6),
+                      _InfoRow(
+                        balanceCents > 0 ? 'Da pagare' : 'Saldo',
+                        _euroCents(balanceCents.abs()),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Nota: il sovrapprezzo (se ritiro in ritardo) viene calcolato a fine deposito.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: cs.onSurface.withOpacity(0.6),
                         ),
                       ),
                     ],
@@ -474,12 +580,13 @@ class _IconLabelRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final defaultLabelStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
-      fontWeight: FontWeight.w600,
-      color: cs.onSurface.withOpacity(0.85),
-    );
-    final defaultValueStyle = Theme.of(
-      context,
-    ).textTheme.bodyMedium?.copyWith(color: cs.onSurface.withOpacity(0.9));
+          fontWeight: FontWeight.w600,
+          color: cs.onSurface.withOpacity(0.85),
+        );
+    final defaultValueStyle = Theme.of(context)
+        .textTheme
+        .bodyMedium
+        ?.copyWith(color: cs.onSurface.withOpacity(0.9));
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -497,6 +604,33 @@ class _IconLabelRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _BookingPaymentRow {
+  final String kind; // 'base' | 'late_fee'
+  final int amountCents;
+  final DateTime paidAt;
+
+  _BookingPaymentRow({
+    required this.kind,
+    required this.amountCents,
+    required this.paidAt,
+  });
+
+  factory _BookingPaymentRow.fromMap(Map<String, dynamic> m) {
+    int cents(dynamic v) => (v is int) ? v : int.tryParse(v.toString()) ?? 0;
+
+    DateTime dt(dynamic v) {
+      if (v == null) return DateTime.now();
+      return DateTime.parse(v.toString()).toLocal();
+    }
+
+    return _BookingPaymentRow(
+      kind: (m['kind'] ?? 'base').toString(),
+      amountCents: cents(m['amount_cents']),
+      paidAt: dt(m['paid_at']),
     );
   }
 }

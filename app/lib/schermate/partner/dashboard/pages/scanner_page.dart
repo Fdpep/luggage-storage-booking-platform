@@ -244,14 +244,6 @@ class _ScannerPageState extends State<ScannerPage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  Text(
-                    'Nota emulatore: la “stanza col gatto” è la camera virtuale. Su telefono reale si apre la fotocamera.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: cs.onSurface.withOpacity(0.65),
-                    ),
-                  ),
                 ],
               ),
             ),

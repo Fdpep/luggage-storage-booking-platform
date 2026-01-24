@@ -60,6 +60,9 @@ class PartnerBooking {
   final int? lateFeeAmountCents;
   final DateTime? lateFeePaidAt;
 
+  final DateTime? coveredUntil;
+  final int totalPaidCents;
+
   const PartnerBooking({
     required this.id,
     required this.partnerId,
@@ -92,10 +95,16 @@ class PartnerBooking {
     this.lateFeeRequired = false,
     this.lateFeeAmountCents,
     this.lateFeePaidAt,
+
+    this.coveredUntil,
+    this.totalPaidCents = 0,
   });
 
   /// Numero totale di bagagli (S+M+L)
   int get totalBags => bagsS + bagsM + bagsL;
+
+  /// Timestamp di copertura (se presente) in locale
+  DateTime? get coveredUntilLocal => coveredUntil?.toLocal();
 
   /// Consegna prevista:
   /// usiamo sempre booking_date + start_time interpretati come orari locali.
@@ -246,6 +255,8 @@ class PartnerBooking {
       lateFeeRequired: (map['late_fee_required'] as bool?) ?? false,
       lateFeeAmountCents: map['late_fee_amount_cents'] as int?,
       lateFeePaidAt: parseDateTime(map['late_fee_paid_at']),
+      coveredUntil: parseDateTime(map['covered_until']),
+      totalPaidCents: (map['total_paid_cents'] as int?) ?? 0,
     );
   }
 
@@ -297,6 +308,8 @@ class PartnerBooking {
       'late_fee_required': lateFeeRequired,
       'late_fee_amount_cents': lateFeeAmountCents,
       'late_fee_paid_at': lateFeePaidAt?.toUtc().toIso8601String(),
+      'covered_until': coveredUntil?.toUtc().toIso8601String(),
+      'total_paid_cents': totalPaidCents,
     };
   }
 }

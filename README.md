@@ -92,6 +92,12 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
 
     * **scheda attività collegata** (`BookingPartnerDetailScreen`)
     * da cui si può vedere il riepilogo della prenotazione (`BookingRecapScreen`)
+  
+  * nei riepiloghi e nelle schermate prenotazione mostriamo:
+    * **Consegna prevista**
+    * **Ritiro scelto** (requested)
+    * **Scadenza fascia** (effective end)
+
 
 * **Profilo utente & gestione account**:
 
@@ -375,12 +381,16 @@ Comportamento (alto livello):
   * la UI mostra “**Paga ora**”
   * premendo “Paga ora (mock)” richiama la stessa RPC con `p_force = true`
 
+
 ### Tolleranza e supplemento (checkout)
 
 * Tolleranza: **15 minuti**
-* Se oltre tolleranza:
-  * il sistema richiede “Paga ora” (placeholder)
-  * una volta premuto, si procede al check-out comunque (mock payment / force)
+* Il ritardo viene misurato rispetto a:
+  * `pickup_planned_at` → che è la **scadenza fascia** (non il ritiro scelto)
+* Se `pickup_effective_at > pickup_planned_at + 15 min`:
+  * `require_payment = true`
+  * UI mostra “Paga ora” (mock)
+
 
 ### Stato `rejected` nello scanner
 
@@ -627,8 +637,11 @@ Responsabilità:
 ```md
 > La determinazione di `dropoff_planned_at` e `pickup_planned_at` avviene via trigger SQL (es. `sync_booking_interval`),
 > sincronizzando i campi `booking_date/start_time/end_date/end_time` con i timestamp completi.
+> `pickup_planned_at` viene calcolato su `end_date/end_time` (**scadenza fascia**).
+> `end_date_requested/end_time_requested` non influenzano scheduling/capacity: servono per mostrare “ritiro scelto”.
 
   ```
+
 
 > Il sistema usa questi campi per:
 >
@@ -975,29 +988,33 @@ NOTA BENE : partner signup , registration ed application sono deprecate. Ora si 
         * colora la barra in rosso se la selezione supera la capacità
         * messaggio esplicativo e legenda: `1 S = 1 • 1 M = 2 • 1 L = 4 unità`
 
-  * **Pricing (base)**:
+  * **Pricing (single source of truth) – BagDropPricing**:
 
-    * usa una **configurazione globale BagDropPricing**, definita lato BagDrop e uguale per tutti i partner
-    * la configurazione contiene tariffe per:
+    * tutta la logica prezzi + fasce orarie è centralizzata in `lib/config/bagdrop_pricing.dart`
+      (così eventuali cambi tariffe/regole si fanno in **un solo file**)
 
-      * taglia **S/M/L**
-      * durata (3h, 1 giorno, 1.5 giorni, 2 giorni, 3 giorni, …)
-    * il totale è calcolato lato client in base a:
+    * **Fasce tariffarie (pricing windows)**:
+      - **3 ore**
+      - **Tutto il giorno** → scade alla **chiusura del locale** del giorno di consegna
+      - **1 giorno e mezzo** → scade alle **13:00 del giorno successivo**
+      - **2 giorni**, **3 giorni**, … (estendibile)
 
-      * durata selezionata (derivata da `start/end`)
-      * numero di bagagli per taglia
-    * nel riepilogo e nello step bagagli viene mostrata:
+    * **Regola chiave (scadenza fascia)**:
+      - l’utente può scegliere un “ritiro” anche **prima**
+      - ma la prenotazione viene **normalizzata** alla **scadenza della fascia** in cui ricade
+      - quindi il **supplemento / ritardo** scatta **solo dopo la scadenza fascia**, non dopo il ritiro scelto
 
-      * **anteprima del prezzo** (step bagagli)
-      * **prezzo totale finale** (riepilogo)
+    * **Doppio orario salvato** (per recap e trasparenza):
+      - `end_date_requested` + `end_time_requested` → **ritiro scelto dall’utente**
+      - `end_date` + `end_time` → **scadenza fascia (effective end)** usata per:
+        - calcolo disponibilità intervallo (capacity overlap)
+        - calcolo prezzo base della prenotazione
+        - trigger `pickup_planned_at`
 
-  * alla conferma crea record in `partner_bookings` via `PartnerBookingRepo.createBooking(...)` compilando:
+    * nel flow, quando l’utente seleziona data/ora:
+      - validiamo **solo** consegna e ritiro richiesto (devono stare negli orari di apertura)
+      - poi calcoliamo la **scadenza fascia** tramite `BagDropPricing.normalizeBookingInterval(...)`
 
-    * `booking_date`, `start_time` (consegna)
-    * `end_date`, `end_time` (ritiro)
-    * dati di contatto
-    * S/M/L
-    * note
 
 ## ✏️ schermate/partner/dashboard/edit/partner_edit_screen.dart
 
@@ -1080,7 +1097,16 @@ NOTA BENE : partner signup , registration ed application sono deprecate. Ora si 
   * `bagsS`, `bagsM`, `bagsL`
   * `notes`
   * `bookingDate`, `startTime`, `endDate`, `endTime`
+      -- ritiro scelto dall’utente (UI / trasparenza)
+  * `  end_date_requested date `,
+  * `  end_time_requested time `,
+
   * `createdAt`, `updatedAt`
+
+> Nota: `end_date/end_time` rappresentano la **scadenza fascia (effective end)** calcolata lato client tramite BagDropPricing.
+> L’orario scelto dall’utente viene salvato separatamente in `end_date_requested/end_time_requested`.
+> Il trigger `sync_booking_interval` costruisce `pickup_planned_at` usando **end_date/end_time** (scadenza fascia).
+
 
 ### `services/supabase/partner_booking_repo.dart`
 

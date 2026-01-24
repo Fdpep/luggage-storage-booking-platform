@@ -394,7 +394,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     final effEndDateOnly = DateTime(effEnd.year, effEnd.month, effEnd.day);
     final effEndTod = TimeOfDay(hour: effEnd.hour, minute: effEnd.minute);
 
-
     // ✅ Salviamo in stato (servirà per availability + DB + recap)
     _normalizedPricingInterval = normalized;
     _effectiveEndDate = effEndDateOnly;
@@ -750,7 +749,41 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     setState(() => _step -= 1);
   }
 
+  Future<void> _recordBasePayment({
+    required String bookingId,
+    required int amountCents,
+  }) async {
+    final sb = Supabase.instance.client;
+
+    // 1) riga pagamenti (base)
+    await sb.from('booking_payments').insert({
+      'booking_id': bookingId,
+      'kind': 'base',
+      'amount_cents': amountCents,
+      'paid_at': DateTime.now().toUtc().toIso8601String(),
+    });
+
+    // 2) cache sul booking (utile per UI/partner)
+    await sb
+        .from('partner_bookings')
+        .update({'total_paid_cents': amountCents})
+        .eq('id', bookingId);
+  }
+
   Future<void> _confirmBooking() async {
+    // TODO(PAYMENTS - Stripe):
+    // Incasso alla creazione (base) = flusso consigliato:
+    //
+    // 1) Calcola baseAmountCents (prezzo fascia prenotata).
+    // 2) Crea PaymentIntent lato server (Edge Function) con amount=baseAmountCents.
+    // 3) Presenta PaymentSheet / Checkout.
+    // 4) SOLO se pagamento ok:
+    //    - crea booking su DB (o finalizza un draft "pending_payment")
+    //    - inserisci riga booking_payments(kind='base', amount_cents=...)
+    //    - aggiorna partner_bookings.total_paid_cents (cache) e covered_until.
+    // 5) Se pagamento annullato/fallito:
+    //    - non creare booking oppure marca draft come cancelled e libera risorse.
+
     if (_busy) return;
     setState(() => _busy = true);
 
@@ -984,8 +1017,22 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         return;
       }
 
+      final duration = BagDropPricing.inferDuration(
+        start: startDt,
+        end: effectiveEnd,
+      );
+
+      final baseTotal = BagDropPricing.totalFor(
+        duration: duration,
+        bagsS: _bagsS,
+        bagsM: _bagsM,
+        bagsL: _bagsL,
+      );
+
+      final baseAmountCents = (baseTotal * 100).round();
+
       // 3) Se tutto ok → creiamo la prenotazione
-      await repo.createBooking(
+      final bookingId = await repo.createBooking(
         partnerId: widget.partner.id,
         firstName: _firstNameCtrl.text.trim(),
         lastName: _lastNameCtrl.text.trim(),
@@ -996,17 +1043,20 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         bagsL: _bagsL,
         notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
 
-        // start
         bookingDate: bookingStartDate,
         startTime: startTimeStr,
 
-        // end effettivo (scadenza fascia) -> DB end_date/end_time
         endDate: bookingEndDateEffective,
         endTime: endTimeStrEffective,
 
-        // end richiesto (scelta utente) -> DB end_date_requested/end_time_requested
         endDateRequested: bookingEndDateRequested,
         endTimeRequested: endTimeStrRequested,
+      );
+
+      // ✅ MOCK “pagato alla creazione”: registra base payment
+      await _recordBasePayment(
+        bookingId: bookingId,
+        amountCents: baseAmountCents,
       );
 
       if (!mounted) return;
@@ -2160,6 +2210,29 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           ),
         ),
 
+        Card(child: Padding(padding: const EdgeInsets.all(12))),
+
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.lock_outline, size: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Con “Paga e conferma” verrai indirizzato al pagamento. '
+                    'La prenotazione risulta confermata solo dopo l’esito positivo.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
         if (_notesCtrl.text.trim().isNotEmpty) ...[
           const SizedBox(height: 12),
           Card(
@@ -2211,7 +2284,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                     height: 22,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : Text(_step < 3 ? 'Avanti' : 'Conferma prenotazione'),
+                : Text(_step < 3 ? 'Avanti' : 'Paga e conferma'),
           ),
         ),
       ],

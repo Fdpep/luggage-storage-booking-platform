@@ -336,4 +336,39 @@ class BagDropPricing {
   ) {
     return getCloseForDay(day);
   }
+
+  static int lateFeeDiffCents({
+    required BagDropDuration from,
+    required BagDropDuration to,
+    required int bagsS,
+    required int bagsM,
+    required int bagsL,
+    required int extraDaysFrom, // per ora 0
+    required int extraDaysTo, // per ora 0
+  }) {
+    double fromTotal = totalFor(
+      duration: from,
+      bagsS: bagsS,
+      bagsM: bagsM,
+      bagsL: bagsL,
+    );
+    double toTotal = totalFor(
+      duration: to,
+      bagsS: bagsS,
+      bagsM: bagsM,
+      bagsL: bagsL,
+    );
+
+    // extra days > 3 giorni: +2€ each 
+    if (to == BagDropDuration.threeDays && extraDaysTo > 0) {
+      toTotal += extraDaysTo * 2.0;
+    }
+    if (from == BagDropDuration.threeDays && extraDaysFrom > 0) {
+      fromTotal += extraDaysFrom * 2.0;
+    }
+
+    final diff = (toTotal - fromTotal);
+    final clamped = diff < 0 ? 0 : diff;
+    return (clamped * 100).round();
+  }
 }

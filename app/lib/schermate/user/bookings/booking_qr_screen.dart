@@ -39,6 +39,17 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
   bool _notifiedCheckin = false;
   bool _notifiedCheckout = false;
 
+  int? _quotePaidTotalCents;
+  int? _quoteRequiredTotalCents;
+  String? _quoteFromDuration;
+  String? _quoteToDuration;
+  DateTime? _quoteFromUntil;
+  DateTime? _quoteToUntil;
+  int? _quoteToExtraDays;
+
+  DateTime? _lastQuoteAttemptAt;
+  static const Duration _quoteRetryEvery = Duration(seconds: 10);
+
   String _fmt(DateTime dt) {
     final d = dt.day.toString().padLeft(2, '0');
     final m = dt.month.toString().padLeft(2, '0');
@@ -50,6 +61,66 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
   String _euro(int cents) {
     final s = (cents / 100).toStringAsFixed(2).replaceAll('.', ',');
     return '€ $s';
+  }
+
+  Future<dynamic> _performLateFeePayment({required String bookingId}) async {
+    // OGGI: simulato (chiama la tua RPC che estende e registra pagamento)
+    return Supabase.instance.client.rpc(
+      'pay_late_fee_and_extend',
+      params: {'p_booking_id': bookingId},
+    );
+
+    // DOMANI (esempio): qui farai
+    // 1) chiamata al provider pagamento (Stripe checkout)
+    // 2) on success: chiami una RPC tipo confirm_payment(...)
+    // 3) ritorni un payload simile: { ok: true, message: "...", new_pickup_planned_at: ... }
+  }
+
+  Future<bool> _confirmPayDialog({int? cents, String? detail}) async {
+    if (!mounted) return false;
+    final cs = Theme.of(context).colorScheme;
+
+    final amountLine = cents != null
+        ? 'Importo: ${_euro(cents)}'
+        : 'Importo: da calcolare';
+    final body = [
+      'Stai per simulare il pagamento del supplemento e prolungare la prenotazione.',
+      amountLine,
+      if (detail != null && detail.trim().isNotEmpty) detail.trim(),
+    ].join('\n\n');
+
+    final res = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Row(
+          children: [
+            Icon(Icons.payments_outlined, color: cs.primary),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'Confermi il pagamento?',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+            ),
+          ],
+        ),
+        content: Text(body),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Annulla'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(cents != null ? 'Paga ${_euro(cents)}' : 'Paga'),
+          ),
+        ],
+      ),
+    );
+
+    return res == true;
   }
 
   @override
@@ -143,45 +214,67 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
   Future<void> _payLateFeeMock() async {
     if (_paying) return;
 
+    // 1) serve l'importo (in questo step non paghiamo "alla cieca")
+    final amountCents = _quoteCents;
+    if (amountCents == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Importo supplemento non disponibile. Riprova tra qualche secondo.',
+          ),
+        ),
+      );
+      return;
+    }
+    if (amountCents == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nessun importo aggiuntivo.')),
+      );
+      return;
+    }
+
+    // 2) conferma UNA volta (con importo visibile)
+    final confirmed = await _confirmPayDialog(
+      cents: amountCents,
+      detail:
+          'Dopo il pagamento la prenotazione viene estesa e il QR torna valido per il check-out.',
+    );
+    if (!confirmed) return;
+
+    // 3) esegui "pagamento" (oggi simulato, domani Stripe)
     setState(() => _paying = true);
 
     try {
-      dynamic res;
-
-      // STEP 2: quando la mettiamo su Supabase, questa farà:
-      // - calcolo differenza tariffe
-      // - update end_time/end_date (o pickup) per estendere fino a chiusura
-      // - marca late fee paid
-      try {
-        res = await Supabase.instance.client.rpc(
-          'pay_late_fee_and_extend',
-          params: {'p_booking_id': widget.bookingId},
-        );
-      } catch (_) {
-        // fallback compatibilità col tuo attuale backend
-        res = await Supabase.instance.client.rpc(
-          'pay_late_fee',
-          params: {'p_booking_id': widget.bookingId},
-        );
-      }
+      final res = await _performLateFeePayment(bookingId: widget.bookingId);
 
       final ok = (res is Map && res['ok'] == true);
       final msg =
           (res is Map ? (res['message']?.toString()) : null) ??
-          (ok ? 'Pagamento completato' : 'Pagamento non riuscito');
+          (ok ? 'Supplemento pagato' : 'Pagamento non riuscito');
 
       if (!mounted) return;
 
-      // reset quote: dopo pagamento dovrebbe sparire il blocco “ritardo”
+      // reset quote: dopo pagamento dovrebbe sparire il blocco ritardo
       setState(() {
         _quoteCents = null;
         _quoteMessage = null;
         _quoteLoading = false;
       });
 
+      // opzionale: mostra "estesa fino a ..."
+      String extra = '';
+      final newPickup = (res is Map) ? res['new_pickup_planned_at'] : null;
+      if (newPickup != null) {
+        try {
+          final dt = DateTime.parse(newPickup.toString()).toLocal();
+          extra = ' • Estesa fino a ${_fmt(dt)}';
+        } catch (_) {}
+      }
+
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(ok ? '✅ $msg' : '⚠️ $msg')));
+      ).showSnackBar(SnackBar(content: Text(ok ? '✅ $msg$extra' : '⚠️ $msg')));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -195,10 +288,14 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
   Future<void> _ensureLateFeeQuote(PartnerBooking b) async {
     if (!_isLateOverTolerance(b)) {
       if (_quoteCents != null || _quoteMessage != null || _quoteLoading) {
-        setState(() {
-          _quoteLoading = false;
-          _quoteCents = null;
-          _quoteMessage = null;
+        if (!mounted) return;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          setState(() {
+            _quoteLoading = false;
+            _quoteCents = null;
+            _quoteMessage = null;
+          });
         });
       }
       return;
@@ -206,43 +303,72 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
 
     if (_quoteLoading || _quoteCents != null || _quoteMessage != null) return;
 
-    setState(() {
-      _quoteLoading = true;
-      _quoteMessage = null;
+    if (!mounted) return;
+
+    // ✅ NON setState durante build: rimandalo al post-frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        _quoteLoading = true;
+        _quoteMessage = null;
+      });
     });
 
     try {
       final res = await Supabase.instance.client.rpc(
-        // STEP 2: la creeremo
         'get_late_fee_quote',
         params: {'p_booking_id': widget.bookingId},
       );
 
+      debugPrint('get_late_fee_quote res: $res');
+
       final ok = (res is Map && res['ok'] == true);
       if (ok) {
-        final amount = (res )['amount_cents'];
+        final amount = (res)['amount_cents'];
         final cents = (amount is int) ? amount : int.tryParse('$amount');
+
+        _quotePaidTotalCents = int.tryParse('${res['paid_total_cents']}');
+        _quoteRequiredTotalCents = int.tryParse(
+          '${res['required_total_cents']}',
+        );
+        _quoteFromDuration = res['from_duration']?.toString();
+        _quoteToDuration = res['to_duration']?.toString();
+        _quoteToExtraDays = int.tryParse('${res['to_extra_days']}');
+
+        final fu = res['from_covered_until'];
+        final tu = res['to_covered_until'];
+        _quoteFromUntil = fu != null
+            ? DateTime.parse(fu.toString()).toLocal()
+            : null;
+        _quoteToUntil = tu != null
+            ? DateTime.parse(tu.toString()).toLocal()
+            : null;
+
+        if (!mounted) return;
         setState(() {
           _quoteCents = cents;
           _quoteMessage = (res['message']?.toString());
         });
       } else {
-        // messaggio “soft”
+        final msg = (res is Map ? res['message']?.toString() : null);
+        if (!mounted) return;
         setState(() {
           _quoteCents = null;
-          _quoteMessage =
-              (res is Map ? res['message']?.toString() : null) ??
-              'Supplemento calcolato al momento del pagamento.';
+          _quoteMessage = (msg?.isNotEmpty == true)
+              ? msg
+              : 'Supplemento calcolato al momento del pagamento.';
         });
       }
-    } catch (_) {
-      // Se la RPC non esiste ancora, niente panico: UI resta pulita.
+    } catch (e) {
+      debugPrint('get_late_fee_quote error: $e');
+      if (!mounted) return;
       setState(() {
         _quoteCents = null;
-        _quoteMessage = 'Supplemento calcolato al momento del pagamento.';
+        _quoteMessage = 'Errore calcolo importo: $e';
       });
     } finally {
-      if (mounted) setState(() => _quoteLoading = false);
+      if (!mounted) return;
+      setState(() => _quoteLoading = false);
     }
   }
 
@@ -343,6 +469,8 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final hasQuote = _quoteCents != null && _quoteCents! > 0;
+    final canPay = !_paying && !_quoteLoading && hasQuote;
 
     return Scaffold(
       backgroundColor: cs.surface,
@@ -368,9 +496,10 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
           if (booking != null) {
             _maybeNotify(booking);
 
-            // ✅ carica quote solo se serve (ritardo oltre tolleranza)
-            // e NON dentro la lista Widget
-            _ensureLateFeeQuote(booking);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              _ensureLateFeeQuote(booking);
+            });
           }
 
           // calcolo stato “user-friendly”
@@ -545,7 +674,6 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
               // PAGAMENTO RITARDO — SOLO LATO UTENTE (compare appena sei oltre tolleranza)
               if (booking != null) ...[
                 // carico la quote se serve (solo quando è in ritardo)
-
                 if (_isInTolerance(booking)) ...[
                   Container(
                     padding: const EdgeInsets.all(14),
@@ -584,6 +712,7 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
                           'Supplemento necessario',
                           style: TextStyle(fontWeight: FontWeight.w900),
                         ),
+
                         const SizedBox(height: 6),
                         Text(
                           _quoteCents != null
@@ -594,6 +723,35 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
                             color: cs.onSurface.withOpacity(0.85),
                           ),
                         ),
+
+                        if (_quotePaidTotalCents != null &&
+                            _quoteRequiredTotalCents != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'Hai pagato finora: ${_euro(_quotePaidTotalCents!)}'
+                            '${_quoteFromUntil != null ? ' (coperto fino a ${_fmt(_quoteFromUntil!)} )' : ''}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.onSurface.withOpacity(0.75),
+                            ),
+                          ),
+                          Text(
+                            'Fascia attuale: ${_quoteToDuration ?? '-'}'
+                            '${_quoteToUntil != null ? ' → copre fino a ${_fmt(_quoteToUntil!)}' : ''}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.onSurface.withOpacity(0.75),
+                            ),
+                          ),
+                          Text(
+                            'Totale dovuto ora: ${_euro(_quoteRequiredTotalCents!)}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.onSurface.withOpacity(0.75),
+                            ),
+                          ),
+                        ],
+
                         const SizedBox(height: 10),
 
                         if (_quoteLoading) ...[
@@ -601,21 +759,54 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
                           const SizedBox(height: 10),
                         ],
 
+                        if (!_quoteLoading && !hasQuote) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            'Se l’importo non appare, tocca “Ricalcola importo”.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.onSurface.withOpacity(0.65),
+                            ),
+                          ),
+                        ],
+
                         SizedBox(
                           width: double.infinity,
-                          child: ElevatedButton.icon(
-                            onPressed: _paying ? null : _payLateFeeMock,
-                            icon: _paying
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: _paying
+                                  ? null
+                                  : (_quoteLoading
+                                        ? null
+                                        : (hasQuote
+                                              ? _payLateFeeMock
+                                              : () {
+                                                  // se non ho ancora l'importo, faccio "ricalcola" invece di far sembrare rotto
+                                                  _ensureLateFeeQuote(booking);
+                                                })),
+                              icon: _paying
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : Icon(
+                                      hasQuote
+                                          ? Icons.payments_outlined
+                                          : Icons.refresh_rounded,
                                     ),
-                                  )
-                                : const Icon(Icons.payments_outlined),
-                            label: Text(
-                              _paying ? 'Pagamento…' : 'Paga ora (mock)',
+                              label: Text(
+                                _paying
+                                    ? 'Pagamento…'
+                                    : (_quoteLoading
+                                          ? 'Calcolo importo…'
+                                          : (hasQuote
+                                                ? 'Paga ${_euro(_quoteCents!)}'
+                                                : 'Ricalcola importo')),
+                              ),
                             ),
                           ),
                         ),
