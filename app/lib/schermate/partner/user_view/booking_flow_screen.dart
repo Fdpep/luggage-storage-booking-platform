@@ -687,8 +687,11 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     final client = Supabase.instance.client;
     final repo = PartnerBookingRepo(client);
 
-    final bookingStartDate = _selectedDate!;
-    final bookingEndDate = _endDate!;
+final bookingStartDate = _selectedDate!;
+
+// ✅ usa l'end effettivo (scadenza fascia) se già calcolato da _validateDateTimeSelection()
+final bookingEndDate = _effectiveEndDate ?? _endDate!;
+final endTimeForApi = _effectiveEndTime ?? _endTime!;
 
     try {
       final av = await repo.getPartnerAvailabilityForInterval(
@@ -697,7 +700,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         startDate: bookingStartDate,
         endDate: bookingEndDate,
         startTime: startStr,
-        endTime: endStr,
+        endTime: _formatTimeForApi(endTimeForApi)
       );
 
       if (!mounted) return;
@@ -947,6 +950,16 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         l: _bagsL,
       );
       final errors = <String>[];
+      if (!availability.acceptS && _bagsS > 0) {
+  errors.add('Small (S): il locale non accetta questa taglia.');
+}
+if (!availability.acceptM && _bagsM > 0) {
+  errors.add('Medium (M): il locale non accetta questa taglia.');
+}
+if (!availability.acceptL && _bagsL > 0) {
+  errors.add('Large (L): il locale non accetta questa taglia.');
+}
+
 
       final bool hasPerSizeCapacity =
           (availability.capacityS +
@@ -1818,6 +1831,22 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   /// - limite sullo spazio TOTALE equivalente (availableTotal con 1M = 2S = 0.5L)
   void _updateBags({int? small, int? medium, int? large}) {
     final av = _availability;
+    // ✅ blocca taglie non accettate (extra-sicurezza)
+if (av != null) {
+  if (!av.acceptS && (small ?? _bagsS) > 0) {
+    _showAvailabilitySnack('Il locale non accetta bagagli Small (S).');
+    return;
+  }
+  if (!av.acceptM && (medium ?? _bagsM) > 0) {
+    _showAvailabilitySnack('Il locale non accetta bagagli Medium (M).');
+    return;
+  }
+  if (!av.acceptL && (large ?? _bagsL) > 0) {
+    _showAvailabilitySnack('Il locale non accetta bagagli Large (L).');
+    return;
+  }
+}
+
 
     final newS = small ?? _bagsS;
     final newM = medium ?? _bagsM;
@@ -1871,7 +1900,9 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     }
 
     final av = _availability;
-
+final bool canS = av?.acceptS ?? true;
+final bool canM = av?.acceptM ?? true;
+final bool canL = av?.acceptL ?? true;
     int? maxS;
     int? maxM;
     int? maxL;
@@ -1887,6 +1918,10 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       }
       // se non c'è capacità per taglia, lasciamo i max null
       // e lasciamo il controllo "di sicurezza" solo a _confirmBooking
+      // ✅ se il partner non accetta una taglia, max = 0 (blocca + e mostra "Disponibili: 0")
+if (!canS) maxS = 0;
+if (!canM) maxM = 0;
+if (!canL) maxL = 0;
     }
 
     final totalBags = _bagsS + _bagsM + _bagsL;
@@ -1938,7 +1973,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           label: 'Small (S)',
           description: 'Zainetti o trolley piccoli',
           count: _bagsS,
-          max: maxS,
+          max: canS ? maxS : 0,
           onChanged: (v) => _updateBags(small: v),
         ),
         const SizedBox(height: 8),
@@ -1946,7 +1981,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           label: 'Medium (M)',
           description: 'Trolley medi',
           count: _bagsM,
-          max: maxM,
+          max: canM ? maxM : 0,
           onChanged: (v) => _updateBags(medium: v),
         ),
         const SizedBox(height: 8),
@@ -1954,7 +1989,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           label: 'Large (L)',
           description: 'Valigie grandi',
           count: _bagsL,
-          max: maxL,
+          max: canL ? maxL : 0,
           onChanged: (v) => _updateBags(large: v),
         ),
 

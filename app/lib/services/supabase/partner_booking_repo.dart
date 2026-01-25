@@ -23,6 +23,11 @@ class PartnerAvailability {
   final int availableL;
   final int availableTotal;
 
+  // ✅ V2: taglie accettate
+  final bool acceptS;
+  final bool acceptM;
+  final bool acceptL;
+
   const PartnerAvailability({
     required this.capacityS,
     required this.capacityM,
@@ -36,8 +41,12 @@ class PartnerAvailability {
     required this.availableM,
     required this.availableL,
     required this.availableTotal,
+    required this.acceptS,
+    required this.acceptM,
+    required this.acceptL,
   });
 }
+
 
 /// Repository per gestire le prenotazioni partner_bookings.
 class PartnerBookingRepo {
@@ -140,31 +149,70 @@ class PartnerBookingRepo {
   /// ignorando data/orario (usato solo per viste generiche / retrocompat).
   Future<PartnerAvailability> getPartnerAvailability(String partnerId) async {
     // 1) Leggiamo la capacità dal partner
-    final partnerRow = await client
-        .from('partners')
-        .select('capacity_s, capacity_m, capacity_l, capacity')
-        .eq('id', partnerId)
-        .maybeSingle();
+final partnerRow = await client
+    .from('partners')
+    .select(
+      'capacity_s, capacity_m, capacity_l, capacity, ' // legacy
+      'base_capacity_m, extra_capacity_s, extra_capacity_m, extra_capacity_l, '
+      'accept_s, accept_m, accept_l',
+    )
+    .eq('id', partnerId)
+    .maybeSingle();
+
 
     if (partnerRow == null) {
       throw Exception('Partner non trovato per id=$partnerId');
     }
 
-    final int capS = (partnerRow['capacity_s'] as int?) ?? 0;
-    final int capM = (partnerRow['capacity_m'] as int?) ?? 0;
-    final int capL = (partnerRow['capacity_l'] as int?) ?? 0;
-    final int capTotalDb = (partnerRow['capacity'] as int?) ?? 0;
+// ✅ V2 fields
+final int? baseM = partnerRow['base_capacity_m'] as int?;
+final int extraS = (partnerRow['extra_capacity_s'] as int?) ?? 0;
+final int extraM = (partnerRow['extra_capacity_m'] as int?) ?? 0;
+final int extraL = (partnerRow['extra_capacity_l'] as int?) ?? 0;
 
-    // Capacità totale in unità equivalenti (mezze-M):
-    // 1S = 1, 1M = 2, 1L = 4
-    final int capacityTotalUnits2x = capS * 1 + capM * 2 + capL * 4;
+final bool acceptS = (partnerRow['accept_s'] as bool?) ?? true;
+final bool acceptM = (partnerRow['accept_m'] as bool?) ?? true;
+final bool acceptL = (partnerRow['accept_l'] as bool?) ?? true;
 
-    // Se non sono configurate capacità per taglia,
-    // facciamo fallback sul vecchio campo `capacity` (considerato come "M"),
-    // moltiplicando per 2 per portarlo nelle stesse unità.
-    final int capacityTotal = capacityTotalUnits2x > 0
-        ? capacityTotalUnits2x
-        : (capTotalDb > 0 ? capTotalDb * 2 : 0);
+// legacy fields
+final int legacyS = (partnerRow['capacity_s'] as int?) ?? 0;
+final int legacyM = (partnerRow['capacity_m'] as int?) ?? 0;
+final int legacyL = (partnerRow['capacity_l'] as int?) ?? 0;
+final int legacyTotalM = (partnerRow['capacity'] as int?) ?? 0;
+
+// ---- calcolo cap per taglia ----
+int capS = 0;
+int capM = 0;
+int capL = 0;
+
+if (baseM != null && baseM > 0) {
+  // V2: base in M -> deriviamo equivalenze
+  final int baseS = baseM * 2;     // 1M = 2S
+  final int baseL = baseM ~/ 2;    // 1L = 2M
+
+  capS = acceptS ? (baseS + extraS) : 0;
+  capM = acceptM ? (baseM + extraM) : 0;
+  capL = acceptL ? (baseL + extraL) : 0;
+} else {
+  // Legacy: usa capacity_s/m/l se presenti
+  capS = legacyS;
+  capM = legacyM;
+  capL = legacyL;
+
+  // Se legacy per-taglia è vuoto ma c'è il vecchio "capacity" (inteso come M)
+  if (capS + capM + capL == 0 && legacyTotalM > 0) {
+    capM = legacyTotalM;
+  }
+
+  // Applica accept flags anche sul legacy (coerenza)
+  if (!acceptS) capS = 0;
+  if (!acceptM) capM = 0;
+  if (!acceptL) capL = 0;
+}
+
+// Totale in unità equivalenti (mezze-M): 1S=1, 1M=2, 1L=4
+final int capacityTotal = capS * 1 + capM * 2 + capL * 4;
+
 
     // 2) Sommiamo i bagagli delle prenotazioni attive (status != cancelled)
     final bookingsData = await client
@@ -196,20 +244,24 @@ class PartnerBookingRepo {
     if (availableL < 0) availableL = 0;
     if (availableTotal < 0) availableTotal = 0;
 
-    return PartnerAvailability(
-      capacityS: capS,
-      capacityM: capM,
-      capacityL: capL,
-      capacityTotal: capacityTotal,
-      usedS: usedS,
-      usedM: usedM,
-      usedL: usedL,
-      usedTotal: usedTotal,
-      availableS: availableS,
-      availableM: availableM,
-      availableL: availableL,
-      availableTotal: availableTotal,
-    );
+return PartnerAvailability(
+  capacityS: capS,
+  capacityM: capM,
+  capacityL: capL,
+  capacityTotal: capacityTotal,
+  usedS: usedS,
+  usedM: usedM,
+  usedL: usedL,
+  usedTotal: usedTotal,
+  availableS: availableS,
+  availableM: availableM,
+  availableL: availableL,
+  availableTotal: availableTotal,
+  acceptS: acceptS,
+  acceptM: acceptM,
+  acceptL: acceptL,
+);
+
   }
 
   Future<void> rejectBooking({
@@ -256,7 +308,11 @@ class PartnerBookingRepo {
     // 1) Capacità dal partner
     final partnerRow = await client
         .from('partners')
-        .select('capacity_s, capacity_m, capacity_l, capacity')
+        .select(
+  'capacity_s, capacity_m, capacity_l, capacity, '
+  'base_capacity_m, extra_capacity_s, extra_capacity_m, extra_capacity_l, '
+  'accept_s, accept_m, accept_l',
+)
         .eq('id', partnerId)
         .maybeSingle();
 
@@ -264,19 +320,55 @@ class PartnerBookingRepo {
       throw Exception('Partner non trovato per id=$partnerId');
     }
 
-    final int capS = (partnerRow['capacity_s'] as int?) ?? 0;
-    final int capM = (partnerRow['capacity_m'] as int?) ?? 0;
-    final int capL = (partnerRow['capacity_l'] as int?) ?? 0;
-    final int capTotalDb = (partnerRow['capacity'] as int?) ?? 0;
+// ✅ V2 fields
+final int? baseM = partnerRow['base_capacity_m'] as int?;
+final int extraS = (partnerRow['extra_capacity_s'] as int?) ?? 0;
+final int extraM = (partnerRow['extra_capacity_m'] as int?) ?? 0;
+final int extraL = (partnerRow['extra_capacity_l'] as int?) ?? 0;
 
-    // Capacità totale in unità equivalenti (mezze-M):
-    // 1S = 1, 1M = 2, 1L = 4
-    final int capacityTotalUnits2x = capS * 1 + capM * 2 + capL * 4;
+final bool acceptS = (partnerRow['accept_s'] as bool?) ?? true;
+final bool acceptM = (partnerRow['accept_m'] as bool?) ?? true;
+final bool acceptL = (partnerRow['accept_l'] as bool?) ?? true;
 
-    // Fallback sul vecchio campo `capacity` se le taglie non sono impostate
-    final int capacityTotal = capacityTotalUnits2x > 0
-        ? capacityTotalUnits2x
-        : (capTotalDb > 0 ? capTotalDb * 2 : 0);
+// legacy fields
+final int legacyS = (partnerRow['capacity_s'] as int?) ?? 0;
+final int legacyM = (partnerRow['capacity_m'] as int?) ?? 0;
+final int legacyL = (partnerRow['capacity_l'] as int?) ?? 0;
+final int legacyTotalM = (partnerRow['capacity'] as int?) ?? 0;
+
+// ---- calcolo cap per taglia ----
+int capS = 0;
+int capM = 0;
+int capL = 0;
+
+if (baseM != null && baseM > 0) {
+  // V2: base in M -> deriviamo equivalenze
+  final int baseS = baseM * 2;     // 1M = 2S
+  final int baseL = baseM ~/ 2;    // 1L = 2M
+
+  capS = acceptS ? (baseS + extraS) : 0;
+  capM = acceptM ? (baseM + extraM) : 0;
+  capL = acceptL ? (baseL + extraL) : 0;
+} else {
+  // Legacy: usa capacity_s/m/l se presenti
+  capS = legacyS;
+  capM = legacyM;
+  capL = legacyL;
+
+  // Se legacy per-taglia è vuoto ma c'è il vecchio "capacity" (inteso come M)
+  if (capS + capM + capL == 0 && legacyTotalM > 0) {
+    capM = legacyTotalM;
+  }
+
+  // Applica accept flags anche sul legacy (coerenza)
+  if (!acceptS) capS = 0;
+  if (!acceptM) capM = 0;
+  if (!acceptL) capL = 0;
+}
+
+// Totale in unità equivalenti (mezze-M): 1S=1, 1M=2, 1L=4
+final int capacityTotal = capS * 1 + capM * 2 + capL * 4;
+
 
     // 2) Intervallo richiesto dal NUOVO booking
     final DateTime requestStart = DateTime(
@@ -365,20 +457,24 @@ class PartnerBookingRepo {
     if (availableL < 0) availableL = 0;
     if (availableTotal < 0) availableTotal = 0;
 
-    return PartnerAvailability(
-      capacityS: capS,
-      capacityM: capM,
-      capacityL: capL,
-      capacityTotal: capacityTotal,
-      usedS: usedS,
-      usedM: usedM,
-      usedL: usedL,
-      usedTotal: usedTotal,
-      availableS: availableS,
-      availableM: availableM,
-      availableL: availableL,
-      availableTotal: availableTotal,
-    );
+return PartnerAvailability(
+  capacityS: capS,
+  capacityM: capM,
+  capacityL: capL,
+  capacityTotal: capacityTotal,
+  usedS: usedS,
+  usedM: usedM,
+  usedL: usedL,
+  usedTotal: usedTotal,
+  availableS: availableS,
+  availableM: availableM,
+  availableL: availableL,
+  availableTotal: availableTotal,
+  acceptS: acceptS,
+  acceptM: acceptM,
+  acceptL: acceptL,
+);
+
   }
 
   /// Rimane per eventuali controlli legacy; NON più usato nel nuovo flusso.

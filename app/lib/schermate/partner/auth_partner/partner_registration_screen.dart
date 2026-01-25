@@ -15,7 +15,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 /// Ora strutturato a STEP:
 /// 0 = Dati attività
 /// 1 = Indirizzo
-/// 2 = Capacità (S/M/L) + nota + invio
+/// 2 = Capacità V2 (base M + extra + taglie accettate) + invio
 class PartnerRegistrationScreen extends StatefulWidget {
   const PartnerRegistrationScreen({super.key});
 
@@ -38,15 +38,15 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
   /// Quanti bagagli MEDIUM (M) stanno nello spazio GENERALE
   final _baseMediumCtrl = TextEditingController();
 
-  /// Capacità GENERALE accettata per taglia (derivata da M e poi modificabile al ribasso)
-  final _generalSCtrl = TextEditingController();
-  final _generalMCtrl = TextEditingController();
-  final _generalLCtrl = TextEditingController();
-
   /// Capacità EXTRA dedicata solo a quella taglia
   final _extraSCtrl = TextEditingController();
   final _extraMCtrl = TextEditingController();
   final _extraLCtrl = TextEditingController();
+
+  bool _acceptS = true;
+bool _acceptM = true;
+bool _acceptL = true;
+
 
   // Nota per admin
   final _noteCtrl = TextEditingController();
@@ -71,44 +71,29 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
     return n;
   }
 
-  /// 1 M = 2 S = 0.5 L
-  ({int baseS, int baseM, int baseL}) _computeBaseFromMedium() {
-    final m = _parseNonNegative(_baseMediumCtrl.text);
-    final baseS = m * 2;
-    final baseM = m;
-    final baseL = (m * 0.5).floor();
-    return (baseS: baseS, baseM: baseM, baseL: baseL);
-  }
+/// Equivalenze UI: 1M = 2S, 1L = 2M (quindi 1L = 4S)
+({int baseS, int baseM, int baseL}) _computeBaseFromMedium() {
+  final m = _parseNonNegative(_baseMediumCtrl.text);
+  final baseS = m * 2;
+  final baseM = m;
+  final baseL = m ~/ 2; // floor
+  return (baseS: baseS, baseM: baseM, baseL: baseL);
+}
 
-  /// Capacità finali (generale + extra) da salvare su DB
-  ({int capS, int capM, int capL, int total}) _computeFinalCapacities() {
-    final base = _computeBaseFromMedium();
+/// Valori V2 che salviamo nel DB:
+/// - baseM (input)
+/// - extraS/M/L (input)
+/// - acceptS/M/L (toggle)
+({int baseM, int extraS, int extraM, int extraL}) _computeV2Caps() {
+  final baseM = _parseNonNegative(_baseMediumCtrl.text);
+  final extraS = _parseNonNegative(_extraSCtrl.text);
+  final extraM = _parseNonNegative(_extraMCtrl.text);
+  final extraL = _parseNonNegative(_extraLCtrl.text);
+  return (baseM: baseM, extraS: extraS, extraM: extraM, extraL: extraL);
+}
 
-    // Se i campi generali sono vuoti → usiamo i suggeriti
-    final genS = _generalSCtrl.text.trim().isEmpty
-        ? base.baseS
-        : _parseNonNegative(_generalSCtrl.text);
-    final genM = _generalMCtrl.text.trim().isEmpty
-        ? base.baseM
-        : _parseNonNegative(_generalMCtrl.text);
-    final genL = _generalLCtrl.text.trim().isEmpty
-        ? base.baseL
-        : _parseNonNegative(_generalLCtrl.text);
+bool get _hasAnySizeEnabled => _acceptS || _acceptM || _acceptL;
 
-    // Extra dedicati
-    final extraS = _parseNonNegative(_extraSCtrl.text);
-    final extraM = _parseNonNegative(_extraMCtrl.text);
-    final extraL = _parseNonNegative(_extraLCtrl.text);
-
-    final capS = genS + extraS;
-    final capM = genM + extraM;
-    final capL = genL + extraL;
-    final total = capS + capM + capL;
-
-    return (capS: capS, capM: capM, capL: capL, total: total);
-  }
-
-  int get _totalCapacity => _computeFinalCapacities().total;
 
 
   @override
@@ -117,9 +102,6 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
     _addressCtrl.dispose();
 
     _baseMediumCtrl.dispose();
-    _generalSCtrl.dispose();
-    _generalMCtrl.dispose();
-    _generalLCtrl.dispose();
     _extraSCtrl.dispose();
     _extraMCtrl.dispose();
     _extraLCtrl.dispose();
@@ -132,16 +114,25 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
     // 1) Validazione finale del form
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    // 2) Controllo capacità
-    if (_totalCapacity <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content:
-              Text('Imposta almeno 1 bagaglio complessivo tra S, M e L.'),
-        ),
-      );
-      return;
-    }
+// 2) Controllo capacità V2
+final v2 = _computeV2Caps();
+if (v2.baseM <= 0) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text('Inserisci almeno 1 bagaglio M nello spazio generale.'),
+    ),
+  );
+  return;
+}
+if (!_hasAnySizeEnabled) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text('Devi accettare almeno una taglia (S / M / L).'),
+    ),
+  );
+  return;
+}
+
 
     // 3) Controllo geocoding già fatto (lat/lng)
     if (_isGeocoding) {
@@ -202,30 +193,30 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
     }
 
     try {
-      // Calcolo capacità finali
-      final caps = _computeFinalCapacities();
-      final capS = caps.capS;
-      final capM = caps.capM;
-      final capL = caps.capL;
-      final totalCapacity = caps.total;
+final v2 = _computeV2Caps();
+final note = _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim();
 
-      final note =
-          _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim();
+final repo = PartnerRepo(client);
 
-      final repo = PartnerRepo(client);
+await repo.submitPartnerApplication(
+  userId: userId,
+  name: _nameCtrl.text.trim(),
+  address: _addressCtrl.text.trim(),
 
-      await repo.submitPartnerApplication(
-        userId: userId,
-        name: _nameCtrl.text.trim(),
-        address: _addressCtrl.text.trim(),
-        capacity: totalCapacity,
-        capacityS: capS,
-        capacityM: capM,
-        capacityL: capL,
-        message: note,
-        lat: _lat,
-        lng: _lng,
-      );
+  // ===== V2 =====
+  baseM: v2.baseM,
+  extraS: v2.extraS,
+  extraM: v2.extraM,
+  extraL: v2.extraL,
+  acceptS: _acceptS,
+  acceptM: _acceptM,
+  acceptL: _acceptL,
+
+  message: note,
+  lat: _lat,
+  lng: _lng,
+);
+
 
 
       if (!mounted) return;
@@ -762,8 +753,15 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
 
-    final base = _computeBaseFromMedium();
-    final caps = _computeFinalCapacities();
+final base = _computeBaseFromMedium();
+final v2 = _computeV2Caps();
+
+// preview “cap” solo UI (coerente col Partner.dart)
+final baseU = v2.baseM * 2;
+final capS = _acceptS ? (baseU + v2.extraS) : 0;
+final capM = _acceptM ? ((baseU ~/ 2) + v2.extraM) : 0;
+final capL = _acceptL ? ((baseU ~/ 4) + v2.extraL) : 0;
+
 
     return ListView(
       children: [
@@ -828,79 +826,41 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
             ),
           ),
         ),
-        const SizedBox(height: 16),
+  const SizedBox(height: 16),
 
-        // 3) Capacità GENERALE che vuoi accettare per taglia
-        Text(
-          'Capacità GENERALE che vuoi effettivamente accettare',
-          style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 8),
+Text(
+  'Taglie che accetti nello spazio generale',
+  style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+),
+const SizedBox(height: 8),
 
-        TextFormField(
-          controller: _generalSCtrl,
-          decoration: InputDecoration(
-            labelText: 'Small (S) – spazio generale',
-            hintText: base.baseS.toString(),
-            helperText:
-                'Suggerito: ${base.baseS}. Metti 0 per non accettare S nello spazio generale.',
-          ),
-          keyboardType: TextInputType.number,
-          textInputAction: TextInputAction.next,
-          validator: (v) {
-            final n = _parseNonNegative(v);
-            if (n > base.baseS) {
-              return 'Non puoi superare il valore suggerito (${base.baseS})';
-            }
-            return null;
-          },
-          enabled: !_busy,
-          onChanged: (_) => setState(() {}),
-        ),
-        const SizedBox(height: 12),
+SwitchListTile.adaptive(
+  title: const Text('Accetto SMALL (S)'),
+  subtitle: Text('Capacità stimata: $capS'),
+  value: _acceptS,
+  onChanged: _busy ? null : (v) => setState(() => _acceptS = v),
+),
+SwitchListTile.adaptive(
+  title: const Text('Accetto MEDIUM (M)'),
+  subtitle: Text('Capacità stimata: $capM'),
+  value: _acceptM,
+  onChanged: _busy ? null : (v) => setState(() => _acceptM = v),
+),
+SwitchListTile.adaptive(
+  title: const Text('Accetto LARGE (L)'),
+  subtitle: Text('Capacità stimata: $capL'),
+  value: _acceptL,
+  onChanged: _busy ? null : (v) => setState(() => _acceptL = v),
+),
 
-        TextFormField(
-          controller: _generalMCtrl,
-          decoration: InputDecoration(
-            labelText: 'Medium (M) – spazio generale',
-            hintText: base.baseM.toString(),
-            helperText:
-                'Suggerito: ${base.baseM}. Metti 0 per non accettare M nello spazio generale.',
-          ),
-          keyboardType: TextInputType.number,
-          textInputAction: TextInputAction.next,
-          validator: (v) {
-            final n = _parseNonNegative(v);
-            if (n > base.baseM) {
-              return 'Non puoi superare il valore suggerito (${base.baseM})';
-            }
-            return null;
-          },
-          enabled: !_busy,
-          onChanged: (_) => setState(() {}),
-        ),
-        const SizedBox(height: 12),
-
-        TextFormField(
-          controller: _generalLCtrl,
-          decoration: InputDecoration(
-            labelText: 'Large (L) – spazio generale',
-            hintText: base.baseL.toString(),
-            helperText:
-                'Suggerito: ${base.baseL}. Metti 0 per non accettare L nello spazio generale.',
-          ),
-          keyboardType: TextInputType.number,
-          textInputAction: TextInputAction.next,
-          validator: (v) {
-            final n = _parseNonNegative(v);
-            if (n > base.baseL) {
-              return 'Non puoi superare il valore suggerito (${base.baseL})';
-            }
-            return null;
-          },
-          enabled: !_busy,
-          onChanged: (_) => setState(() {}),
-        ),
+if (!_hasAnySizeEnabled)
+  Padding(
+    padding: const EdgeInsets.only(top: 8),
+    child: Text(
+      'Devi attivare almeno una taglia.',
+      style: TextStyle(color: theme.colorScheme.error),
+    ),
+  ),
 
         const SizedBox(height: 20),
 
@@ -981,14 +941,9 @@ class _PartnerRegistrationScreenState extends State<PartnerRegistrationScreen> {
                   style: TextStyle(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 6),
-                Text('Small (S): ${caps.capS}'),
-                Text('Medium (M): ${caps.capM}'),
-                Text('Large (L): ${caps.capL}'),
-                const SizedBox(height: 4),
-                Text(
-                  'Totale: ${caps.total} bagagli',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
+Text('Small (S): $capS'),
+Text('Medium (M): $capM'),
+Text('Large (L): $capL'),
               ],
             ),
           ),

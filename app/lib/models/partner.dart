@@ -8,13 +8,34 @@ class Partner {
   final double? lng;
   final Map<String, dynamic>? openingHours;
 
-  /// Capacità totale (ridondante: somma di S+M+L, ma utile per compat e query veloci)
+  // ======================
+  // CAPACITÀ V2 (DB)
+  // base in "unità S" (u): 1S = 1u, 1M = 2u, 1L = 4u
+  // ======================
+  final int baseCapacityU;      // DB: base_capacity_u
+  final int extraCapacityS;     // DB: extra_capacity_s
+  final int extraCapacityM;     // DB: extra_capacity_m
+  final int extraCapacityL;     // DB: extra_capacity_l
+
+  final bool acceptS;           // DB: accept_s
+  final bool acceptM;           // DB: accept_m
+  final bool acceptL;           // DB: accept_l
+
+  // ======================
+  // LEGACY (tenuti per compatibilità, ma NON più usati come truth)
+  // ======================
+  @Deprecated('Legacy: non usare come source of truth. Usa V2.')
   final int capacity;
 
-  /// Nuove capacità per taglia
-  final int capacityS; // capacità bagagli SMALL
-  final int capacityM; // capacità bagagli MEDIUM
-  final int capacityL; // capacità bagagli LARGE
+  @Deprecated('Legacy: non usare come source of truth. Usa V2.')
+  final int capacityS;
+
+  @Deprecated('Legacy: non usare come source of truth. Usa V2.')
+  final int capacityM;
+
+  @Deprecated('Legacy: non usare come source of truth. Usa V2.')
+  final int capacityL;
+
 
   /// [LEGACY] Prezzo per 2h specifico del partner.
   /// Non viene più usato nella logica dell’app:
@@ -53,6 +74,16 @@ class Partner {
     this.lat,
     this.lng,
     this.openingHours,
+    // V2
+    this.baseCapacityU = 0,
+    this.extraCapacityS = 0,
+    this.extraCapacityM = 0,
+    this.extraCapacityL = 0,
+    this.acceptS = true,
+    this.acceptM = true,
+    this.acceptL = true,
+
+    // legacy (fallback)
     this.capacity = 0,
     this.capacityS = 0,
     this.capacityM = 0,
@@ -81,10 +112,29 @@ class Partner {
       lng: (map['lng'] as num?)?.toDouble(),
       openingHours: map['opening_hours'] as Map<String, dynamic>?,
 
+      // ====== V2 (preferiti) ======
+      baseCapacityU: (map['base_capacity_u'] as int?)
+          ?? _legacyToBaseU(
+            capS: (map['capacity_s'] as int?) ?? 0,
+            capM: (map['capacity_m'] as int?) ?? 0,
+            capL: (map['capacity_l'] as int?) ?? 0,
+            total: (map['capacity'] as int?) ?? 0,
+          ),
+
+      extraCapacityS: (map['extra_capacity_s'] as int?) ?? 0,
+      extraCapacityM: (map['extra_capacity_m'] as int?) ?? 0,
+      extraCapacityL: (map['extra_capacity_l'] as int?) ?? 0,
+
+      acceptS: (map['accept_s'] as bool?) ?? true,
+      acceptM: (map['accept_m'] as bool?) ?? true,
+      acceptL: (map['accept_l'] as bool?) ?? true,
+
+      // ====== LEGACY (solo per compat) ======
       capacity: (map['capacity'] as int?) ?? 0,
       capacityS: (map['capacity_s'] as int?) ?? 0,
       capacityM: (map['capacity_m'] as int?) ?? 0,
       capacityL: (map['capacity_l'] as int?) ?? 0,
+
       // Prezzi legacy per-partner: non più usati a livello di logica,
       // ma ancora letti per compatibilità con il DB esistente.
       price2h: (map['price_3h'] as num?)?.toDouble(),
@@ -114,10 +164,21 @@ class Partner {
       'lat': lat,
       'lng': lng,
       'opening_hours': openingHours,
+      // ===== V2 =====
+      'base_capacity_u': baseCapacityU,
+      'extra_capacity_s': extraCapacityS,
+      'extra_capacity_m': extraCapacityM,
+      'extra_capacity_l': extraCapacityL,
+      'accept_s': acceptS,
+      'accept_m': acceptM,
+      'accept_l': acceptL,
+
+      // ===== Legacy (solo se ti serve ancora, altrimenti puoi rimuoverli) =====
       'capacity': capacity,
       'capacity_s': capacityS,
       'capacity_m': capacityM,
       'capacity_l': capacityL,
+
          // Campi prezzo legacy: non più aggiornati dall'app,
       // ma ancora presenti nel modello finché le colonne esistono nel DB.
       'price_3h': price2h,
@@ -138,4 +199,49 @@ class Partner {
   bool get isPending => status == 'pending';
   bool get isApproved => status == 'approved' && isActive;
   bool get isRejected => status == 'rejected';
+
+
+    // -----------------------
+  // CAPACITÀ V2: computed
+  // -----------------------
+
+  /// Base in M (solo display/UI)
+  int get baseM => baseCapacityU ~/ 2;
+
+  /// Equivalenze base (solo UI)
+  int get baseS => baseCapacityU;          // 1S = 1u
+  int get baseL => baseCapacityU ~/ 4;     // 1L = 4u
+
+  /// Capacità effettive per taglia (quelle "vere" che devi mostrare)
+  int get capS => acceptS ? (baseCapacityU + extraCapacityS) : 0;
+  int get capM => acceptM ? ((baseCapacityU ~/ 2) + extraCapacityM) : 0;
+  int get capL => acceptL ? ((baseCapacityU ~/ 4) + extraCapacityL) : 0;
+
+  /// Totale "reale" in unità S (u): S*1 + M*2 + L*4
+  int get totalU => (capS * 1) + (capM * 2) + (capL * 4);
+
+  /// Per UI: almeno una taglia attiva
+  bool get hasAnySizeEnabled => acceptS || acceptM || acceptL;
+
+  // fallback: se DB non ha v2, proviamo a derivare una base decente dai legacy.
+  static int _legacyToBaseU({
+    required int capS,
+    required int capM,
+    required int capL,
+    required int total,
+  }) {
+    // Se ho capM legacy, lo uso come base M "approssimata" (1M=2u)
+    if (capM > 0) return capM * 2;
+
+    // Se ho capS, lo uso come base_u diretta
+    if (capS > 0) return capS;
+
+    // Se ho capL, lo converto
+    if (capL > 0) return capL * 4;
+
+    // Ultimo fallback
+    if (total > 0) return total * 2; // approssimazione "alla buona"
+    return 0;
+  }
+
 }

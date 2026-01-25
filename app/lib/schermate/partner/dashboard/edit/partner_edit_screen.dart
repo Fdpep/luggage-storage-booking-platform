@@ -45,10 +45,16 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
   final _phoneCtrl = TextEditingController();
   final _rulesCtrl = TextEditingController();
 
-  // Capacità per taglia
-  final _capacitySCtrl = TextEditingController();
-  final _capacityMCtrl = TextEditingController();
-  final _capacityLCtrl = TextEditingController();
+  // Capacità V2
+  final _baseMCtrl = TextEditingController(text: '10');
+  final _extraSCtrl = TextEditingController(text: '0');
+  final _extraMCtrl = TextEditingController(text: '0');
+  final _extraLCtrl = TextEditingController(text: '0');
+
+  bool _acceptS = true;
+  bool _acceptM = true;
+  bool _acceptL = true;
+
 
   Map<String, dynamic>? _openingHoursStructured;
   Map<String, dynamic>? _openingExceptions;
@@ -138,9 +144,10 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
     _descCtrl.dispose();
     _phoneCtrl.dispose();
     _rulesCtrl.dispose();
-    _capacitySCtrl.dispose();
-    _capacityMCtrl.dispose();
-    _capacityLCtrl.dispose();
+    _baseMCtrl.dispose();
+    _extraSCtrl.dispose();
+    _extraMCtrl.dispose();
+    _extraLCtrl.dispose();
     super.dispose();
   }
 
@@ -174,18 +181,16 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
       _phoneCtrl.text = partner.phone ?? '';
       _rulesCtrl.text = partner.rules ?? '';
 
-      // Capacità S/M/L con fallback su capacity totale
-      int capS = partner.capacityS;
-      int capM = partner.capacityM;
-      int capL = partner.capacityL;
+      // Capacità V2
+      _baseMCtrl.text = partner.baseM.toString();
+      _extraSCtrl.text = partner.extraCapacityS.toString();
+      _extraMCtrl.text = partner.extraCapacityM.toString();
+      _extraLCtrl.text = partner.extraCapacityL.toString();
 
-      if (capS == 0 && capM == 0 && capL == 0 && partner.capacity > 0) {
-        capM = partner.capacity;
-      }
+      _acceptS = partner.acceptS;
+      _acceptM = partner.acceptM;
+      _acceptL = partner.acceptL;
 
-      _capacitySCtrl.text = capS.toString();
-      _capacityMCtrl.text = capM.toString();
-      _capacityLCtrl.text = capL.toString();
 
       // Orari di apertura settimanali (weekly)
       _openingHoursStructured = _normalizeOpeningWeekly(partner.openingHours);
@@ -231,30 +236,28 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
     if (_partner == null) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    final sText = _capacitySCtrl.text.trim();
-    final mText = _capacityMCtrl.text.trim();
-    final lText = _capacityLCtrl.text.trim();
+    int nn(String s) => (int.tryParse(s.trim()) ?? 0).clamp(0, 1000000);
 
-    final capS = int.tryParse(sText) ?? 0;
-    final capM = int.tryParse(mText) ?? 0;
-    final capL = int.tryParse(lText) ?? 0;
+    final baseM = nn(_baseMCtrl.text);
+    final extraS = nn(_extraSCtrl.text);
+    final extraM = nn(_extraMCtrl.text);
+    final extraL = nn(_extraLCtrl.text);
 
-    if (capS < 0 || capM < 0 || capL < 0) {
+    if (baseM <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Le capacità devono essere numeri ≥ 0.')),
+        const SnackBar(content: Text('Inserisci almeno 1 bagaglio M nello spazio generale.')),
+      );
+      return;
+    }
+    if (!_acceptS && !_acceptM && !_acceptL) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Seleziona almeno una taglia (S/M/L).')),
       );
       return;
     }
 
-    final totalCapacity = capS + capM + capL;
-    if (totalCapacity <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Imposta almeno 1 posto totale tra S / M / L.'),
-        ),
-      );
-      return;
-    }
+    final baseCapacityU = baseM * 2;
+
 
     // Orari di apertura settimanali (weekly_v1)
     Map<String, dynamic>? openingHours;
@@ -276,10 +279,13 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
         partnerId: _partner!.id,
         name: _nameCtrl.text.trim(),
         address: _addressCtrl.text.trim(),
-        capacity: canEditCapacityAndHours ? totalCapacity : null,
-        capacityS: canEditCapacityAndHours ? capS : null,
-        capacityM: canEditCapacityAndHours ? capM : null,
-        capacityL: canEditCapacityAndHours ? capL : null,
+        baseCapacityU: canEditCapacityAndHours ? baseCapacityU : null,
+        extraCapacityS: canEditCapacityAndHours ? extraS : null,
+        extraCapacityM: canEditCapacityAndHours ? extraM : null,
+        extraCapacityL: canEditCapacityAndHours ? extraL : null,
+        acceptS: canEditCapacityAndHours ? _acceptS : null,
+        acceptM: canEditCapacityAndHours ? _acceptM : null,
+        acceptL: canEditCapacityAndHours ? _acceptL : null,
         isActive: _isActive,
         description: _descCtrl.text.trim().isEmpty
             ? null
@@ -531,35 +537,147 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                 title: 'Capacità massima per taglia',
                 subtitle: 'Quanti bagagli puoi gestire contemporaneamente',
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    const Text(
+                      'Spazio generale (bagagli M)',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 8),
                     TextFormField(
-                      controller: _capacitySCtrl,
+                      controller: _baseMCtrl,
                       decoration: const InputDecoration(
-                        labelText: 'Bagagli SMALL (S)',
+                        labelText: 'Base M',
+                        hintText: 'Es. 10',
                         border: OutlineInputBorder(),
                       ),
                       keyboardType: TextInputType.number,
                       enabled: !_hasFutureBookings,
                     ),
-                    const SizedBox(height: 10),
-                    TextFormField(
-                      controller: _capacityMCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Bagagli MEDIUM (M)',
-                        border: OutlineInputBorder(),
-                      ),
-                      keyboardType: TextInputType.number,
-                      enabled: !_hasFutureBookings,
+                    const SizedBox(height: 12),
+
+                    const Text(
+                      'Extra dedicati (opzionale)',
+                      style: TextStyle(fontWeight: FontWeight.w800),
                     ),
-                    const SizedBox(height: 10),
-                    TextFormField(
-                      controller: _capacityLCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Bagagli LARGE (L)',
-                        border: OutlineInputBorder(),
-                      ),
-                      keyboardType: TextInputType.number,
-                      enabled: !_hasFutureBookings,
+                    const SizedBox(height: 8),
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _extraSCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Extra S',
+                              border: OutlineInputBorder(),
+                            ),
+                            keyboardType: TextInputType.number,
+                            enabled: !_hasFutureBookings && _acceptS,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _extraMCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Extra M',
+                              border: OutlineInputBorder(),
+                            ),
+                            keyboardType: TextInputType.number,
+                            enabled: !_hasFutureBookings && _acceptM,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _extraLCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Extra L',
+                              border: OutlineInputBorder(),
+                            ),
+                            keyboardType: TextInputType.number,
+                            enabled: !_hasFutureBookings && _acceptL,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    const Text(
+                      'Accetto queste taglie',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 6),
+
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 6,
+                      children: [
+                        FilterChip(
+                          label: const Text('S'),
+                          selected: _acceptS,
+                          onSelected: _hasFutureBookings
+                              ? null
+                              : (v) => setState(() {
+                                    _acceptS = v;
+                                    if (!v) _extraSCtrl.text = '0';
+                                  }),
+                        ),
+                        FilterChip(
+                          label: const Text('M'),
+                          selected: _acceptM,
+                          onSelected: _hasFutureBookings
+                              ? null
+                              : (v) => setState(() {
+                                    _acceptM = v;
+                                    if (!v) _extraMCtrl.text = '0';
+                                  }),
+                        ),
+                        FilterChip(
+                          label: const Text('L'),
+                          selected: _acceptL,
+                          onSelected: _hasFutureBookings
+                              ? null
+                              : (v) => setState(() {
+                                    _acceptL = v;
+                                    if (!v) _extraLCtrl.text = '0';
+                                  }),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    // Riepilogo calcolato “vero”
+                    Builder(
+                      builder: (_) {
+                        int nn(String s) => (int.tryParse(s.trim()) ?? 0).clamp(0, 1000000);
+                        final baseM = nn(_baseMCtrl.text);
+                        final baseU = baseM * 2;
+                        final exS = nn(_extraSCtrl.text);
+                        final exM = nn(_extraMCtrl.text);
+                        final exL = nn(_extraLCtrl.text);
+
+                        final capS = _acceptS ? (baseU + exS) : 0;
+                        final capM = _acceptM ? ((baseU ~/ 2) + exM) : 0;
+                        final capL = _acceptL ? ((baseU ~/ 4) + exL) : 0;
+                        final totalU = (capS * 1) + (capM * 2) + (capL * 4);
+
+                        return Container(
+                          margin: const EdgeInsets.only(top: 8),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.6)),
+                            color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.35),
+                          ),
+                          child: Text(
+                            'Riepilogo: S $capS • M $capM • L $capL   (Totale: ${totalU}u)',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        );
+                      },
                     ),
                   ],
                 ),

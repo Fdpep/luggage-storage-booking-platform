@@ -512,63 +512,6 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
 
               const SizedBox(height: 12),
 
-              // Capacità (chip moderni)
-              _SectionCard(
-                icon: Icons.inventory_2_outlined,
-                title: 'Capacità e disponibilità',
-                child: Builder(
-                  builder: (context) {
-                    final capS = partner.capacityS;
-                    final capM = partner.capacityM;
-                    final capL = partner.capacityL;
-
-                    final totalFromSizes = capS + capM + capL;
-                    final effectiveTotal = totalFromSizes > 0
-                        ? totalFromSizes
-                        : partner.capacity;
-
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Riga 1: totale
-                        _InfoChip(
-                          icon: Icons.luggage_outlined,
-                          label: 'Bagagli disponibili: $effectiveTotal',
-                        ),
-
-                        // Riga 2: taglie (solo se presenti)
-                        if (totalFromSizes > 0) ...[
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
-                            children: [
-                              if (capS > 0)
-                                _InfoChip(
-                                  icon: Icons.circle_outlined,
-                                  label: 'S: $capS',
-                                ),
-                              if (capM > 0)
-                                _InfoChip(
-                                  icon: Icons.circle_outlined,
-                                  label: 'M: $capM',
-                                ),
-                              if (capL > 0)
-                                _InfoChip(
-                                  icon: Icons.circle_outlined,
-                                  label: 'L: $capL',
-                                ),
-                            ],
-                          ),
-                        ],
-                      ],
-                    );
-                  },
-                ),
-              ),
-
-              const SizedBox(height: 12),
-
               // Contatti
               _SectionCard(
                 icon: Icons.call_outlined,

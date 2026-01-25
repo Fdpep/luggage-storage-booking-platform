@@ -47,24 +47,39 @@ class PartnerRepo {
     required String partnerId,
     String? name,
     String? address,
-    int? capacity,
-    int? capacityS,
-    int? capacityM,
-    int? capacityL,
+
+    // ===== V2 =====
+    int? baseCapacityU,
+    int? extraCapacityS,
+    int? extraCapacityM,
+    int? extraCapacityL,
+    bool? acceptS,
+    bool? acceptM,
+    bool? acceptL,
+
     bool? isActive,
+    bool? acceptingBookings,
     String? description,
     String? phone,
     String? rules,
     Map<String, dynamic>? openingHours,
   }) async {
+
     final patch = <String, dynamic>{};
     if (name != null) patch['name'] = name;
     if (address != null) patch['address'] = address;
-    if (capacity != null) patch['capacity'] = capacity;
-    if (capacityS != null) patch['capacity_s'] = capacityS;
-    if (capacityM != null) patch['capacity_m'] = capacityM;
-    if (capacityL != null) patch['capacity_l'] = capacityL;
+    // ===== V2 writes =====
+    if (baseCapacityU != null) patch['base_capacity_u'] = baseCapacityU;
+    if (extraCapacityS != null) patch['extra_capacity_s'] = extraCapacityS;
+    if (extraCapacityM != null) patch['extra_capacity_m'] = extraCapacityM;
+    if (extraCapacityL != null) patch['extra_capacity_l'] = extraCapacityL;
+    if (acceptS != null) patch['accept_s'] = acceptS;
+    if (acceptM != null) patch['accept_m'] = acceptM;
+    if (acceptL != null) patch['accept_l'] = acceptL;
+
     if (isActive != null) patch['is_active'] = isActive;
+    if (acceptingBookings != null) patch['accepting_bookings'] = acceptingBookings;
+
     if (description != null) patch['description'] = description;
     if (phone != null) patch['phone'] = phone;
     if (rules != null) patch['rules'] = rules;
@@ -96,22 +111,40 @@ class PartnerRepo {
     required String userId,
     required String name,
     required String address,
-    int? capacity, // totale (fallback / compatibilità)
-    int? capacityS,
-    int? capacityM,
-    int? capacityL,
+
+    // V2 inputs (come wizard web)
+    required int baseM,
+    int extraS = 0,
+    int extraM = 0,
+    int extraL = 0,
+    bool acceptS = true,
+    bool acceptM = true,
+    bool acceptL = true,
+
     String? message,
     double? lat,
     double? lng,
     Map<String, dynamic>? openingHours,
   }) async {
-    // Normalizziamo le capacità per taglia
-    final capS = capacityS ?? 0;
-    final capM = capacityM ?? 0;
-    final capL = capacityL ?? 0;
 
-    // Se non viene passato "capacity", usiamo la somma
-    final totalCapacity = capacity ?? (capS + capM + capL);
+    // ======================
+    // CAPACITÀ V2
+    // base in unità S (u): 1M=2u, 1L=4u
+    // ======================
+    int nnInt(int v) => v < 0 ? 0 : v;
+
+    final baseCapacityU = nnInt(baseM) * 2;
+    final exS = nnInt(extraS);
+    final exM = nnInt(extraM);
+    final exL = nnInt(extraL);
+
+    if (baseCapacityU <= 0) {
+      throw Exception('Capacità base non valida (minimo 1 bagaglio M).');
+    }
+    if (!acceptS && !acceptM && !acceptL) {
+      throw const AuthException('Devi accettare almeno una taglia (S/M/L).');
+    }
+
 
     // 1) Verifico se esiste già un partner per questo user
     final existing = await _client
@@ -124,10 +157,13 @@ class PartnerRepo {
       'owner_id': userId,
       'name': name,
       'address': address,
-      'capacity': totalCapacity,
-      'capacity_s': capS,
-      'capacity_m': capM,
-      'capacity_l': capL,
+      'base_capacity_u': baseCapacityU,
+      'extra_capacity_s': exS,
+      'extra_capacity_m': exM,
+      'extra_capacity_l': exL,
+      'accept_s': acceptS,
+      'accept_m': acceptM,
+      'accept_l': acceptL,
       // 'price_3h' e 'price_per_day' non vengono più impostati.
       'lat': lat,
       'lng': lng,
