@@ -135,12 +135,6 @@ class PartnerDrawer extends StatelessWidget {
                           bg: Colors.white.withOpacity(0.16),
                           fg: Colors.white,
                         ),
-                        _PillInfo(
-                          icon: Icons.inventory_2_outlined,
-                          label: '${p.capacity} posti',
-                          bg: Colors.white.withOpacity(0.16),
-                          fg: Colors.white,
-                        ),
                       ],
                     ),
                   ],

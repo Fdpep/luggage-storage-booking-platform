@@ -91,7 +91,9 @@ Future<void> _openContract(String path) async {
             await _supabase
                     .from('partners')
                     .select(
-                      'id,name,address,capacity,price_3h,price_per_day,status,is_active,reject_reason,created_at,updated_at,owner_id,lat,lng,opening_hours',
+                      'id,name,address,status,is_active,reject_reason,created_at,updated_at,owner_id,lat,lng,opening_hours,'
+                      'base_capacity_u,extra_capacity_s,extra_capacity_m,extra_capacity_l,'
+                      'accept_s,accept_m,accept_l',
                     )
                     .inFilter('id', partnerIds)
                 as List<dynamic>;
@@ -240,7 +242,17 @@ Future<void> _rejectRequest({
                   final shortId = r.id.substring(0, 8);
                   final name = p?.name ?? 'Attività senza nome';
                   final address = p?.address ?? 'Indirizzo non specificato';
-                  final capacity = p?.capacity ?? 0;
+                  final baseU = p?.baseCapacityU ?? 0;
+                  final baseM = baseU ~/ 2;
+                  final baseS = baseU;
+                  final baseL = baseU ~/ 4;
+                  final exS = p?.extraCapacityS ?? 0;
+                  final exM = p?.extraCapacityM ?? 0;
+                  final exL = p?.extraCapacityL ?? 0;
+
+                  final canS = p?.acceptS ?? true;
+                  final canM = p?.acceptM ?? true;
+                  final canL = p?.acceptL ?? true;
                   final contractPath = r.contractSignedUrl;
                   final canApproveDocs = r.status == 'submitted';
 
@@ -248,7 +260,9 @@ Future<void> _rejectRequest({
                     shortId: shortId,
                     name: name,
                     address: address,
-                    capacity: capacity,
+                    capacityLabel: 'Capacità base: ${baseM}M (=${baseS}S / ~${baseL}L)'
+                        ' • Extra: '
+                        '${canS ? '${exS}S' : '0S'} / ${canM ? '${exM}M' : '0M'} / ${canL ? '${exL}L' : '0L'}',
                     note: r.message,
                     createdAt: r.createdAt,
                     onApprove: canApproveDocs ? () => _approveDocs(r) : null,
@@ -309,7 +323,7 @@ class _AdminRequestCard extends StatelessWidget {
   final String shortId;
   final String name;
   final String address;
-  final int capacity;
+  final String capacityLabel;
 
   final String? note;
   final DateTime? createdAt;
@@ -324,7 +338,7 @@ class _AdminRequestCard extends StatelessWidget {
     required this.shortId,
     required this.name,
     required this.address,
-    required this.capacity,
+    required this.capacityLabel,
     required this.note,
     required this.createdAt,
     required this.onApprove,
@@ -439,7 +453,7 @@ class _AdminRequestCard extends StatelessWidget {
               runSpacing: 4,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Text('Capacità: $capacity', style: textTheme.bodySmall),
+                Text(capacityLabel, style: textTheme.bodySmall),
                 Text(
                   'Tariffe: listino BagDrop',
                   style: textTheme.bodySmall?.copyWith(

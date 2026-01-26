@@ -440,14 +440,6 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
                         balanceCents > 0 ? 'Da pagare' : 'Saldo',
                         _euroCents(balanceCents.abs()),
                       ),
-                      const SizedBox(height: 10),
-                      Text(
-                        'Nota: il sovrapprezzo (se ritiro in ritardo) viene calcolato a fine deposito.',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: cs.onSurface.withOpacity(0.6),
-                        ),
-                      ),
                     ],
                   ],
                 ],

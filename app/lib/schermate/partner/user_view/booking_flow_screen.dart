@@ -752,26 +752,20 @@ final endTimeForApi = _effectiveEndTime ?? _endTime!;
     setState(() => _step -= 1);
   }
 
-  Future<void> _recordBasePayment({
-    required String bookingId,
-    required int amountCents,
-  }) async {
-    final sb = Supabase.instance.client;
+Future<void> _recordBasePayment({
+  required String bookingId,
+  required int amountCents,
+}) async {
+  final sb = Supabase.instance.client;
 
-    // 1) riga pagamenti (base)
-    await sb.from('booking_payments').insert({
-      'booking_id': bookingId,
-      'kind': 'base',
-      'amount_cents': amountCents,
-      'paid_at': DateTime.now().toUtc().toIso8601String(),
-    });
-
-    // 2) cache sul booking (utile per UI/partner)
-    await sb
-        .from('partner_bookings')
-        .update({'total_paid_cents': amountCents})
-        .eq('id', bookingId);
-  }
+  await sb.from('booking_payments').insert({
+    'booking_id': bookingId,
+    'kind': 'base',
+    'amount_cents': amountCents,
+    // lascia paid_at al DEFAULT now() del DB (meno casini timezone)
+    'payment_reference': 'mock',
+  });
+}
 
   Future<void> _confirmBooking() async {
     // TODO(PAYMENTS - Stripe):
@@ -985,7 +979,7 @@ if (!availability.acceptL && _bagsL > 0) {
         }
       }
 
-      if (availability.capacityTotal > 0 && availability.availableTotal > 0) {
+      if (availability.capacityTotal > 0) {
         if (requestedUnits2x > availability.availableTotal) {
           final availableHuman = availability.availableTotal / 2.0;
           final requestedHuman = requestedUnits2x / 2.0;
@@ -1876,7 +1870,7 @@ if (av != null) {
       }
 
       // 🔹 Limite sullo spazio TOTALE equivalente (stessa unità del repo: mezze-M)
-      if (av.capacityTotal > 0 && av.availableTotal > 0) {
+      if (av.capacityTotal > 0) {
         final units2x = _equivalentUnits2x(s: newS, m: newM, l: newL);
         if (units2x > av.availableTotal) {
           _showAvailabilitySnack(

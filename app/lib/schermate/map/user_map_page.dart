@@ -894,23 +894,7 @@ class _PartnerBottomCardState extends State<_PartnerBottomCard> {
                 Row(
                   children: [
                     // Icona + testo capacità → flessibile
-                    Expanded(
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.luggage, size: 18, color: cs.primary),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              'Capacità: ${partner.capacity}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: textTheme.bodySmall,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+
 
                     const SizedBox(width: 12),
 

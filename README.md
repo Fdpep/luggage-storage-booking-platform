@@ -56,10 +56,13 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
     * source of truth dal partner: `base_capacity_u` + `extra_capacity_s/m/l` + `accept_s/m/l`
     * logica unità equivalenti: **1 S = 1u • 1 M = 2u • 1 L = 4u**
     * per una richiesta (S/M/L) calcoliamo `need_u = S*1 + M*2 + L*4`
+    * regola di consumo (V2):
+      * **prima** vengono consumati gli **extra dedicati** (`extra_capacity_*`) per la rispettiva taglia
+      * **poi** l’eventuale eccedenza consuma lo **spazio generale** (`base_capacity_u`) in unità
     * la disponibilità viene verificata:
       * per taglia (rispettando `accept_*`)
-      * e sullo **spazio generale** (`base_capacity_u`) consumato dalle prenotazioni sovrapposte
-    * la creazione prenotazione salva anche l’allocazione (quanto viene preso da base vs extra dedicati)
+      * e sul totale (`availableTotal`) calcolato in unità equivalenti sull’intervallo
+
 
 
 * **Step “Bagagli” con barra dinamica di capacità**:
@@ -75,8 +78,8 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
       * messaggio in rosso se la selezione supera la capacità
   * il numero di bagagli S/M/L è limitato in tempo reale:
 
-    * per taglia (non puoi superare `availableS/M/L`)
-    * per spazio totale (non puoi superare `availableTotal`)
+    * per taglia (non puoi superare `availableS/M/L` calcolati con regola extra-first)
+    * per spazio totale (non puoi superare `availableTotal` in unità equivalenti)
 
 * **Schermata “Le mie prenotazioni”**:
 
@@ -117,9 +120,11 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
 
 > N.B.: esiste un **motore di disponibilità per intervallo “base”**:
 >
-> * controlla sovrapposizioni tra intervallo richiesto e prenotazioni `pending/confirmed`
+> * controlla sovrapposizioni tra intervallo richiesto e prenotazioni `pending/confirmed/in_store`
 > * usa come source of truth: `base_capacity_u` + `extra_capacity_s/m/l` + `accept_s/m/l`
->   Non è ancora presente un sistema di scheduling avanzato (slot generati automaticamente, regole complesse per “alto carico”, ecc.) né il pagamento online.
+> * regola extra-first: prima extra dedicati, poi base in unità equivalenti
+>   Non è ancora presente un enforcement atomico lato DB (RPC/trigger), né scheduling avanzato (slot generati automaticamente, regole complesse per “alto carico”, ecc.) né pagamento online.
+
 
 ---
 
@@ -996,10 +1001,12 @@ NOTA BENE : partner signup , registration ed application sono deprecate. Ora si 
       * calcola la richiesta utente in unità equivalenti:
         * `need_u = S*1 + M*2 + L*4`
       * considera le prenotazioni `pending/confirmed` che **si sovrappongono** all’intervallo
-      * calcola quanto spazio **base** e **extra** è già consumato nell’intervallo
+      * calcola consumo su intervallo con regola **extra-first**
+        (prima extra dedicati per taglia, poi base in unità)
       * restituisce:
-        * `availableS/M/L` (per taglia, rispettando accept + extra)
-        * `availableTotal` (sulla base condivisa in unità equivalenti)
+        * `availableS/M/L` (extra rimasti + base residuo convertito)
+        * `availableTotal` (totale disponibile in unità equivalenti sull’intervallo)
+
 
 
   * **Step bagagli**:
@@ -1173,11 +1180,15 @@ NOTA BENE : partner signup , registration ed application sono deprecate. Ora si 
   * `getPartnerAvailability(String partnerId)`:
 
     * disponibilità “grezza” complessiva del partner (ignorando data/orario)
-    * usa:
+    * source of truth V2:
+      * `base_capacity_u`, `extra_capacity_s/m/l`, `accept_s/m/l`
+    * fallback legacy (solo se V2 mancante):
+      * deriva `base_capacity_u` da `capacity_m/s/l` o `capacity` (compatibilità dati vecchi)
+    * regola extra-first:
+      * prima consuma extra dedicati per taglia, poi base in unità (u)
+    * considera prenotazioni attive:
+      * `status in ('pending','confirmed','in_store')`
 
-      * `capacity_s`, `capacity_m`, `capacity_l`, `capacity`
-      * totale in **unità equivalenti**: `1 S = 1`, `1 M = 2`, `1 L = 4`
-    * considera tutte le prenotazioni **non cancellate** (`status != 'cancelled'`)
 
   * `getPartnerAvailabilityForInterval({...})`:
 
@@ -1188,9 +1199,11 @@ NOTA BENE : partner signup , registration ed application sono deprecate. Ora si 
     * considera:
 
       * solo prenotazioni per quel partner
-      * solo `status in ('pending', 'confirmed')`
+      * solo `status in ('pending', 'confirmed', 'in_store')`
       * solo prenotazioni che **si sovrappongono** all’intervallo richiesto
-    * restituisce:
+    * regola extra-first:
+      * prima consuma extra dedicati per taglia, poi base in unità
+    * restituisce: 
 
       * capacità per taglia S/M/L
       * `capacityTotal` in unità equivalenti
@@ -1387,7 +1400,10 @@ Il flusso prenotazione deve essere **riprendibile in qualsiasi stato**:
 * ✔ **Wizard capacità partner (modello M → S/L + extra)**:
 
   * step dedicato “Capacità”
-  * salvataggio capacità S/M/L + totale
+  * salvataggio source of truth V2:
+    * `base_capacity_u` (da input M convertito in unità)
+    * `extra_capacity_s/m/l`
+    * `accept_s/m/l`
   * integrazione con motore di disponibilità per intervallo
 
 ---

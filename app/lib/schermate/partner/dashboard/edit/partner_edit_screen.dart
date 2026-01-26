@@ -649,32 +649,70 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
 
                     const SizedBox(height: 14),
 
-                    // Riepilogo calcolato “vero”
+                    // Riepilogo calcolato (modello capacità V2 reale)
                     Builder(
                       builder: (_) {
                         int nn(String s) => (int.tryParse(s.trim()) ?? 0).clamp(0, 1000000);
+
                         final baseM = nn(_baseMCtrl.text);
                         final baseU = baseM * 2;
+
                         final exS = nn(_extraSCtrl.text);
                         final exM = nn(_extraMCtrl.text);
                         final exL = nn(_extraLCtrl.text);
 
-                        final capS = _acceptS ? (baseU + exS) : 0;
-                        final capM = _acceptM ? ((baseU ~/ 2) + exM) : 0;
-                        final capL = _acceptL ? ((baseU ~/ 4) + exL) : 0;
-                        final totalU = (capS * 1) + (capM * 2) + (capL * 4);
+                        // Capacità massime MOSTRABILI per taglia (extra + base convertito)
+                        final maxS = _acceptS ? (exS + baseU) : 0;
+                        final maxM = _acceptM ? (exM + (baseU ~/ 2)) : 0;
+                        final maxL = _acceptL ? (exL + (baseU ~/ 4)) : 0;
+
+                        // Totale in unità (solo informativo)
+                        final totalU =
+                            baseU + (exS * 1) + (exM * 2) + (exL * 4);
 
                         return Container(
                           margin: const EdgeInsets.only(top: 8),
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.6)),
-                            color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.35),
+                            border: Border.all(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .outlineVariant
+                                  .withOpacity(0.6),
+                            ),
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest
+                                .withOpacity(0.35),
                           ),
-                          child: Text(
-                            'Riepilogo: S $capS • M $capM • L $capL   (Totale: ${totalU}u)',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Riepilogo capacità',
+                                style: TextStyle(fontWeight: FontWeight.w800),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                '• Spazio generale: $baseM bagagli M',
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                              if (_acceptS)
+                                Text('• Extra S dedicati: $exS'),
+                              if (_acceptM)
+                                Text('• Extra M dedicati: $exM'),
+                              if (_acceptL)
+                                Text('• Extra L dedicati: $exL'),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Capacità massima utilizzabile:',
+                                style: const TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                              Text(
+                                'S $maxS  •  M $maxM  •  L $maxL',
+                              ),
+                            ],
                           ),
                         );
                       },

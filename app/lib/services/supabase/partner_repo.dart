@@ -188,7 +188,7 @@ class PartnerRepo {
       await _client.from('partner_requests').insert({
         'partner_id': partnerId,
         'user_id': userId,
-        'status': 'pending',
+        'status': 'submitted',
         'message': message,
         'created_at': DateTime.now().toIso8601String(),
       });
@@ -201,7 +201,7 @@ class PartnerRepo {
       await _client.from('partner_requests').insert({
         'partner_id': partnerId,
         'user_id': userId,
-        'status': 'pending',
+        'status': 'submitted',
         'message': message,
         'created_at': DateTime.now().toIso8601String(),
       });

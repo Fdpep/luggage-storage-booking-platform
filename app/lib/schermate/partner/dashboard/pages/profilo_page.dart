@@ -56,40 +56,6 @@ class ProfiloPage extends StatelessWidget {
           ),
           const SizedBox(height: 18),
 
-          _SectionTitle(
-            title: 'Scheda locale',
-            subtitle: 'Visibilità e prenotazioni',
-          ),
-          const SizedBox(height: 10),
-
-          if (partner == null)
-            _Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Icon(Icons.storefront_outlined, color: cs.outline),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Nessuna attività registrata.',
-                        style: tt.bodyMedium?.copyWith(
-                          color: cs.onSurface.withOpacity(0.75),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          else
-            _PartnerSummaryCard(
-              partner: partner!,
-              onPartnerChanged: onPartnerChanged,
-            ),
-
-          const SizedBox(height: 18),
-
           _SectionTitle(title: 'Gestione', subtitle: 'Modifica e contenuti'),
           const SizedBox(height: 10),
 
@@ -234,52 +200,6 @@ class _PartnerSummaryCard extends StatelessWidget {
               icon: Icons.visibility_outlined,
               label: 'Visibilità su mappa',
               value: partner.isActive ? 'Visibile' : 'Nascosto / sospeso',
-            ),
-
-            const SizedBox(height: 10),
-
-            // Switch prenotazioni dentro la card (più chiaro)
-            Container(
-              decoration: BoxDecoration(
-                color: cs.surfaceContainerHighest.withOpacity(0.45),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: SwitchListTile.adaptive(
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 4,
-                ),
-                title: const Text('Accetto prenotazioni'),
-                subtitle: const Text(
-                  'Se disattivi, il locale resta visibile ma non prenotabile.',
-                ),
-                value: partner.acceptingBookings,
-                onChanged: (v) async {
-                  try {
-                    final repo = PartnerRepo(Supabase.instance.client);
-                    await repo.setAcceptingBookings(
-                      partnerId: partner.id,
-                      accepting: v,
-                    );
-
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          v ? 'Prenotazioni attivate' : 'Prenotazioni sospese',
-                        ),
-                      ),
-                    );
-
-                    onPartnerChanged();
-                  } catch (e) {
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Errore: ${e.toString()}')),
-                    );
-                  }
-                },
-              ),
             ),
           ],
         ),

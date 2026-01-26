@@ -1,6 +1,100 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:BagDrop/models/partner_booking.dart';
 
+
+
+int _clamp0(int v) => v < 0 ? 0 : v;
+
+/// Fallback per derivare una base_u se nel DB non c'è ancora base_capacity_u.
+/// 1S = 1u, 1M = 2u, 1L = 4u.
+int _legacyToBaseU({
+  required int capS,
+  required int capM,
+  required int capL,
+  required int totalM,
+}) {
+  if (capM > 0) return capM * 2;
+  if (capS > 0) return capS;
+  if (capL > 0) return capL * 4;
+  if (totalM > 0) return totalM * 2;
+  return 0;
+}
+
+/// Calcola usato/available con regola:
+/// - prima consumi extra (per taglia)
+/// - poi consumi base_capacity_u in unità (1S=1u,1M=2u,1L=4u)
+PartnerAvailability _computeAvailabilityV2({
+  required int baseU,
+  required int extraS,
+  required int extraM,
+  required int extraL,
+  required bool acceptS,
+  required bool acceptM,
+  required bool acceptL,
+  required int usedS,
+  required int usedM,
+  required int usedL,
+}) {
+  // Se una taglia non è accettata, gli extra per quella taglia non contano
+  final exS = acceptS ? _clamp0(extraS) : 0;
+  final exM = acceptM ? _clamp0(extraM) : 0;
+  final exL = acceptL ? _clamp0(extraL) : 0;
+
+  final bU = _clamp0(baseU);
+
+  // Extra consumati per taglia
+  final usedExtraS = (acceptS) ? (usedS <= exS ? usedS : exS) : 0;
+  final usedExtraM = (acceptM) ? (usedM <= exM ? usedM : exM) : 0;
+  final usedExtraL = (acceptL) ? (usedL <= exL ? usedL : exL) : 0;
+
+  // Parte che “sfora” sugli extra -> va in base
+  final remS = acceptS ? _clamp0(usedS - usedExtraS) : 0; // in unità S
+  final remM = acceptM ? _clamp0(usedM - usedExtraM) : 0; // in bagagli M
+  final remL = acceptL ? _clamp0(usedL - usedExtraL) : 0; // in bagagli L
+
+  final baseUsedU = remS * 1 + remM * 2 + remL * 4;
+  final baseAvailableU = _clamp0(bU - baseUsedU);
+
+  // Extra rimasti
+  final extraRemainingS = _clamp0(exS - usedExtraS);
+  final extraRemainingM = _clamp0(exM - usedExtraM);
+  final extraRemainingL = _clamp0(exL - usedExtraL);
+
+  // Capacità "massima mostrabile" per taglia (extra + tutto il base residuo convertito)
+  final capS = acceptS ? (exS + bU) : 0;           // S può usare 1u ciascuno
+  final capM = acceptM ? (exM + (bU ~/ 2)) : 0;    // M usa 2u
+  final capL = acceptL ? (exL + (bU ~/ 4)) : 0;    // L usa 4u
+
+  // Disponibili per taglia = extra rimasti + base residuo convertito
+  final availableS = acceptS ? (extraRemainingS + baseAvailableU) : 0;
+  final availableM = acceptM ? (extraRemainingM + (baseAvailableU ~/ 2)) : 0;
+  final availableL = acceptL ? (extraRemainingL + (baseAvailableU ~/ 4)) : 0;
+
+  // Totali in unità (per barra/controllo generale)
+  final capacityTotalU = bU + (exS * 1) + (exM * 2) + (exL * 4);
+  final usedTotalU = baseUsedU + (usedExtraS * 1) + (usedExtraM * 2) + (usedExtraL * 4);
+  final availableTotalU = _clamp0(capacityTotalU - usedTotalU);
+
+  return PartnerAvailability(
+    capacityS: capS,
+    capacityM: capM,
+    capacityL: capL,
+    capacityTotal: capacityTotalU,
+    usedS: usedS,
+    usedM: usedM,
+    usedL: usedL,
+    usedTotal: usedTotalU,
+    availableS: availableS,
+    availableM: availableM,
+    availableL: availableL,
+    availableTotal: availableTotalU,
+    acceptS: acceptS,
+    acceptM: acceptM,
+    acceptL: acceptL,
+  );
+}
+
+
 /// DTO per la disponibilità di un partner.
 ///
 /// NOTA:
@@ -145,124 +239,66 @@ class PartnerBookingRepo {
     return list;
   }
 
-  /// Calcola la disponibilità "grezza" su TUTTE le prenotazioni attive del partner,
-  /// ignorando data/orario (usato solo per viste generiche / retrocompat).
-  Future<PartnerAvailability> getPartnerAvailability(String partnerId) async {
-    // 1) Leggiamo la capacità dal partner
-final partnerRow = await client
-    .from('partners')
-    .select(
-      'capacity_s, capacity_m, capacity_l, capacity, ' // legacy
-      'base_capacity_m, extra_capacity_s, extra_capacity_m, extra_capacity_l, '
-      'accept_s, accept_m, accept_l',
-    )
-    .eq('id', partnerId)
-    .maybeSingle();
+Future<PartnerAvailability> getPartnerAvailability(String partnerId) async {
+  final partnerRow = await client
+      .from('partners')
+      .select(
+        'base_capacity_u, extra_capacity_s, extra_capacity_m, extra_capacity_l, '
+        'accept_s, accept_m, accept_l, '
+        'capacity_s, capacity_m, capacity_l, capacity',
+      )
+      .eq('id', partnerId)
+      .maybeSingle();
 
-
-    if (partnerRow == null) {
-      throw Exception('Partner non trovato per id=$partnerId');
-    }
-
-// ✅ V2 fields
-final int? baseM = partnerRow['base_capacity_m'] as int?;
-final int extraS = (partnerRow['extra_capacity_s'] as int?) ?? 0;
-final int extraM = (partnerRow['extra_capacity_m'] as int?) ?? 0;
-final int extraL = (partnerRow['extra_capacity_l'] as int?) ?? 0;
-
-final bool acceptS = (partnerRow['accept_s'] as bool?) ?? true;
-final bool acceptM = (partnerRow['accept_m'] as bool?) ?? true;
-final bool acceptL = (partnerRow['accept_l'] as bool?) ?? true;
-
-// legacy fields
-final int legacyS = (partnerRow['capacity_s'] as int?) ?? 0;
-final int legacyM = (partnerRow['capacity_m'] as int?) ?? 0;
-final int legacyL = (partnerRow['capacity_l'] as int?) ?? 0;
-final int legacyTotalM = (partnerRow['capacity'] as int?) ?? 0;
-
-// ---- calcolo cap per taglia ----
-int capS = 0;
-int capM = 0;
-int capL = 0;
-
-if (baseM != null && baseM > 0) {
-  // V2: base in M -> deriviamo equivalenze
-  final int baseS = baseM * 2;     // 1M = 2S
-  final int baseL = baseM ~/ 2;    // 1L = 2M
-
-  capS = acceptS ? (baseS + extraS) : 0;
-  capM = acceptM ? (baseM + extraM) : 0;
-  capL = acceptL ? (baseL + extraL) : 0;
-} else {
-  // Legacy: usa capacity_s/m/l se presenti
-  capS = legacyS;
-  capM = legacyM;
-  capL = legacyL;
-
-  // Se legacy per-taglia è vuoto ma c'è il vecchio "capacity" (inteso come M)
-  if (capS + capM + capL == 0 && legacyTotalM > 0) {
-    capM = legacyTotalM;
+  if (partnerRow == null) {
+    throw Exception('Partner non trovato per id=$partnerId');
   }
 
-  // Applica accept flags anche sul legacy (coerenza)
-  if (!acceptS) capS = 0;
-  if (!acceptM) capM = 0;
-  if (!acceptL) capL = 0;
+  final int baseU = (partnerRow['base_capacity_u'] as int?) ??
+      _legacyToBaseU(
+        capS: (partnerRow['capacity_s'] as int?) ?? 0,
+        capM: (partnerRow['capacity_m'] as int?) ?? 0,
+        capL: (partnerRow['capacity_l'] as int?) ?? 0,
+        totalM: (partnerRow['capacity'] as int?) ?? 0,
+      );
+
+  final int extraS = (partnerRow['extra_capacity_s'] as int?) ?? 0;
+  final int extraM = (partnerRow['extra_capacity_m'] as int?) ?? 0;
+  final int extraL = (partnerRow['extra_capacity_l'] as int?) ?? 0;
+
+  final bool acceptS = (partnerRow['accept_s'] as bool?) ?? true;
+  final bool acceptM = (partnerRow['accept_m'] as bool?) ?? true;
+  final bool acceptL = (partnerRow['accept_l'] as bool?) ?? true;
+
+  final bookingsData = await client
+      .from('partner_bookings')
+      .select('bags_s, bags_m, bags_l, status')
+      .eq('partner_id', partnerId)
+      .inFilter('status', ['pending', 'confirmed', 'in_store']);
+
+  int usedS = 0;
+  int usedM = 0;
+  int usedL = 0;
+
+  for (final row in bookingsData as List) {
+    usedS += (row['bags_s'] as int?) ?? 0;
+    usedM += (row['bags_m'] as int?) ?? 0;
+    usedL += (row['bags_l'] as int?) ?? 0;
+  }
+
+  return _computeAvailabilityV2(
+    baseU: baseU,
+    extraS: extraS,
+    extraM: extraM,
+    extraL: extraL,
+    acceptS: acceptS,
+    acceptM: acceptM,
+    acceptL: acceptL,
+    usedS: usedS,
+    usedM: usedM,
+    usedL: usedL,
+  );
 }
-
-// Totale in unità equivalenti (mezze-M): 1S=1, 1M=2, 1L=4
-final int capacityTotal = capS * 1 + capM * 2 + capL * 4;
-
-
-    // 2) Sommiamo i bagagli delle prenotazioni attive (status != cancelled)
-    final bookingsData = await client
-        .from('partner_bookings')
-        .select('bags_s, bags_m, bags_l, status')
-        .eq('partner_id', partnerId)
-        .inFilter('status', ['pending', 'confirmed', 'in_store']);
-
-    int usedS = 0;
-    int usedM = 0;
-    int usedL = 0;
-
-    for (final row in bookingsData as List) {
-      usedS += (row['bags_s'] as int?) ?? 0;
-      usedM += (row['bags_m'] as int?) ?? 0;
-      usedL += (row['bags_l'] as int?) ?? 0;
-    }
-
-    // Utilizzo totale in unità equivalenti (mezze-M)
-    final int usedTotal = usedS * 1 + usedM * 2 + usedL * 4;
-
-    int availableS = capS - usedS;
-    int availableM = capM - usedM;
-    int availableL = capL - usedL;
-    int availableTotal = capacityTotal - usedTotal;
-
-    if (availableS < 0) availableS = 0;
-    if (availableM < 0) availableM = 0;
-    if (availableL < 0) availableL = 0;
-    if (availableTotal < 0) availableTotal = 0;
-
-return PartnerAvailability(
-  capacityS: capS,
-  capacityM: capM,
-  capacityL: capL,
-  capacityTotal: capacityTotal,
-  usedS: usedS,
-  usedM: usedM,
-  usedL: usedL,
-  usedTotal: usedTotal,
-  availableS: availableS,
-  availableM: availableM,
-  availableL: availableL,
-  availableTotal: availableTotal,
-  acceptS: acceptS,
-  acceptM: acceptM,
-  acceptL: acceptL,
-);
-
-  }
 
   Future<void> rejectBooking({
     required String bookingId,
@@ -296,186 +332,119 @@ return PartnerAvailability(
   /// - che si SOVRAPPONGONO all’intervallo richiesto
   ///
   /// [bookingDate] rimane nel metodo solo per compatibilità, ma non è usato.
-  Future<PartnerAvailability> getPartnerAvailabilityForInterval({
-    required String partnerId,
-    required DateTime
-    bookingDate, // rimane per compatibilità, non lo usiamo più
-    required DateTime startDate,
-    required DateTime endDate,
-    required String startTime,
-    required String endTime,
-  }) async {
-    // 1) Capacità dal partner
-    final partnerRow = await client
-        .from('partners')
-        .select(
-  'capacity_s, capacity_m, capacity_l, capacity, '
-  'base_capacity_m, extra_capacity_s, extra_capacity_m, extra_capacity_l, '
-  'accept_s, accept_m, accept_l',
-)
-        .eq('id', partnerId)
-        .maybeSingle();
+Future<PartnerAvailability> getPartnerAvailabilityForInterval({
+  required String partnerId,
+  required DateTime bookingDate, // compat: ignorato
+  required DateTime startDate,
+  required DateTime endDate,
+  required String startTime,
+  required String endTime,
+}) async {
+  final partnerRow = await client
+      .from('partners')
+      .select(
+        'base_capacity_u, extra_capacity_s, extra_capacity_m, extra_capacity_l, '
+        'accept_s, accept_m, accept_l, '
+        'capacity_s, capacity_m, capacity_l, capacity',
+      )
+      .eq('id', partnerId)
+      .maybeSingle();
 
-    if (partnerRow == null) {
-      throw Exception('Partner non trovato per id=$partnerId');
-    }
-
-// ✅ V2 fields
-final int? baseM = partnerRow['base_capacity_m'] as int?;
-final int extraS = (partnerRow['extra_capacity_s'] as int?) ?? 0;
-final int extraM = (partnerRow['extra_capacity_m'] as int?) ?? 0;
-final int extraL = (partnerRow['extra_capacity_l'] as int?) ?? 0;
-
-final bool acceptS = (partnerRow['accept_s'] as bool?) ?? true;
-final bool acceptM = (partnerRow['accept_m'] as bool?) ?? true;
-final bool acceptL = (partnerRow['accept_l'] as bool?) ?? true;
-
-// legacy fields
-final int legacyS = (partnerRow['capacity_s'] as int?) ?? 0;
-final int legacyM = (partnerRow['capacity_m'] as int?) ?? 0;
-final int legacyL = (partnerRow['capacity_l'] as int?) ?? 0;
-final int legacyTotalM = (partnerRow['capacity'] as int?) ?? 0;
-
-// ---- calcolo cap per taglia ----
-int capS = 0;
-int capM = 0;
-int capL = 0;
-
-if (baseM != null && baseM > 0) {
-  // V2: base in M -> deriviamo equivalenze
-  final int baseS = baseM * 2;     // 1M = 2S
-  final int baseL = baseM ~/ 2;    // 1L = 2M
-
-  capS = acceptS ? (baseS + extraS) : 0;
-  capM = acceptM ? (baseM + extraM) : 0;
-  capL = acceptL ? (baseL + extraL) : 0;
-} else {
-  // Legacy: usa capacity_s/m/l se presenti
-  capS = legacyS;
-  capM = legacyM;
-  capL = legacyL;
-
-  // Se legacy per-taglia è vuoto ma c'è il vecchio "capacity" (inteso come M)
-  if (capS + capM + capL == 0 && legacyTotalM > 0) {
-    capM = legacyTotalM;
+  if (partnerRow == null) {
+    throw Exception('Partner non trovato per id=$partnerId');
   }
 
-  // Applica accept flags anche sul legacy (coerenza)
-  if (!acceptS) capS = 0;
-  if (!acceptM) capM = 0;
-  if (!acceptL) capL = 0;
+  final int baseU = (partnerRow['base_capacity_u'] as int?) ??
+      _legacyToBaseU(
+        capS: (partnerRow['capacity_s'] as int?) ?? 0,
+        capM: (partnerRow['capacity_m'] as int?) ?? 0,
+        capL: (partnerRow['capacity_l'] as int?) ?? 0,
+        totalM: (partnerRow['capacity'] as int?) ?? 0,
+      );
+
+  final int extraS = (partnerRow['extra_capacity_s'] as int?) ?? 0;
+  final int extraM = (partnerRow['extra_capacity_m'] as int?) ?? 0;
+  final int extraL = (partnerRow['extra_capacity_l'] as int?) ?? 0;
+
+  final bool acceptS = (partnerRow['accept_s'] as bool?) ?? true;
+  final bool acceptM = (partnerRow['accept_m'] as bool?) ?? true;
+  final bool acceptL = (partnerRow['accept_l'] as bool?) ?? true;
+
+  final DateTime requestStart = DateTime(
+    startDate.year,
+    startDate.month,
+    startDate.day,
+    _parseHour(startTime),
+    _parseMinute(startTime),
+  );
+
+  final DateTime requestEnd = DateTime(
+    endDate.year,
+    endDate.month,
+    endDate.day,
+    _parseHour(endTime),
+    _parseMinute(endTime),
+  );
+
+  int usedS = 0;
+  int usedM = 0;
+  int usedL = 0;
+
+  final rows = await client
+      .from('partner_bookings')
+      .select('booking_date,end_date,start_time,end_time,bags_s,bags_m,bags_l,status')
+      .eq('partner_id', partnerId)
+      .or('status.eq.pending,status.eq.confirmed,status.eq.in_store');
+
+  for (final raw in rows as List) {
+    final map = raw as Map<String, dynamic>;
+
+    final DateTime bookingStartDay = DateTime.parse(map['booking_date'] as String);
+    final DateTime bookingEndDay = map['end_date'] == null
+        ? bookingStartDay
+        : DateTime.parse(map['end_date'] as String);
+
+    final String bStart = map['start_time'] as String;
+    final String bEnd = map['end_time'] as String;
+
+    final bookingStart = DateTime(
+      bookingStartDay.year,
+      bookingStartDay.month,
+      bookingStartDay.day,
+      _parseHour(bStart),
+      _parseMinute(bStart),
+    );
+
+    final bookingEnd = DateTime(
+      bookingEndDay.year,
+      bookingEndDay.month,
+      bookingEndDay.day,
+      _parseHour(bEnd),
+      _parseMinute(bEnd),
+    );
+
+    if (!_intervalsOverlap(bookingStart, bookingEnd, requestStart, requestEnd)) {
+      continue;
+    }
+
+    usedS += (map['bags_s'] as int?) ?? 0;
+    usedM += (map['bags_m'] as int?) ?? 0;
+    usedL += (map['bags_l'] as int?) ?? 0;
+  }
+
+  return _computeAvailabilityV2(
+    baseU: baseU,
+    extraS: extraS,
+    extraM: extraM,
+    extraL: extraL,
+    acceptS: acceptS,
+    acceptM: acceptM,
+    acceptL: acceptL,
+    usedS: usedS,
+    usedM: usedM,
+    usedL: usedL,
+  );
 }
-
-// Totale in unità equivalenti (mezze-M): 1S=1, 1M=2, 1L=4
-final int capacityTotal = capS * 1 + capM * 2 + capL * 4;
-
-
-    // 2) Intervallo richiesto dal NUOVO booking
-    final DateTime requestStart = DateTime(
-      startDate.year,
-      startDate.month,
-      startDate.day,
-      _parseHour(startTime),
-      _parseMinute(startTime),
-    );
-
-    final DateTime requestEnd = DateTime(
-      endDate.year,
-      endDate.month,
-      endDate.day,
-      _parseHour(endTime),
-      _parseMinute(endTime),
-    );
-
-    int usedS = 0;
-    int usedM = 0;
-    int usedL = 0;
-
-    // 3) Prenotazioni attive (pending / confirmed) di quel partner
-    final rows = await client
-        .from('partner_bookings')
-        .select(
-          'booking_date,end_date,start_time,end_time,bags_s,bags_m,bags_l,status',
-        )
-        .eq('partner_id', partnerId)
-        .or('status.eq.pending,status.eq.confirmed');
-
-    for (final raw in rows as List) {
-      final map = raw as Map<String, dynamic>;
-
-      // Giorni di inizio/fine della prenotazione salvata
-      final DateTime bookingStartDay = DateTime.parse(
-        map['booking_date'] as String,
-      );
-      final DateTime bookingEndDay = map['end_date'] == null
-          ? bookingStartDay
-          : DateTime.parse(map['end_date'] as String);
-
-      final String bStart = map['start_time'] as String;
-      final String bEnd = map['end_time'] as String;
-
-      final bookingStart = DateTime(
-        bookingStartDay.year,
-        bookingStartDay.month,
-        bookingStartDay.day,
-        _parseHour(bStart),
-        _parseMinute(bStart),
-      );
-      final bookingEnd = DateTime(
-        bookingEndDay.year,
-        bookingEndDay.month,
-        bookingEndDay.day,
-        _parseHour(bEnd),
-        _parseMinute(bEnd),
-      );
-
-      // Se non si sovrappone all'intervallo richiesto, non occupa capacità.
-      if (!_intervalsOverlap(
-        bookingStart,
-        bookingEnd,
-        requestStart,
-        requestEnd,
-      )) {
-        continue;
-      }
-
-      usedS += (map['bags_s'] as int? ?? 0);
-      usedM += (map['bags_m'] as int? ?? 0);
-      usedL += (map['bags_l'] as int? ?? 0);
-    }
-
-    // Utilizzo totale in unità equivalenti (mezze-M)
-    final int usedTotal = usedS * 1 + usedM * 2 + usedL * 4;
-
-    int availableS = capS - usedS;
-    int availableM = capM - usedM;
-    int availableL = capL - usedL;
-    int availableTotal = capacityTotal - usedTotal;
-
-    if (availableS < 0) availableS = 0;
-    if (availableM < 0) availableM = 0;
-    if (availableL < 0) availableL = 0;
-    if (availableTotal < 0) availableTotal = 0;
-
-return PartnerAvailability(
-  capacityS: capS,
-  capacityM: capM,
-  capacityL: capL,
-  capacityTotal: capacityTotal,
-  usedS: usedS,
-  usedM: usedM,
-  usedL: usedL,
-  usedTotal: usedTotal,
-  availableS: availableS,
-  availableM: availableM,
-  availableL: availableL,
-  availableTotal: availableTotal,
-  acceptS: acceptS,
-  acceptM: acceptM,
-  acceptL: acceptL,
-);
-
-  }
 
   /// Rimane per eventuali controlli legacy; NON più usato nel nuovo flusso.
   Future<bool> hasBookingForPartnerToday(String partnerId) async {
