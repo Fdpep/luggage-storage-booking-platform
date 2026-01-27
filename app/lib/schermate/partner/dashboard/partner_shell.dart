@@ -1,5 +1,3 @@
-// ignore_for_file: unused_import
-
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -19,8 +17,6 @@ import '../auth_partner/partner_waiting_screen.dart';
 import '../../autenticazione/auth_actions.dart';
 import '../auth_partner/partner_application_screen.dart';
 
-
-// ✅ NUOVO: drawer condiviso + scope
 import '../user_view/partner_drawer.dart';
 
 class PartnerShell extends StatefulWidget {

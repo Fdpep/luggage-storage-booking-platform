@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+// ignore: unused_import
+import 'package:BagDrop/theme/app_theme.dart';
 
 import '../../../models/partner_booking.dart';
 
@@ -21,23 +25,20 @@ class BookingQrScreen extends StatefulWidget {
   State<BookingQrScreen> createState() => _BookingQrScreenState();
 }
 
+enum _ToastKind { success, warning, info }
+
 class _BookingQrScreenState extends State<BookingQrScreen> {
   late final Stream<PartnerBooking?> _bookingStream;
 
-  bool _paying = false;
-
   static const Duration _tolerance = Duration(minutes: 15);
-
   Timer? _ticker;
 
-  // quote supplemento (Step 2: calcolo server-side)
+  bool _paying = false;
+
+  // quote supplemento (server-side)
   bool _quoteLoading = false;
   int? _quoteCents;
-  String? _quoteMessage; // testo “pulito” (no erroracci)
-
-  // per snack “una volta sola”
-  bool _notifiedCheckin = false;
-  bool _notifiedCheckout = false;
+  String? _quoteMessage;
 
   int? _quotePaidTotalCents;
   int? _quoteRequiredTotalCents;
@@ -49,6 +50,19 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
 
   DateTime? _lastQuoteAttemptAt;
   static const Duration _quoteRetryEvery = Duration(seconds: 10);
+
+  // ✅ notifiche SOLO su transizione (non quando riapri)
+  bool _bootstrapped = false;
+  DateTime? _seenDropoffAt;
+  DateTime? _seenPickupAt;
+
+  // ✅ optimistic pickup dopo pagamento (evita “ricalcolo…”)
+  DateTime? _optimisticPickupPlannedAtLocal;
+  DateTime? _optimisticSetAt;
+  static const Duration _optimisticTtl = Duration(minutes: 2);
+
+  // ✅ toast sheet handle (per non impilare più toast)
+  BuildContext? _toastSheetCtx;
 
   String _fmt(DateTime dt) {
     final d = dt.day.toString().padLeft(2, '0');
@@ -63,28 +77,129 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
     return '€ $s';
   }
 
+  DateTime _plannedPickupForUi(PartnerBooking b) {
+    final opt = _optimisticPickupPlannedAtLocal;
+    final setAt = _optimisticSetAt;
+
+    if (opt != null && setAt != null) {
+      final alive = DateTime.now().difference(setAt) <= _optimisticTtl;
+      if (alive) return opt;
+    }
+    return b.plannedPickupAtLocal;
+  }
+
+  void _maybeClearOptimistic(PartnerBooking b) {
+    if (_optimisticPickupPlannedAtLocal == null || _optimisticSetAt == null) return;
+
+    final alive = DateTime.now().difference(_optimisticSetAt!) <= _optimisticTtl;
+    if (!alive) {
+      setState(() {
+        _optimisticPickupPlannedAtLocal = null;
+        _optimisticSetAt = null;
+      });
+      return;
+    }
+
+    final serverPickup = b.plannedPickupAtLocal;
+    if (!serverPickup.isBefore(_optimisticPickupPlannedAtLocal!)) {
+      setState(() {
+        _optimisticPickupPlannedAtLocal = null;
+        _optimisticSetAt = null;
+      });
+    }
+  }
+
   Future<dynamic> _performLateFeePayment({required String bookingId}) async {
-    // OGGI: simulato (chiama la tua RPC che estende e registra pagamento)
     return Supabase.instance.client.rpc(
       'pay_late_fee_and_extend',
       params: {'p_booking_id': bookingId},
     );
+  }
 
-    // DOMANI (esempio): qui farai
-    // 1) chiamata al provider pagamento (Stripe checkout)
-    // 2) on success: chiami una RPC tipo confirm_payment(...)
-    // 3) ritorni un payload simile: { ok: true, message: "...", new_pickup_planned_at: ... }
+  void _closeToastIfAny() {
+    final ctx = _toastSheetCtx;
+    if (ctx != null) {
+      final nav = Navigator.of(ctx);
+      if (nav.canPop()) nav.pop();
+    }
+    _toastSheetCtx = null;
+  }
+
+  Future<void> _showToast({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    _ToastKind kind = _ToastKind.info,
+    Duration duration = const Duration(seconds: 2),
+  }) async {
+    if (!mounted) return;
+
+    // chiudo eventuale toast precedente (no stacking)
+    _closeToastIfAny();
+
+    HapticFeedback.lightImpact();
+
+    BuildContext? sheetCtx;
+
+    final future = showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withOpacity(0.12),
+      isScrollControlled: false,
+      useSafeArea: true,
+      enableDrag: true,
+      builder: (ctx) {
+        sheetCtx = ctx;
+
+        final cs = Theme.of(ctx).colorScheme;
+        final (bg, fg) = switch (kind) {
+          _ToastKind.success => (Colors.green.withOpacity(0.14), Colors.green.shade900),
+          _ToastKind.warning => (Colors.orange.withOpacity(0.16), Colors.orange.shade900),
+          _ToastKind.info => (cs.surfaceContainerHighest.withOpacity(0.60), cs.onSurface),
+        };
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: _IosToastCard(
+              bg: bg,
+              fg: fg,
+              icon: icon,
+              title: title,
+              subtitle: subtitle,
+            ),
+          ),
+        );
+      },
+    );
+
+    // memorizzo ctx per chiuderlo se arriva un nuovo toast
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (sheetCtx != null) _toastSheetCtx = sheetCtx;
+    });
+
+    // auto-dismiss
+    Future.delayed(duration, () {
+      final ctx = sheetCtx;
+      if (!mounted || ctx == null) return;
+      final nav = Navigator.of(ctx);
+      if (nav.canPop()) nav.pop();
+    });
+
+    await future;
+
+    // cleanup handle
+    if (_toastSheetCtx == sheetCtx) _toastSheetCtx = null;
   }
 
   Future<bool> _confirmPayDialog({int? cents, String? detail}) async {
     if (!mounted) return false;
     final cs = Theme.of(context).colorScheme;
 
-    final amountLine = cents != null
-        ? 'Importo: ${_euro(cents)}'
-        : 'Importo: da calcolare';
+    final amountLine = cents != null ? 'Importo: ${_euro(cents)}' : 'Importo: da calcolare';
     final body = [
-      'Stai per simulare il pagamento del supplemento e prolungare la prenotazione.',
+      'Stai per pagare il supplemento e prolungare la prenotazione.',
       amountLine,
       if (detail != null && detail.trim().isNotEmpty) detail.trim(),
     ].join('\n\n');
@@ -99,10 +214,7 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
             Icon(Icons.payments_outlined, color: cs.primary),
             const SizedBox(width: 10),
             const Expanded(
-              child: Text(
-                'Confermi il pagamento?',
-                style: TextStyle(fontWeight: FontWeight.w900),
-              ),
+              child: Text('Confermi il pagamento?', style: TextStyle(fontWeight: FontWeight.w900)),
             ),
           ],
         ),
@@ -138,63 +250,76 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
         .stream(primaryKey: ['id'])
         .eq('id', widget.bookingId)
         .map((rows) {
-          if (rows.isEmpty) return null;
-          return PartnerBooking.fromMap(rows.first);
-        });
+      if (rows.isEmpty) return null;
+      return PartnerBooking.fromMap(rows.first);
+    });
   }
 
   @override
   void dispose() {
     _ticker?.cancel();
+    _closeToastIfAny();
     super.dispose();
   }
 
-  void _maybeNotify(PartnerBooking b) {
-    // check-in
-    if (!_notifiedCheckin && b.dropoffEffectiveAt != null) {
-      _notifiedCheckin = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        await _miniDialog(
-          icon: Icons.check_circle_outline,
-          title: 'Check-in eseguito',
-          subtitle:
-              'Consegna registrata alle ${_fmt(b.effectiveDropoffAtLocal!)}.',
-        );
-      });
+  Future<void> _onBookingSnapshot(PartnerBooking b) async {
+    _maybeClearOptimistic(b);
+
+    final drop = b.dropoffEffectiveAt;
+    final pick = b.pickupEffectiveAt;
+
+    if (!_bootstrapped) {
+      _bootstrapped = true;
+      _seenDropoffAt = drop;
+      _seenPickupAt = pick;
+      return;
     }
 
-    // check-out
-    if (!_notifiedCheckout && b.pickupEffectiveAt != null) {
-      _notifiedCheckout = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        await _miniDialog(
-          icon: Icons.verified_outlined,
-          title: 'Check-out eseguito',
-          subtitle:
-              'Ritiro registrato alle ${_fmt(b.effectivePickupAtLocal!)}.',
-        );
+    // check-in: null -> non-null
+    if (_seenDropoffAt == null && drop != null) {
+      _seenDropoffAt = drop;
 
-        // per ora chiudiamo la schermata (poi decidiamo recap)
-        if (mounted) Navigator.of(context).pop(true);
-      });
+      if (!mounted) return;
+      await _showToast(
+        icon: Icons.check_circle_outline,
+        title: 'Check-in eseguito',
+        subtitle: 'Consegna registrata alle ${_fmt(b.effectiveDropoffAtLocal!)}.',
+        kind: _ToastKind.success,
+      );
+    } else {
+      _seenDropoffAt = drop;
+    }
+
+    // check-out: null -> non-null
+    if (_seenPickupAt == null && pick != null) {
+      _seenPickupAt = pick;
+
+      if (!mounted) return;
+      await _showToast(
+        icon: Icons.verified_outlined,
+        title: 'Check-out eseguito',
+        subtitle: 'Ritiro registrato alle ${_fmt(b.effectivePickupAtLocal!)}.',
+        kind: _ToastKind.success,
+      );
+
+      if (mounted) Navigator.of(context).pop(true);
+    } else {
+      _seenPickupAt = pick;
     }
   }
 
   Future<void> _copyCode() async {
     await Clipboard.setData(ClipboardData(text: widget.bookingCode));
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Codice copiato')));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Codice copiato')));
   }
 
   bool _isLateOverTolerance(PartnerBooking b) {
-    // Mostro supplemento solo se ha già fatto check-in e non ha ancora fatto check-out
     if (b.dropoffEffectiveAt == null) return false;
     if (b.pickupEffectiveAt != null) return false;
 
     final now = DateTime.now();
-    final pickup = b.plannedPickupAtLocal;
+    final pickup = _plannedPickupForUi(b);
     final deadline = pickup.add(_tolerance);
 
     return now.isAfter(deadline);
@@ -205,113 +330,109 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
     if (b.pickupEffectiveAt != null) return false;
 
     final now = DateTime.now();
-    final pickup = b.plannedPickupAtLocal;
+    final pickup = _plannedPickupForUi(b);
     final deadline = pickup.add(_tolerance);
 
     return now.isAfter(pickup) && now.isBefore(deadline);
   }
 
-  Future<void> _payLateFeeMock() async {
+  Future<void> _payLateFee() async {
     if (_paying) return;
 
-    // 1) serve l'importo (in questo step non paghiamo "alla cieca")
     final amountCents = _quoteCents;
     if (amountCents == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Importo supplemento non disponibile. Riprova tra qualche secondo.',
-          ),
-        ),
+        const SnackBar(content: Text('Importo non disponibile. Riprova tra qualche secondo.')),
       );
       return;
     }
     if (amountCents == 0) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Nessun importo aggiuntivo.')),
       );
       return;
     }
 
-    // 2) conferma UNA volta (con importo visibile)
     final confirmed = await _confirmPayDialog(
       cents: amountCents,
-      detail:
-          'Dopo il pagamento la prenotazione viene estesa e il QR torna valido per il check-out.',
+      detail: 'Dopo il pagamento la prenotazione viene estesa e il QR torna valido.',
     );
     if (!confirmed) return;
 
-    // 3) esegui "pagamento" (oggi simulato, domani Stripe)
     setState(() => _paying = true);
 
     try {
       final res = await _performLateFeePayment(bookingId: widget.bookingId);
 
       final ok = (res is Map && res['ok'] == true);
-      final msg =
-          (res is Map ? (res['message']?.toString()) : null) ??
+      final msg = (res is Map ? (res['message']?.toString()) : null) ??
           (ok ? 'Supplemento pagato' : 'Pagamento non riuscito');
+
+      DateTime? newPickupLocal;
+      final newPickup = (res is Map) ? res['new_pickup_planned_at'] : null;
+      if (newPickup != null) {
+        try {
+          newPickupLocal = DateTime.parse(newPickup.toString()).toLocal();
+        } catch (_) {}
+      }
 
       if (!mounted) return;
 
-      // reset quote: dopo pagamento dovrebbe sparire il blocco ritardo
       setState(() {
         _quoteCents = null;
         _quoteMessage = null;
         _quoteLoading = false;
+        _lastQuoteAttemptAt = null;
+
+        if (ok && newPickupLocal != null) {
+          _optimisticPickupPlannedAtLocal = newPickupLocal;
+          _optimisticSetAt = DateTime.now();
+        }
       });
 
-      // opzionale: mostra "estesa fino a ..."
-      String extra = '';
-      final newPickup = (res is Map) ? res['new_pickup_planned_at'] : null;
-      if (newPickup != null) {
-        try {
-          final dt = DateTime.parse(newPickup.toString()).toLocal();
-          extra = ' • Estesa fino a ${_fmt(dt)}';
-        } catch (_) {}
-      }
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(ok ? '✅ $msg$extra' : '⚠️ $msg')));
+      final extra = (newPickupLocal != null) ? ' • Estesa fino a ${_fmt(newPickupLocal)}' : '';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ok ? '✅ $msg$extra' : '⚠️ $msg')),
+      );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Errore pagamento: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Errore pagamento: $e')),
+      );
     } finally {
       if (mounted) setState(() => _paying = false);
     }
   }
 
-  Future<void> _ensureLateFeeQuote(PartnerBooking b) async {
+  Future<void> _ensureLateFeeQuote(PartnerBooking b, {bool force = false}) async {
     if (!_isLateOverTolerance(b)) {
       if (_quoteCents != null || _quoteMessage != null || _quoteLoading) {
         if (!mounted) return;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          setState(() {
-            _quoteLoading = false;
-            _quoteCents = null;
-            _quoteMessage = null;
-          });
+        setState(() {
+          _quoteLoading = false;
+          _quoteCents = null;
+          _quoteMessage = null;
         });
       }
       return;
     }
 
-    if (_quoteLoading || _quoteCents != null || _quoteMessage != null) return;
+    if (_quoteLoading) return;
+
+    final now = DateTime.now();
+    if (!force && _lastQuoteAttemptAt != null && now.difference(_lastQuoteAttemptAt!) < _quoteRetryEvery) {
+      return;
+    }
+    if (!force && _quoteCents != null) return;
+
+    _lastQuoteAttemptAt = now;
 
     if (!mounted) return;
-
-    // ✅ NON setState durante build: rimandalo al post-frame
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      setState(() {
-        _quoteLoading = true;
-        _quoteMessage = null;
-      });
+    setState(() {
+      _quoteLoading = true;
+      if (force) _quoteMessage = null;
     });
 
     try {
@@ -320,29 +441,21 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
         params: {'p_booking_id': widget.bookingId},
       );
 
-      debugPrint('get_late_fee_quote res: $res');
-
       final ok = (res is Map && res['ok'] == true);
       if (ok) {
         final amount = (res)['amount_cents'];
         final cents = (amount is int) ? amount : int.tryParse('$amount');
 
         _quotePaidTotalCents = int.tryParse('${res['paid_total_cents']}');
-        _quoteRequiredTotalCents = int.tryParse(
-          '${res['required_total_cents']}',
-        );
+        _quoteRequiredTotalCents = int.tryParse('${res['required_total_cents']}');
         _quoteFromDuration = res['from_duration']?.toString();
         _quoteToDuration = res['to_duration']?.toString();
         _quoteToExtraDays = int.tryParse('${res['to_extra_days']}');
 
         final fu = res['from_covered_until'];
         final tu = res['to_covered_until'];
-        _quoteFromUntil = fu != null
-            ? DateTime.parse(fu.toString()).toLocal()
-            : null;
-        _quoteToUntil = tu != null
-            ? DateTime.parse(tu.toString()).toLocal()
-            : null;
+        _quoteFromUntil = fu != null ? DateTime.parse(fu.toString()).toLocal() : null;
+        _quoteToUntil = tu != null ? DateTime.parse(tu.toString()).toLocal() : null;
 
         if (!mounted) return;
         setState(() {
@@ -360,7 +473,6 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
         });
       }
     } catch (e) {
-      debugPrint('get_late_fee_quote error: $e');
       if (!mounted) return;
       setState(() {
         _quoteCents = null;
@@ -372,47 +484,7 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
     }
   }
 
-  Future<void> _miniDialog({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-  }) async {
-    if (!mounted) return;
-    final cs = Theme.of(context).colorScheme;
-
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-          ),
-          title: Row(
-            children: [
-              Icon(icon, color: cs.primary),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(fontWeight: FontWeight.w900),
-                ),
-              ),
-            ],
-          ),
-          content: Text(subtitle),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Chiudi'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _statusPill({
+  Widget _statusCard({
     required IconData icon,
     required String title,
     required String subtitle,
@@ -423,16 +495,17 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: fg.withOpacity(0.15)),
       ),
       child: Row(
         children: [
           Container(
-            width: 42,
-            height: 42,
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
-              color: fg.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(12),
+              color: fg.withOpacity(0.10),
+              borderRadius: BorderRadius.circular(14),
             ),
             child: Icon(icon, color: fg),
           ),
@@ -441,22 +514,11 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                    color: fg,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 2),
+                Text(title, style: TextStyle(fontWeight: FontWeight.w900, color: fg)),
+                const SizedBox(height: 3),
                 Text(
                   subtitle,
-                  style: TextStyle(
-                    color: fg.withOpacity(0.9),
-                    fontSize: 12,
-                    height: 1.2,
-                  ),
+                  style: TextStyle(color: fg.withOpacity(0.85), fontSize: 12, height: 1.2),
                 ),
               ],
             ),
@@ -469,23 +531,19 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final hasQuote = _quoteCents != null && _quoteCents! > 0;
-    final canPay = !_paying && !_quoteLoading && hasQuote;
+    final tt = Theme.of(context).textTheme;
 
     return Scaffold(
       backgroundColor: cs.surface,
-      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text('QR prenotazione'),
-        backgroundColor: Colors.transparent,
-        foregroundColor: cs.onSurface,
+        title: const Text('QR CODE Prenotazione'),
+        backgroundColor: cs.primary,
+        foregroundColor: cs.onPrimary,
         elevation: 0,
-        systemOverlayStyle: SystemUiOverlayStyle(
+        systemOverlayStyle: const SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
-          statusBarIconBrightness:
-              Theme.of(context).brightness == Brightness.dark
-              ? Brightness.light
-              : Brightness.dark,
+          statusBarIconBrightness: Brightness.light,
+          statusBarBrightness: Brightness.dark,
         ),
       ),
       body: StreamBuilder<PartnerBooking?>(
@@ -494,20 +552,18 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
           final booking = snap.data;
 
           if (booking != null) {
-            _maybeNotify(booking);
-
-            WidgetsBinding.instance.addPostFrameCallback((_) {
+            WidgetsBinding.instance.addPostFrameCallback((_) async {
               if (!mounted) return;
-              _ensureLateFeeQuote(booking);
+              await _onBookingSnapshot(booking);
+              await _ensureLateFeeQuote(booking);
             });
           }
 
-          // calcolo stato “user-friendly”
-          final inStore =
-              booking?.dropoffEffectiveAt != null &&
-              booking?.pickupEffectiveAt == null;
-          final completed = booking?.pickupEffectiveAt != null;
           final waiting = booking?.dropoffEffectiveAt == null;
+          final inStore = booking?.dropoffEffectiveAt != null && booking?.pickupEffectiveAt == null;
+          final completed = booking?.pickupEffectiveAt != null;
+
+          final liveActive = snap.connectionState == ConnectionState.active && !snap.hasError;
 
           final headerGradient = LinearGradient(
             begin: Alignment.topLeft,
@@ -518,10 +574,13 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
             ],
           );
 
+          final qrDisabled = booking != null && _isLateOverTolerance(booking);
+          final hasQuote = (_quoteCents ?? 0) > 0;
+
           return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 90, 16, 20),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
             children: [
-              // HEADER “moderno”
+              // HERO + LIVE
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -529,7 +588,7 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
                   borderRadius: BorderRadius.circular(22),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.08),
+                      color: Colors.black.withOpacity(0.10),
                       blurRadius: 18,
                       offset: const Offset(0, 10),
                     ),
@@ -541,7 +600,7 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
                       width: 48,
                       height: 48,
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.16),
+                        color: Colors.white.withOpacity(0.18),
                         borderRadius: BorderRadius.circular(16),
                       ),
                       child: const Icon(Icons.qr_code_2, color: Colors.white),
@@ -551,17 +610,16 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Mostra questo QR al partner',
-                            style: TextStyle(
+                          Text(
+                            'Mostra il QR al partner',
+                            style: tt.titleMedium?.copyWith(
                               color: Colors.white,
                               fontWeight: FontWeight.w900,
-                              fontSize: 16,
                             ),
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Check-in e check-out verranno aggiornati in tempo reale.',
+                            'Check-in e check-out si aggiornano in tempo reale.',
                             style: TextStyle(
                               color: Colors.white.withOpacity(0.92),
                               fontSize: 12,
@@ -571,90 +629,160 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
                         ],
                       ),
                     ),
+                    const SizedBox(width: 10),
+                    _LiveBadge(active: liveActive),
                   ],
                 ),
               ),
 
               const SizedBox(height: 14),
 
-              // STATUS TIMELINE
-              if (snap.connectionState == ConnectionState.waiting &&
-                  booking == null)
-                _statusPill(
+              // STATUS
+              if (snap.connectionState == ConnectionState.waiting && booking == null)
+                _statusCard(
                   icon: Icons.wifi_tethering,
                   title: 'Connessione…',
                   subtitle: 'Sto sincronizzando lo stato della prenotazione.',
-                  bg: cs.surfaceContainerHighest.withOpacity(0.7),
+                  bg: cs.surfaceContainerHighest.withOpacity(0.6),
                   fg: cs.onSurface,
                 )
               else if (waiting)
-                _statusPill(
+                _statusCard(
                   icon: Icons.hourglass_top_rounded,
                   title: 'In attesa di check-in',
-                  subtitle:
-                      'Quando il partner scannerizza, qui vedrai l’esito.',
-                  bg: cs.surfaceContainerHighest.withOpacity(0.7),
+                  subtitle: 'Quando il partner scannerizza, vedrai subito l’esito qui.',
+                  bg: cs.surfaceContainerHighest.withOpacity(0.6),
                   fg: cs.onSurface,
                 )
               else if (inStore)
-                _statusPill(
+                _statusCard(
                   icon: Icons.inventory_2_outlined,
                   title: 'Depositato',
-                  subtitle:
-                      'Check-in: ${_fmt(booking!.effectiveDropoffAtLocal!)}',
-                  bg: Colors.green.withOpacity(0.12),
+                  subtitle: 'Check-in: ${_fmt(booking!.effectiveDropoffAtLocal!)}',
+                  bg: Colors.green.withOpacity(0.10),
                   fg: Colors.green.shade800,
                 )
               else if (completed)
-                _statusPill(
+                _statusCard(
                   icon: Icons.verified_outlined,
                   title: 'Completato',
-                  subtitle:
-                      'Check-out: ${_fmt(booking!.effectivePickupAtLocal!)}',
-                  bg: Colors.green.withOpacity(0.12),
+                  subtitle: 'Check-out: ${_fmt(booking!.effectivePickupAtLocal!)}',
+                  bg: Colors.green.withOpacity(0.10),
                   fg: Colors.green.shade800,
                 ),
 
+              if (booking != null) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: cs.surfaceContainerHighest.withOpacity(0.45),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.schedule, color: cs.onSurface.withOpacity(0.7)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Ritiro previsto: ${_fmt(_plannedPickupForUi(booking))}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: cs.onSurface.withOpacity(0.85),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
               const SizedBox(height: 14),
 
-              // CARD QR
+              // QR CARD (disabled overlay se serve supplemento)
               Card(
                 elevation: 0,
                 color: cs.surfaceContainerHighest.withOpacity(0.55),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(22),
-                ),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
                 child: Padding(
                   padding: const EdgeInsets.all(18),
                   child: Column(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: cs.surface,
-                          borderRadius: BorderRadius.circular(18),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(18),
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              color: cs.surface,
+                              child: Opacity(
+                                opacity: qrDisabled ? 0.22 : 1,
+                                child: QrImageView(data: widget.bookingCode, size: 240),
+                              ),
+                            ),
+
+                            if (qrDisabled) ...[
+                              Positioned.fill(
+                                child: BackdropFilter(
+                                  filter: ImageFilter.blur(sigmaX: 3.5, sigmaY: 3.5),
+                                  child: Container(color: Colors.black.withOpacity(0.05)),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.35),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: Colors.white.withOpacity(0.20)),
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.lock_outline, color: Colors.white),
+                                    const SizedBox(height: 6),
+                                    const Text(
+                                      'QR disabilitato',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      'Paga il supplemento per riattivarlo.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(color: Colors.white.withOpacity(0.92), fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
-                        child: QrImageView(data: widget.bookingCode, size: 240),
                       ),
+
                       const SizedBox(height: 14),
-                      Text(
-                        widget.bookingCode,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 1.2,
-                        ),
+
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            widget.bookingCode,
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.2,
+                              color: qrDisabled ? cs.onSurface.withOpacity(0.45) : cs.onSurface,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            tooltip: 'Copia',
+                            onPressed: _copyCode,
+                            icon: const Icon(Icons.copy),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: _copyCode,
-                          icon: const Icon(Icons.copy),
-                          label: const Text('Copia codice'),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
+
                       Text(
                         'Se il partner non riesce a leggere il QR, può inserire il codice manualmente.',
                         textAlign: TextAlign.center,
@@ -664,6 +792,25 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
                           height: 1.2,
                         ),
                       ),
+
+                      if (qrDisabled) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withOpacity(0.10),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.orange.withOpacity(0.20)),
+                          ),
+                          child: Text(
+                            '⚠️ Il partner non potrà completare il check-out finché non paghi il supplemento.',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: cs.onSurface.withOpacity(0.85),
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -671,162 +818,210 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
 
               const SizedBox(height: 14),
 
-              // PAGAMENTO RITARDO — SOLO LATO UTENTE (compare appena sei oltre tolleranza)
-              if (booking != null) ...[
-                // carico la quote se serve (solo quando è in ritardo)
-                if (_isInTolerance(booking)) ...[
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.10),
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(
-                        color: Colors.orange.withOpacity(0.20),
-                      ),
-                    ),
-                    child: Text(
-                      '⚠️ Sei oltre l’orario di ritiro ma ancora in tolleranza (15 min).',
-                      style: TextStyle(
-                        color: cs.onSurface.withOpacity(0.85),
-                        fontWeight: FontWeight.w700,
-                      ),
+              // TOLLERANZA
+              if (booking != null && _isInTolerance(booking)) ...[
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.10),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.orange.withOpacity(0.20)),
+                  ),
+                  child: Text(
+                    '⚠️ Sei oltre l’orario di ritiro ma ancora in tolleranza (15 min).',
+                    style: TextStyle(
+                      color: cs.onSurface.withOpacity(0.85),
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
-                  const SizedBox(height: 10),
-                ],
+                ),
+                const SizedBox(height: 10),
+              ],
 
-                if (_isLateOverTolerance(booking)) ...[
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(
-                        color: Colors.orange.withOpacity(0.22),
+              // SUPPLEMENTO
+              if (booking != null && _isLateOverTolerance(booking)) ...[
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.orange.withOpacity(0.22)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Supplemento necessario', style: TextStyle(fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 6),
+                      Text(
+                        hasQuote
+                            ? 'È richiesto un supplemento di ${_euro(_quoteCents!)}. Pagalo ora per riattivare il QR.'
+                            : (_quoteMessage ?? 'È richiesto un supplemento. Tocca per calcolare l’importo.'),
+                        style: TextStyle(color: cs.onSurface.withOpacity(0.85)),
                       ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Supplemento necessario',
-                          style: TextStyle(fontWeight: FontWeight.w900),
-                        ),
 
-                        const SizedBox(height: 6),
-                        Text(
-                          _quoteCents != null
-                              ? 'È richiesto un supplemento di ${_euro(_quoteCents!)}. Puoi pagarlo ora, prima di mostrare il QR.'
-                              : (_quoteMessage ??
-                                    'È richiesto un supplemento. Puoi pagarlo ora, prima di mostrare il QR.'),
-                          style: TextStyle(
-                            color: cs.onSurface.withOpacity(0.85),
-                          ),
-                        ),
-
-                        if (_quotePaidTotalCents != null &&
-                            _quoteRequiredTotalCents != null) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            'Hai pagato finora: ${_euro(_quotePaidTotalCents!)}'
-                            '${_quoteFromUntil != null ? ' (coperto fino a ${_fmt(_quoteFromUntil!)} )' : ''}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: cs.onSurface.withOpacity(0.75),
-                            ),
-                          ),
-                          Text(
-                            'Fascia attuale: ${_quoteToDuration ?? '-'}'
-                            '${_quoteToUntil != null ? ' → copre fino a ${_fmt(_quoteToUntil!)}' : ''}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: cs.onSurface.withOpacity(0.75),
-                            ),
-                          ),
-                          Text(
-                            'Totale dovuto ora: ${_euro(_quoteRequiredTotalCents!)}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: cs.onSurface.withOpacity(0.75),
-                            ),
-                          ),
-                        ],
-
+                      if (_quotePaidTotalCents != null && _quoteRequiredTotalCents != null) ...[
                         const SizedBox(height: 10),
+                        Text(
+                          'Hai pagato finora: ${_euro(_quotePaidTotalCents!)}'
+                          '${_quoteFromUntil != null ? ' (coperto fino a ${_fmt(_quoteFromUntil!)} )' : ''}',
+                          style: TextStyle(fontSize: 12, color: cs.onSurface.withOpacity(0.75)),
+                        ),
+                        Text(
+                          'Fascia: ${_quoteToDuration ?? '-'}'
+                          '${_quoteToUntil != null ? ' → copre fino a ${_fmt(_quoteToUntil!)}' : ''}',
+                          style: TextStyle(fontSize: 12, color: cs.onSurface.withOpacity(0.75)),
+                        ),
+                        Text(
+                          'Totale dovuto ora: ${_euro(_quoteRequiredTotalCents!)}',
+                          style: TextStyle(fontSize: 12, color: cs.onSurface.withOpacity(0.75)),
+                        ),
+                      ],
 
-                        if (_quoteLoading) ...[
-                          const LinearProgressIndicator(minHeight: 4),
-                          const SizedBox(height: 10),
-                        ],
+                      const SizedBox(height: 10),
 
-                        if (!_quoteLoading && !hasQuote) ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            'Se l’importo non appare, tocca “Ricalcola importo”.',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: cs.onSurface.withOpacity(0.65),
-                            ),
-                          ),
-                        ],
+                      if (_quoteLoading) ...[
+                        const LinearProgressIndicator(minHeight: 4),
+                        const SizedBox(height: 10),
+                      ],
 
-                        SizedBox(
-                          width: double.infinity,
-                          child: SizedBox(
-                            width: double.infinity,
+                      Row(
+                        children: [
+                          Expanded(
                             child: ElevatedButton.icon(
-                              onPressed: _paying
+                              onPressed: (_paying || _quoteLoading)
                                   ? null
-                                  : (_quoteLoading
-                                        ? null
-                                        : (hasQuote
-                                              ? _payLateFeeMock
-                                              : () {
-                                                  // se non ho ancora l'importo, faccio "ricalcola" invece di far sembrare rotto
-                                                  _ensureLateFeeQuote(booking);
-                                                })),
+                                  : (hasQuote ? _payLateFee : () => _ensureLateFeeQuote(booking, force: true)),
                               icon: _paying
                                   ? const SizedBox(
                                       width: 18,
                                       height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
+                                      child: CircularProgressIndicator(strokeWidth: 2),
                                     )
-                                  : Icon(
-                                      hasQuote
-                                          ? Icons.payments_outlined
-                                          : Icons.refresh_rounded,
-                                    ),
+                                  : Icon(hasQuote ? Icons.payments_outlined : Icons.refresh_rounded),
                               label: Text(
                                 _paying
                                     ? 'Pagamento…'
                                     : (_quoteLoading
-                                          ? 'Calcolo importo…'
-                                          : (hasQuote
-                                                ? 'Paga ${_euro(_quoteCents!)}'
-                                                : 'Ricalcola importo')),
+                                        ? 'Calcolo importo…'
+                                        : (hasQuote ? 'Paga ${_euro(_quoteCents!)}' : 'Calcola importo')),
                               ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
+                        ],
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 10),
-                ],
+                ),
+                const SizedBox(height: 10),
               ],
 
               Text(
-                'Suggerimento: tieni questa schermata aperta mentre il partner scannerizza: lo stato si aggiorna da solo.',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: cs.onSurface.withOpacity(0.65),
-                ),
+                'Suggerimento: tieni questa schermata aperta mentre il partner scannerizza.',
+                style: TextStyle(fontSize: 12, color: cs.onSurface.withOpacity(0.65)),
               ),
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _IosToastCard extends StatelessWidget {
+  final Color bg;
+  final Color fg;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _IosToastCard({
+    required this.bg,
+    required this.fg,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white.withOpacity(0.18)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: fg.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: fg),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: TextStyle(fontWeight: FontWeight.w900, color: fg)),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(color: fg.withOpacity(0.85), fontSize: 12, height: 1.2),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LiveBadge extends StatelessWidget {
+  final bool active;
+
+  const _LiveBadge({required this.active});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final bg = active ? Colors.green.withOpacity(0.22) : Colors.white.withOpacity(0.18);
+    final fg = active ? Colors.white : Colors.white.withOpacity(0.85);
+    final dot = active ? Colors.greenAccent : cs.onSurface.withOpacity(0.45);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withOpacity(0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            active ? 'LIVE' : 'OFF',
+            style: TextStyle(fontWeight: FontWeight.w900, color: fg, fontSize: 12),
+          ),
+        ],
       ),
     );
   }

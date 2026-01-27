@@ -292,12 +292,7 @@ class _BookingFinalRecapScreenState extends State<BookingFinalRecapScreen> {
                     label: 'Ritiro scelto',
                     value: _formatDateTime(requestedPickup),
                   ),
-                  const SizedBox(height: 6),
-                  _IconLabelRow(
-                    icon: Icons.hourglass_bottom,
-                    label: 'Scadenza fascia',
-                    value: _formatDateTime(plannedPickup),
-                  ),
+               
                 ],
               ),
             ),
@@ -363,93 +358,6 @@ class _BookingFinalRecapScreenState extends State<BookingFinalRecapScreen> {
           const SizedBox(height: 16),
 
           // Pagamento finale
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            elevation: 1,
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Pagamento finale',
-                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-                  ),
-                  const SizedBox(height: 10),
-
-                  _InfoRow(
-                    'Bagagli',
-                    '${booking.totalBags} (S:${booking.bagsS} M:${booking.bagsM} L:${booking.bagsL})',
-                  ),
-
-                  const SizedBox(height: 8),
-                  _InfoRow('Prezzo base (prenotato)', _euroCents(plannedCents)),
-
-                  if (extraCents > 0) ...[
-                    const SizedBox(height: 6),
-                    _InfoRow(
-                      'Sovrapprezzo (ritardo)',
-                      '+ ${_euroCents(extraCents)}',
-                      valueStyle: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        color: Colors.orange.shade800,
-                      ),
-                    ),
-                  ],
-
-                  const Divider(height: 22),
-                  Row(
-                    children: [
-                      const Text(
-                        'Totale dovuto',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 14,
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        _euroCents(dueCents),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 18,
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 6),
-                  _InfoRow(
-                    'Totale pagato (registrato)',
-                    _euroCents(_totalPaidCents),
-                  ),
-                  _InfoRow(
-                    balanceCents > 0 ? 'Da pagare' : 'Saldo',
-                    _euroCents(balanceCents.abs()),
-                    valueStyle: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      color: balanceCents > 0
-                          ? Colors.orange.shade800
-                          : cs.primary,
-                    ),
-                  ),
-
-                  const SizedBox(height: 10),
-                  Text(
-                    'Nota: il totale è calcolato automaticamente in base alle tariffe BagDropPricing e agli orari effettivi (se oltre tolleranza).',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: cs.onSurface.withOpacity(0.6),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          //////ALTRO STILE DI CARD ????????????????????????????????????????????
           ///
           ///
           Card(

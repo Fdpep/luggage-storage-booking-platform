@@ -435,11 +435,7 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
                     ] else ...[
                       _InfoRow('Pagato finora', _euroCents(_totalPaidCents)),
                       _InfoRow('Numero pagamenti', '${_payments.length}'),
-                      const SizedBox(height: 6),
-                      _InfoRow(
-                        balanceCents > 0 ? 'Da pagare' : 'Saldo',
-                        _euroCents(balanceCents.abs()),
-                      ),
+                 
                     ],
                   ],
                 ],
