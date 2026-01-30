@@ -33,14 +33,13 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
     final st = _normStatus(status);
     //if (st == 'pending') return _StatusFilter.pending;
     if (st == 'in_store') return _StatusFilter.inStore;
-    if (st == 'rejected') return _StatusFilter.rejected;
+    if (st == 'rejected' || st == 'cancelled_by_partner') {
+      return _StatusFilter.rejected;
+    }
     if (st == 'completed') return _StatusFilter.completed;
-    /*if (st == 'cancelled' ||
-        st == 'canceled' ||
-        st == 'cancelled_by_user' ||
-        st == 'cancelled_by_partner') {
+    if (st == 'cancelled' || st == 'canceled' || st == 'cancelled_by_user') {
       return _StatusFilter.cancelled;
-    }*/
+    }
     // default: confermata/accepted ecc
     return _StatusFilter.confirmed;
   }
@@ -61,7 +60,7 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
     }
     if (_dateRange != null) {
       list = list
-          .where((b) => _inRange(b.plannedDropoffLocal, _dateRange!))
+          .where((b) => _inRange(b.plannedDropoffAtLocal, _dateRange!))
           .toList();
     }
 
@@ -123,6 +122,30 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
         _loading = false;
         _error = 'Errore durante il caricamento delle prenotazioni.';
       });
+    }
+  }
+
+  Future<void> _rejectFromList(PartnerBooking booking) async {
+    if (!_canReject(booking)) return;
+
+    final reason = await _openRejectSheet(context);
+    if (!mounted) return;
+    if (reason == null || reason.trim().isEmpty) return;
+
+    try {
+      final repo = PartnerBookingRepo(Supabase.instance.client);
+      await repo.rejectBooking(bookingId: booking.id, reason: reason.trim());
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Prenotazione rifiutata')));
+      _loadBookings();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Errore: ${e.toString()}')));
     }
   }
 
@@ -244,15 +267,8 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
   }
 
   bool _canReject(PartnerBooking b) {
-    final s = (b.status).toLowerCase();
-    return ![
-      'in_store',
-      'completed',
-      'cancelled',
-      'cancelled_by_user',
-      'cancelled_by_partner',
-      'expired',
-    ].contains(s);
+    final ui = b.uiStatus.toLowerCase();
+    return ui == 'pending' || ui == 'confirmed';
   }
 
   String _statusFilterLabel(_StatusFilter f) {
@@ -269,8 +285,8 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
         return 'Rifiutate';
       case _StatusFilter.completed:
         return 'Completate';
-      // case _StatusFilter.cancelled:
-      // return 'Annullate';
+      case _StatusFilter.cancelled:
+        return 'Annullate';
     }
   }
 
@@ -565,7 +581,7 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
                   if (changed == true) _loadBookings();
                 });
           },
-          onReject: () => _openRejectSheet(context),
+          onReject: () => _rejectFromList(booking),
         );
       }, childCount: list.length),
     );
@@ -617,7 +633,7 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
                   if (changed == true) _loadBookings();
                 });
           },
-          onReject: () => _openRejectSheet(context),
+          onReject: () => _rejectFromList(booking),
         );
       },
     );
@@ -884,7 +900,7 @@ class _FiltersBar extends StatelessWidget {
   }
 }
 
-enum _StatusFilter { all, confirmed, inStore, rejected, completed }
+enum _StatusFilter { all, confirmed, inStore, cancelled, rejected, completed }
 
 enum _BookingSort { dropoffAsc, dropoffDesc, createdAsc, createdDesc }
 
@@ -909,7 +925,7 @@ class _BookingCardModern extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
-    final d = booking.plannedDropoffLocal;
+    final d = booking.plannedDropoffAtLocal;
     final dropoffStr =
         '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')} '
         '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
@@ -1079,7 +1095,7 @@ class _StatusUI {
         icon: Icons.hourglass_bottom,
       );
     }
-    if (st == 'rejected') {
+    if (st == 'rejected' || st == 'cancelled_by_partner') {
       return _StatusUI(
         kind: _StatusKind.rejected,
         label: 'Rifiutata',
@@ -1088,6 +1104,7 @@ class _StatusUI {
         icon: Icons.block,
       );
     }
+
     if (st == 'completed') {
       return _StatusUI(
         kind: _StatusKind.completed,
@@ -1097,10 +1114,7 @@ class _StatusUI {
         icon: Icons.check_circle_outline,
       );
     }
-    if (st == 'cancelled' ||
-        st == 'canceled' ||
-        st == 'cancelled_by_user' ||
-        st == 'cancelled_by_partner') {
+    if (st == 'cancelled' || st == 'canceled' || st == 'cancelled_by_user') {
       return _StatusUI(
         kind: _StatusKind.cancelled,
         label: 'Annullata',

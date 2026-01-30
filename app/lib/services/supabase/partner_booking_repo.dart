@@ -1,8 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:BagDrop/models/partner_booking.dart';
 
-
-
 int _clamp0(int v) => v < 0 ? 0 : v;
 
 /// Fallback per derivare una base_u se nel DB non c'è ancora base_capacity_u.
@@ -61,9 +59,9 @@ PartnerAvailability _computeAvailabilityV2({
   final extraRemainingL = _clamp0(exL - usedExtraL);
 
   // Capacità "massima mostrabile" per taglia (extra + tutto il base residuo convertito)
-  final capS = acceptS ? (exS + bU) : 0;           // S può usare 1u ciascuno
-  final capM = acceptM ? (exM + (bU ~/ 2)) : 0;    // M usa 2u
-  final capL = acceptL ? (exL + (bU ~/ 4)) : 0;    // L usa 4u
+  final capS = acceptS ? (exS + bU) : 0; // S può usare 1u ciascuno
+  final capM = acceptM ? (exM + (bU ~/ 2)) : 0; // M usa 2u
+  final capL = acceptL ? (exL + (bU ~/ 4)) : 0; // L usa 4u
 
   // Disponibili per taglia = extra rimasti + base residuo convertito
   final availableS = acceptS ? (extraRemainingS + baseAvailableU) : 0;
@@ -72,7 +70,8 @@ PartnerAvailability _computeAvailabilityV2({
 
   // Totali in unità (per barra/controllo generale)
   final capacityTotalU = bU + (exS * 1) + (exM * 2) + (exL * 4);
-  final usedTotalU = baseUsedU + (usedExtraS * 1) + (usedExtraM * 2) + (usedExtraL * 4);
+  final usedTotalU =
+      baseUsedU + (usedExtraS * 1) + (usedExtraM * 2) + (usedExtraL * 4);
   final availableTotalU = _clamp0(capacityTotalU - usedTotalU);
 
   return PartnerAvailability(
@@ -93,7 +92,6 @@ PartnerAvailability _computeAvailabilityV2({
     acceptL: acceptL,
   );
 }
-
 
 /// DTO per la disponibilità di un partner.
 ///
@@ -141,7 +139,6 @@ class PartnerAvailability {
   });
 }
 
-
 /// Repository per gestire le prenotazioni partner_bookings.
 class PartnerBookingRepo {
   final SupabaseClient client;
@@ -152,7 +149,7 @@ class PartnerBookingRepo {
   ///
   /// [bookingDate] = giorno della prenotazione (obbligatorio nel nuovo flusso).
   /// [startTime], [endTime] = orari nel formato "HH:MM" (es. "10:00").
-  
+
   Future<String> createBooking({
     required String partnerId,
     required String firstName,
@@ -239,66 +236,67 @@ class PartnerBookingRepo {
     return list;
   }
 
-Future<PartnerAvailability> getPartnerAvailability(String partnerId) async {
-  final partnerRow = await client
-      .from('partners')
-      .select(
-        'base_capacity_u, extra_capacity_s, extra_capacity_m, extra_capacity_l, '
-        'accept_s, accept_m, accept_l, '
-        'capacity_s, capacity_m, capacity_l, capacity',
-      )
-      .eq('id', partnerId)
-      .maybeSingle();
+  Future<PartnerAvailability> getPartnerAvailability(String partnerId) async {
+    final partnerRow = await client
+        .from('partners')
+        .select(
+          'base_capacity_u, extra_capacity_s, extra_capacity_m, extra_capacity_l, '
+          'accept_s, accept_m, accept_l, '
+          'capacity_s, capacity_m, capacity_l, capacity',
+        )
+        .eq('id', partnerId)
+        .maybeSingle();
 
-  if (partnerRow == null) {
-    throw Exception('Partner non trovato per id=$partnerId');
+    if (partnerRow == null) {
+      throw Exception('Partner non trovato per id=$partnerId');
+    }
+
+    final int baseU =
+        (partnerRow['base_capacity_u'] as int?) ??
+        _legacyToBaseU(
+          capS: (partnerRow['capacity_s'] as int?) ?? 0,
+          capM: (partnerRow['capacity_m'] as int?) ?? 0,
+          capL: (partnerRow['capacity_l'] as int?) ?? 0,
+          totalM: (partnerRow['capacity'] as int?) ?? 0,
+        );
+
+    final int extraS = (partnerRow['extra_capacity_s'] as int?) ?? 0;
+    final int extraM = (partnerRow['extra_capacity_m'] as int?) ?? 0;
+    final int extraL = (partnerRow['extra_capacity_l'] as int?) ?? 0;
+
+    final bool acceptS = (partnerRow['accept_s'] as bool?) ?? true;
+    final bool acceptM = (partnerRow['accept_m'] as bool?) ?? true;
+    final bool acceptL = (partnerRow['accept_l'] as bool?) ?? true;
+
+    final bookingsData = await client
+        .from('partner_bookings')
+        .select('bags_s, bags_m, bags_l, status')
+        .eq('partner_id', partnerId)
+        .inFilter('status', ['pending', 'confirmed', 'in_store']);
+
+    int usedS = 0;
+    int usedM = 0;
+    int usedL = 0;
+
+    for (final row in bookingsData as List) {
+      usedS += (row['bags_s'] as int?) ?? 0;
+      usedM += (row['bags_m'] as int?) ?? 0;
+      usedL += (row['bags_l'] as int?) ?? 0;
+    }
+
+    return _computeAvailabilityV2(
+      baseU: baseU,
+      extraS: extraS,
+      extraM: extraM,
+      extraL: extraL,
+      acceptS: acceptS,
+      acceptM: acceptM,
+      acceptL: acceptL,
+      usedS: usedS,
+      usedM: usedM,
+      usedL: usedL,
+    );
   }
-
-  final int baseU = (partnerRow['base_capacity_u'] as int?) ??
-      _legacyToBaseU(
-        capS: (partnerRow['capacity_s'] as int?) ?? 0,
-        capM: (partnerRow['capacity_m'] as int?) ?? 0,
-        capL: (partnerRow['capacity_l'] as int?) ?? 0,
-        totalM: (partnerRow['capacity'] as int?) ?? 0,
-      );
-
-  final int extraS = (partnerRow['extra_capacity_s'] as int?) ?? 0;
-  final int extraM = (partnerRow['extra_capacity_m'] as int?) ?? 0;
-  final int extraL = (partnerRow['extra_capacity_l'] as int?) ?? 0;
-
-  final bool acceptS = (partnerRow['accept_s'] as bool?) ?? true;
-  final bool acceptM = (partnerRow['accept_m'] as bool?) ?? true;
-  final bool acceptL = (partnerRow['accept_l'] as bool?) ?? true;
-
-  final bookingsData = await client
-      .from('partner_bookings')
-      .select('bags_s, bags_m, bags_l, status')
-      .eq('partner_id', partnerId)
-      .inFilter('status', ['pending', 'confirmed', 'in_store']);
-
-  int usedS = 0;
-  int usedM = 0;
-  int usedL = 0;
-
-  for (final row in bookingsData as List) {
-    usedS += (row['bags_s'] as int?) ?? 0;
-    usedM += (row['bags_m'] as int?) ?? 0;
-    usedL += (row['bags_l'] as int?) ?? 0;
-  }
-
-  return _computeAvailabilityV2(
-    baseU: baseU,
-    extraS: extraS,
-    extraM: extraM,
-    extraL: extraL,
-    acceptS: acceptS,
-    acceptM: acceptM,
-    acceptL: acceptL,
-    usedS: usedS,
-    usedM: usedM,
-    usedL: usedL,
-  );
-}
 
   Future<void> rejectBooking({
     required String bookingId,
@@ -311,15 +309,11 @@ Future<PartnerAvailability> getPartnerAvailability(String partnerId) async {
 
     await client.rpc(
       'reject_partner_booking',
-      params: {
-        'p_booking_id': bookingId,
-        'p_reason': r,
-      },
+      params: {'p_booking_id': bookingId, 'p_reason': r},
     );
 
     // TODO(REFUND): qui in futuro avvierai rimborso Stripe del pagamento base (se già incassato)
   }
-
 
   /// Calcola la disponibilità per UN INTERVALLO specifico.
   ///
@@ -332,119 +326,129 @@ Future<PartnerAvailability> getPartnerAvailability(String partnerId) async {
   /// - che si SOVRAPPONGONO all’intervallo richiesto
   ///
   /// [bookingDate] rimane nel metodo solo per compatibilità, ma non è usato.
-Future<PartnerAvailability> getPartnerAvailabilityForInterval({
-  required String partnerId,
-  required DateTime bookingDate, // compat: ignorato
-  required DateTime startDate,
-  required DateTime endDate,
-  required String startTime,
-  required String endTime,
-}) async {
-  final partnerRow = await client
-      .from('partners')
-      .select(
-        'base_capacity_u, extra_capacity_s, extra_capacity_m, extra_capacity_l, '
-        'accept_s, accept_m, accept_l, '
-        'capacity_s, capacity_m, capacity_l, capacity',
-      )
-      .eq('id', partnerId)
-      .maybeSingle();
+  Future<PartnerAvailability> getPartnerAvailabilityForInterval({
+    required String partnerId,
+    required DateTime bookingDate, // compat: ignorato
+    required DateTime startDate,
+    required DateTime endDate,
+    required String startTime,
+    required String endTime,
+  }) async {
+    final partnerRow = await client
+        .from('partners')
+        .select(
+          'base_capacity_u, extra_capacity_s, extra_capacity_m, extra_capacity_l, '
+          'accept_s, accept_m, accept_l, '
+          'capacity_s, capacity_m, capacity_l, capacity',
+        )
+        .eq('id', partnerId)
+        .maybeSingle();
 
-  if (partnerRow == null) {
-    throw Exception('Partner non trovato per id=$partnerId');
-  }
-
-  final int baseU = (partnerRow['base_capacity_u'] as int?) ??
-      _legacyToBaseU(
-        capS: (partnerRow['capacity_s'] as int?) ?? 0,
-        capM: (partnerRow['capacity_m'] as int?) ?? 0,
-        capL: (partnerRow['capacity_l'] as int?) ?? 0,
-        totalM: (partnerRow['capacity'] as int?) ?? 0,
-      );
-
-  final int extraS = (partnerRow['extra_capacity_s'] as int?) ?? 0;
-  final int extraM = (partnerRow['extra_capacity_m'] as int?) ?? 0;
-  final int extraL = (partnerRow['extra_capacity_l'] as int?) ?? 0;
-
-  final bool acceptS = (partnerRow['accept_s'] as bool?) ?? true;
-  final bool acceptM = (partnerRow['accept_m'] as bool?) ?? true;
-  final bool acceptL = (partnerRow['accept_l'] as bool?) ?? true;
-
-  final DateTime requestStart = DateTime(
-    startDate.year,
-    startDate.month,
-    startDate.day,
-    _parseHour(startTime),
-    _parseMinute(startTime),
-  );
-
-  final DateTime requestEnd = DateTime(
-    endDate.year,
-    endDate.month,
-    endDate.day,
-    _parseHour(endTime),
-    _parseMinute(endTime),
-  );
-
-  int usedS = 0;
-  int usedM = 0;
-  int usedL = 0;
-
-  final rows = await client
-      .from('partner_bookings')
-      .select('booking_date,end_date,start_time,end_time,bags_s,bags_m,bags_l,status')
-      .eq('partner_id', partnerId)
-      .or('status.eq.pending,status.eq.confirmed,status.eq.in_store');
-
-  for (final raw in rows as List) {
-    final map = raw as Map<String, dynamic>;
-
-    final DateTime bookingStartDay = DateTime.parse(map['booking_date'] as String);
-    final DateTime bookingEndDay = map['end_date'] == null
-        ? bookingStartDay
-        : DateTime.parse(map['end_date'] as String);
-
-    final String bStart = map['start_time'] as String;
-    final String bEnd = map['end_time'] as String;
-
-    final bookingStart = DateTime(
-      bookingStartDay.year,
-      bookingStartDay.month,
-      bookingStartDay.day,
-      _parseHour(bStart),
-      _parseMinute(bStart),
-    );
-
-    final bookingEnd = DateTime(
-      bookingEndDay.year,
-      bookingEndDay.month,
-      bookingEndDay.day,
-      _parseHour(bEnd),
-      _parseMinute(bEnd),
-    );
-
-    if (!_intervalsOverlap(bookingStart, bookingEnd, requestStart, requestEnd)) {
-      continue;
+    if (partnerRow == null) {
+      throw Exception('Partner non trovato per id=$partnerId');
     }
 
-    usedS += (map['bags_s'] as int?) ?? 0;
-    usedM += (map['bags_m'] as int?) ?? 0;
-    usedL += (map['bags_l'] as int?) ?? 0;
-  }
+    final int baseU =
+        (partnerRow['base_capacity_u'] as int?) ??
+        _legacyToBaseU(
+          capS: (partnerRow['capacity_s'] as int?) ?? 0,
+          capM: (partnerRow['capacity_m'] as int?) ?? 0,
+          capL: (partnerRow['capacity_l'] as int?) ?? 0,
+          totalM: (partnerRow['capacity'] as int?) ?? 0,
+        );
 
-  return _computeAvailabilityV2(
-    baseU: baseU,
-    extraS: extraS,
-    extraM: extraM,
-    extraL: extraL,
-    acceptS: acceptS,
-    acceptM: acceptM,
-    acceptL: acceptL,
-    usedS: usedS,
-    usedM: usedM,
-    usedL: usedL,
-  );
-}
+    final int extraS = (partnerRow['extra_capacity_s'] as int?) ?? 0;
+    final int extraM = (partnerRow['extra_capacity_m'] as int?) ?? 0;
+    final int extraL = (partnerRow['extra_capacity_l'] as int?) ?? 0;
+
+    final bool acceptS = (partnerRow['accept_s'] as bool?) ?? true;
+    final bool acceptM = (partnerRow['accept_m'] as bool?) ?? true;
+    final bool acceptL = (partnerRow['accept_l'] as bool?) ?? true;
+
+    final DateTime requestStart = DateTime(
+      startDate.year,
+      startDate.month,
+      startDate.day,
+      _parseHour(startTime),
+      _parseMinute(startTime),
+    );
+
+    final DateTime requestEnd = DateTime(
+      endDate.year,
+      endDate.month,
+      endDate.day,
+      _parseHour(endTime),
+      _parseMinute(endTime),
+    );
+
+    int usedS = 0;
+    int usedM = 0;
+    int usedL = 0;
+
+    final rows = await client
+        .from('partner_bookings')
+        .select(
+          'booking_date,end_date,start_time,end_time,bags_s,bags_m,bags_l,status',
+        )
+        .eq('partner_id', partnerId)
+        .or('status.eq.pending,status.eq.confirmed,status.eq.in_store');
+
+    for (final raw in rows as List) {
+      final map = raw as Map<String, dynamic>;
+
+      final DateTime bookingStartDay = DateTime.parse(
+        map['booking_date'] as String,
+      );
+      final DateTime bookingEndDay = map['end_date'] == null
+          ? bookingStartDay
+          : DateTime.parse(map['end_date'] as String);
+
+      final String bStart = map['start_time'] as String;
+      final String bEnd = map['end_time'] as String;
+
+      final bookingStart = DateTime(
+        bookingStartDay.year,
+        bookingStartDay.month,
+        bookingStartDay.day,
+        _parseHour(bStart),
+        _parseMinute(bStart),
+      );
+
+      final bookingEnd = DateTime(
+        bookingEndDay.year,
+        bookingEndDay.month,
+        bookingEndDay.day,
+        _parseHour(bEnd),
+        _parseMinute(bEnd),
+      );
+
+      if (!_intervalsOverlap(
+        bookingStart,
+        bookingEnd,
+        requestStart,
+        requestEnd,
+      )) {
+        continue;
+      }
+
+      usedS += (map['bags_s'] as int?) ?? 0;
+      usedM += (map['bags_m'] as int?) ?? 0;
+      usedL += (map['bags_l'] as int?) ?? 0;
+    }
+
+    return _computeAvailabilityV2(
+      baseU: baseU,
+      extraS: extraS,
+      extraM: extraM,
+      extraL: extraL,
+      acceptS: acceptS,
+      acceptM: acceptM,
+      acceptL: acceptL,
+      usedS: usedS,
+      usedM: usedM,
+      usedL: usedL,
+    );
+  }
 
   /// Rimane per eventuali controlli legacy; NON più usato nel nuovo flusso.
   Future<bool> hasBookingForPartnerToday(String partnerId) async {
@@ -559,5 +563,31 @@ Future<PartnerAvailability> getPartnerAvailabilityForInterval({
 
     if (row == null) return null;
     return PartnerBooking.fromMap(row as Map<String, dynamic>);
+  }
+
+  Future<Map<String, dynamic>> cancelBookingByUser({
+    required String bookingId,
+    String? reason,
+  }) async {
+    final uid = client.auth.currentUser?.id;
+    if (uid == null) throw const AuthException('Utente non autenticato');
+
+    final res = await client.rpc(
+      'cancel_my_booking',
+      params: {
+        'p_booking_id': bookingId,
+        'p_reason': reason, // puoi lasciare null per ora
+      },
+    );
+
+    final map = Map<String, dynamic>.from(res as Map);
+    final ok = map['ok'] == true;
+
+    if (!ok) {
+      // per sicurezza, ma la funzione di solito fa RAISE EXCEPTION
+      throw Exception(map['message'] ?? 'Annullamento non riuscito.');
+    }
+
+    return map;
   }
 }

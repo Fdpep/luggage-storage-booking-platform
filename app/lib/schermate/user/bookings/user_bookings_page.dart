@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'package:BagDrop/schermate/user/bookings/booking_recap_screen.dart';
 import 'package:BagDrop/models/partner_booking.dart';
 import 'package:BagDrop/models/partner.dart';
@@ -39,19 +40,22 @@ class _UserBookingsPageState extends State<UserBookingsPage> {
 
   String _normStatus(String s) => s.trim().toLowerCase();
 
+  bool _isCancelledStatus(String s) {
+    final st = _normStatus(s);
+    return st == 'cancelled' || st == 'canceled' || st == 'cancelled_by_user';
+  }
+
   _StatusFilter _mapToFilter(String status) {
     final st = _normStatus(status);
 
-    //if (st == 'pending') return _StatusFilter.pending;
+    // if (st == 'pending') return _StatusFilter.pending;
     if (st == 'in_store') return _StatusFilter.inStore;
-    if (st == 'rejected') return _StatusFilter.rejected;
+    if (st == 'rejected' || st == 'cancelled_by_partner') {
+      return _StatusFilter.rejected;
+    }
     if (st == 'completed') return _StatusFilter.completed;
-  /*  if (st == 'cancelled' ||
-        st == 'canceled' ||
-        st == 'cancelled_by_user' ||
-        st == 'cancelled_by_partner') {
-      return _StatusFilter.cancelled;
-    }*/
+    if (_isCancelledStatus(st)) return _StatusFilter.cancelled;
+
     return _StatusFilter.confirmed;
   }
 
@@ -104,6 +108,8 @@ class _UserBookingsPageState extends State<UserBookingsPage> {
         return 'In deposito';
       case _StatusFilter.rejected:
         return 'Rifiutate';
+      case _StatusFilter.cancelled:
+        return 'Annullate';
       case _StatusFilter.completed:
         return 'Completate';
     }
@@ -139,10 +145,12 @@ class _UserBookingsPageState extends State<UserBookingsPage> {
 
     final r = _rangeDays(_dateRange!.start, _dateRange!.end);
 
-    if (_sameDay(r.start, today) && _sameDay(r.end, today))
+    if (_sameDay(r.start, today) && _sameDay(r.end, today)) {
       return _DatePreset.today;
-    if (_sameDay(r.start, tomorrow) && _sameDay(r.end, tomorrow))
+    }
+    if (_sameDay(r.start, tomorrow) && _sameDay(r.end, tomorrow)) {
       return _DatePreset.tomorrow;
+    }
 
     if (_sameDay(r.start, today) &&
         _sameDay(r.end, today.add(const Duration(days: 6)))) {
@@ -155,8 +163,9 @@ class _UserBookingsPageState extends State<UserBookingsPage> {
 
     final first = DateTime(today.year, today.month, 1);
     final last = DateTime(today.year, today.month + 1, 0);
-    if (_sameDay(r.start, first) && _sameDay(r.end, last))
+    if (_sameDay(r.start, first) && _sameDay(r.end, last)) {
       return _DatePreset.thisMonth;
+    }
 
     return _DatePreset.custom;
   }
@@ -391,7 +400,7 @@ class _UserBookingsPageState extends State<UserBookingsPage> {
               itemCount: filtered.length,
               itemBuilder: (context, index) {
                 final booking = filtered[index];
-                return _BookingListItem(booking: booking);
+                return _BookingListItem(booking: booking, onChanged: _reload);
               },
             ),
           );
@@ -402,11 +411,13 @@ class _UserBookingsPageState extends State<UserBookingsPage> {
 }
 
 /// Card di lista con partner + stato + data.
-/// Cliccando apre la schermata di dettaglio attività + bottoni recap/QR.
+/// - NON tocca minimamente UI/Logica di "in_store" e "completed" (restano come nel codice iniziale)
+/// - Aggiunge solo: annullamento SOLO per "confirmed" + estetica dedicata per "cancelled"
 class _BookingListItem extends StatefulWidget {
   final PartnerBooking booking;
+  final VoidCallback onChanged;
 
-  const _BookingListItem({required this.booking});
+  const _BookingListItem({required this.booking, required this.onChanged});
 
   @override
   State<_BookingListItem> createState() => _BookingListItemState();
@@ -414,7 +425,10 @@ class _BookingListItem extends StatefulWidget {
 
 class _BookingListItemState extends State<_BookingListItem> {
   final _partnerRepo = PartnerRepo(Supabase.instance.client);
+  final _bookingRepo = PartnerBookingRepo(Supabase.instance.client);
+
   late Future<Partner?> _futurePartner;
+  bool _cancelling = false;
 
   @override
   void initState() {
@@ -438,6 +452,16 @@ class _BookingListItemState extends State<_BookingListItem> {
     }
     final mins = d.inMinutes;
     return isNeg ? 'In ritardo di ${mins} min' : '$prefix ${mins} min';
+  }
+
+  bool _isRejectedStatus(String statusRaw) {
+    final st = statusRaw.trim().toLowerCase();
+    return st == 'rejected' || st == 'cancelled_by_partner';
+  }
+
+  bool _isCancelledStatus(String s) {
+    final st = s.trim().toLowerCase();
+    return st == 'cancelled' || st == 'canceled' || st == 'cancelled_by_user';
   }
 
   Widget _buildInStoreReminder(
@@ -476,7 +500,7 @@ class _BookingListItemState extends State<_BookingListItem> {
               ? _formatCountdown(diffToDeadline, prefix: 'Tolleranza')
               : _formatCountdown(
                   deadline.difference(now),
-                )); // <-- NEGATIVO => "In ritardo"
+                )); // NEG => "In ritardo"
 
     final String note = beforePickup
         ? 'Ricorda di fare il check-out entro l’orario previsto.'
@@ -484,7 +508,7 @@ class _BookingListItemState extends State<_BookingListItem> {
               ? 'Se fai il check-out entro la tolleranza, non dovrebbe esserci sovrapprezzo.'
               : '⚠️ Oltre la tolleranza: potrebbe essere richiesto un sovrapprezzo al check-out.');
 
-    // progress: dropoff -> pickup (al massimo 1.0 quando arrivi al pickup)
+    // progress: dropoff -> pickup
     final totalSec = pickup.difference(dropoff).inSeconds;
     double? progress;
     if (totalSec > 0) {
@@ -536,8 +560,6 @@ class _BookingListItemState extends State<_BookingListItem> {
             ],
           ),
           const SizedBox(height: 8),
-
-          // pickup previsto
           Text(
             _formatDate(pickup),
             style: TextStyle(
@@ -546,8 +568,6 @@ class _BookingListItemState extends State<_BookingListItem> {
               color: cs.onSurface.withOpacity(0.9),
             ),
           ),
-
-          // se siamo in tolleranza o oltre, mostra anche la scadenza tolleranza
           if (!beforePickup) ...[
             const SizedBox(height: 4),
             Text(
@@ -559,7 +579,6 @@ class _BookingListItemState extends State<_BookingListItem> {
               ),
             ),
           ],
-
           if (progress != null) ...[
             const SizedBox(height: 10),
             ClipRRect(
@@ -572,7 +591,6 @@ class _BookingListItemState extends State<_BookingListItem> {
               ),
             ),
           ],
-
           const SizedBox(height: 6),
           Text(
             note,
@@ -595,8 +613,8 @@ class _BookingListItemState extends State<_BookingListItem> {
       case 'confirmed':
         return Colors.green.shade600;
 
-     // case 'pending':
-      //  return Colors.orange.shade700;
+      // case 'pending':
+      //   return Colors.orange.shade700;
 
       case 'in_store':
         return Colors.blue.shade600;
@@ -604,10 +622,12 @@ class _BookingListItemState extends State<_BookingListItem> {
       case 'completed':
         return Colors.indigo.shade600;
 
-   /*   case 'cancelled':
+      case 'cancelled':
       case 'canceled':
-        return Colors.red.shade600;
-*/
+      case 'cancelled_by_user':
+        return Colors.grey.shade700;
+
+      case 'cancelled_by_partner':
       case 'rejected':
         return Colors.red.shade700;
 
@@ -625,7 +645,11 @@ class _BookingListItemState extends State<_BookingListItem> {
       case 'completed':
         return 'Completata';
       case 'cancelled':
+      case 'canceled':
+      case 'cancelled_by_user':
+        return 'Annullata';
       case 'rejected':
+      case 'cancelled_by_partner':
         return 'Rifiutata';
       default:
         return statusRaw;
@@ -644,7 +668,9 @@ class _BookingListItemState extends State<_BookingListItem> {
         return Icons.verified_outlined;
       case 'cancelled':
       case 'canceled':
-        return Icons.cancel_outlined;
+      case 'cancelled_by_user':
+        return Icons.event_busy_outlined;
+      case 'cancelled_by_partner':
       case 'rejected':
         return Icons.block_outlined;
       default:
@@ -652,12 +678,155 @@ class _BookingListItemState extends State<_BookingListItem> {
     }
   }
 
+  Future<bool> _confirmCancel(BuildContext context) async {
+    return (await showModalBottomSheet<bool>(
+          context: context,
+          showDragHandle: true,
+          isScrollControlled: true,
+          builder: (ctx) {
+            return SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Annullare la prenotazione?',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Questa operazione è irreversibile. La prenotazione verrà annullata definitivamente.',
+                      style: TextStyle(
+                        color: Theme.of(
+                          ctx,
+                        ).colorScheme.onSurface.withOpacity(0.75),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('Torna indietro'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            icon: const Icon(Icons.close_rounded),
+                            label: const Text('Annulla'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red.shade700,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        )) ??
+        false;
+  }
+
+  Future<void> _cancelBooking() async {
+    if (_cancelling) return;
+
+    final ok = await _confirmCancel(context);
+    if (!ok || !mounted) return;
+
+    setState(() => _cancelling = true);
+    try {
+      await _bookingRepo.cancelBookingByUser(bookingId: widget.booking.id);
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Prenotazione annullata')));
+
+      widget.onChanged();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Errore: ${e.toString()}')));
+    } finally {
+      if (mounted) setState(() => _cancelling = false);
+    }
+  }
+
+  Widget _cancelledAestheticBanner(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cs.onSurface.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: cs.onSurface.withOpacity(0.08)),
+      ),
+      child: Center(
+        child: Row(
+          mainAxisSize: MainAxisSize.min, // ✅ centra il gruppo icona + testo
+          children: [
+            Icon(
+              Icons.event_busy_outlined,
+              size: 18,
+              color: cs.onSurface.withOpacity(0.6),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'Prenotazione annullata.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w800,
+                color: cs.onSurface.withOpacity(0.75),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final booking = widget.booking;
+
+    // ⚠️ come nel tuo file (non cambiare logica dati)
     final dropoff = booking.plannedDropoffLocal;
     final pickup = booking.plannedPickupAtLocal;
+    final now = DateTime.now();
+    final canCancelByTime = now.isBefore(dropoff);
+
+    final statusRaw = booking.uiStatus.trim().toLowerCase();
+    final isCancelled = _isCancelledStatus(statusRaw);
+    final isCompleted = statusRaw == 'completed';
+    final isConfirmed = statusRaw == 'confirmed';
+
+    final isRejected = _isRejectedStatus(statusRaw);
+
+    // QR: come nel codice iniziale (NON tocchiamo la logica)
+    final qrAvailable =
+        !isCompleted && (statusRaw == 'confirmed' || statusRaw == 'in_store');
 
     return FutureBuilder<Partner?>(
       future: _futurePartner,
@@ -665,18 +834,725 @@ class _BookingListItemState extends State<_BookingListItem> {
         final isLoading = snapshot.connectionState == ConnectionState.waiting;
         final partner = snapshot.data;
         final hasError = snapshot.hasError;
-
+        final now = DateTime.now();
+        final canCancelByTime = now.isBefore(
+          dropoff,
+        ); // dropoff = booking.plannedDropoffLocal
         final partnerName = isLoading
             ? 'Caricamento attività...'
             : (partner?.name ?? 'Attività non disponibile');
 
-        final status = booking.uiStatus.toLowerCase();
-        final isCompleted = status == 'completed';
+        // ==========================
+        // 1) CANCELLED: invariata
+        // ==========================
+        if (isCancelled) {
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _statusColor(
+                            context,
+                            statusRaw,
+                          ).withOpacity(0.10),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _statusIcon(statusRaw),
+                              size: 14,
+                              color: _statusColor(context, statusRaw),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              _statusLabel(statusRaw),
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                                color: _statusColor(context, statusRaw),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Spacer(),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            _formatDate(dropoff),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.onSurface.withOpacity(0.8),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'creata il ${_formatDate(booking.createdAt)}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: cs.onSurface.withOpacity(0.5),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    partnerName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 16,
+                    ),
+                  ),
+                  if (hasError)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4.0),
+                      child: Text(
+                        'Errore nel caricamento dell’attività.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.red.shade600,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.luggage_outlined,
+                        size: 16,
+                        color: cs.onSurface.withOpacity(0.7),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Bagagli: ${booking.bagsS + booking.bagsM + booking.bagsL}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: cs.onSurface.withOpacity(0.8),
+                        ),
+                      ),
+                    ],
+                  ),
+                  _cancelledAestheticBanner(context),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: partner == null
+                          ? null
+                          : () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => BookingRecapScreen(
+                                    partner: partner,
+                                    booking: booking,
+                                  ),
+                                ),
+                              );
+                            },
+                      icon: const Icon(Icons.receipt_long_outlined, size: 18),
+                      label: const Text('Riepilogo'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
 
-        // QR: solo quando ha senso (es: confirmed / in_store) e NON completed
-        final qrAvailable =
-            !isCompleted && (status == 'confirmed' || status == 'in_store');
+        // ==========================
+        // 1B) REJECTED: estetica rossa dedicata
+        // ==========================
+        if (isRejected) {
+          final red = Colors.red.shade700;
+          final reason = (booking.rejectReason ?? '').trim();
+          final reasonText = reason.isEmpty
+              ? 'Motivazione non specificata.'
+              : reason;
 
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              //side: BorderSide(color: red.withOpacity(0.18)),
+            ),
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(18),
+                //color: red.withOpacity(0.035),
+              ),
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // HEADER: pill rifiutata + date (dropoff e creazione)
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: red.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.block, size: 14, color: red),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Rifiutata',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                                color: red,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Spacer(),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            _formatDate(dropoff),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.onSurface.withOpacity(0.82),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'creata il ${_formatDate(booking.createdAt)}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: cs.onSurface.withOpacity(0.55),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // Nome partner
+                  Text(
+                    partnerName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                    ),
+                  ),
+                  if (hasError)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4.0),
+                      child: Text(
+                        'Errore nel caricamento dell’attività.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.red.shade600,
+                        ),
+                      ),
+                    ),
+
+                  const SizedBox(height: 8),
+
+                  // Date utili (consegna/ritiro)
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.schedule,
+                        size: 16,
+                        color: cs.onSurface.withOpacity(0.65),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Consegna: ${_formatDate(dropoff)}',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: cs.onSurface.withOpacity(0.75),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.history_toggle_off,
+                        size: 16,
+                        color: cs.onSurface.withOpacity(0.65),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Ritiro: ${_formatDate(pickup)}',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: cs.onSurface.withOpacity(0.75),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // Bags quick line
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.luggage_outlined,
+                        size: 16,
+                        color: cs.onSurface.withOpacity(0.7),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Bagagli: ${booking.bagsS + booking.bagsM + booking.bagsL}',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: cs.onSurface.withOpacity(0.80),
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        'S:${booking.bagsS}  M:${booking.bagsM}  L:${booking.bagsL}',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: cs.onSurface.withOpacity(0.60),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // BOX motivo rifiuto (stile moderno, rosso)
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(
+                        0.55,
+                      ), // resta pulito sopra il rosso light
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: red.withOpacity(0.18)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.info_outline, size: 16, color: red),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Motivazione del rifiuto',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w900,
+                                color: cs.onSurface.withOpacity(0.92),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          reasonText,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            height: 1.25,
+                            color: cs.onSurface.withOpacity(0.82),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.currency_exchange_outlined,
+                              size: 16,
+                              color: red,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Se era stato effettuato un pagamento, verrà avviato il rimborso secondo le tempistiche del metodo di pagamento.',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  height: 1.25,
+                                  color: cs.onSurface.withOpacity(0.70),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+                  Divider(height: 1, color: cs.onSurface.withOpacity(0.08)),
+                  const SizedBox(height: 12),
+
+                  // Azioni: solo Riepilogo (niente QR)
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: partner == null
+                          ? null
+                          : () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => BookingRecapScreen(
+                                    partner: partner,
+                                    booking: booking,
+                                  ),
+                                ),
+                              );
+                            },
+                      icon: const Icon(Icons.receipt_long_outlined, size: 18),
+                      label: const Text(
+                        'Riepilogo',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        // =====================================
+        // 2) CONFIRMED: RESTYLING + FIX OVERFLOW
+        // =====================================
+
+        if (isConfirmed) {
+          final statusColor = _statusColor(context, statusRaw);
+
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              side: BorderSide(color: cs.onSurface.withOpacity(0.08)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // HEADER: pill stato (sx) + date (dx)
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: statusColor.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _statusIcon(statusRaw),
+                              size: 14,
+                              color: statusColor,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              _statusLabel(statusRaw),
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                                color: statusColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Spacer(),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            _formatDate(dropoff),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.onSurface.withOpacity(0.82),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'creata il ${_formatDate(booking.createdAt)}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: cs.onSurface.withOpacity(0.55),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // Nome partner
+                  Text(
+                    partnerName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                    ),
+                  ),
+                  if (hasError)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4.0),
+                      child: Text(
+                        'Errore nel caricamento dell’attività.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.red.shade600,
+                        ),
+                      ),
+                    ),
+
+                  const SizedBox(height: 8),
+
+                  // Riga "bagagli" (sx) + "annulla" (dx) con vincolo orario:
+                  // - annullabile SOLO prima dell'orario di dropoff (check-in pianificato)
+                  // - dopo quell'orario: bottone disabled + microhint
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.luggage_outlined,
+                              size: 16,
+                              color: cs.onSurface.withOpacity(0.70),
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                'Bagagli: ${booking.bagsS + booking.bagsM + booking.bagsL}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  color: cs.onSurface.withOpacity(0.75),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Annulla: disabilitato se oltre orario o se sta annullando
+                      OutlinedButton.icon(
+                        onPressed: (_cancelling || !canCancelByTime)
+                            ? null
+                            : _cancelBooking,
+                        icon: Icon(
+                          Icons.close_rounded,
+                          size: 16,
+                          color: (_cancelling || !canCancelByTime)
+                              ? cs.onSurface.withOpacity(0.35)
+                              : Colors.red.shade700,
+                        ),
+                        label: Text(
+                          _cancelling
+                              ? '...'
+                              : (canCancelByTime
+                                    ? 'Annulla prenotazione'
+                                    : 'Non annullabile'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: (_cancelling || !canCancelByTime)
+                                ? cs.onSurface.withOpacity(0.45)
+                                : Colors.red.shade700,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(
+                            color: (_cancelling || !canCancelByTime)
+                                ? cs.onSurface.withOpacity(0.12)
+                                : Colors.red.shade200,
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          visualDensity: VisualDensity.compact,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  // Hint sotto riga (solo se non annullabile per orario)
+                  if (!canCancelByTime) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          size: 14,
+                          color: cs.onSurface.withOpacity(0.55),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Annullabile fino a ${_formatDate(dropoff)}',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: cs.onSurface.withOpacity(0.60),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+
+                  const SizedBox(height: 12),
+                  Divider(height: 1, color: cs.onSurface.withOpacity(0.08)),
+                  const SizedBox(height: 12),
+
+                  // AZIONI SOTTO: Riepilogo + QR (logica invariata)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: partner == null
+                              ? null
+                              : () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => BookingRecapScreen(
+                                        partner: partner,
+                                        booking: booking,
+                                      ),
+                                    ),
+                                  );
+                                },
+                          icon: const Icon(
+                            Icons.receipt_long_outlined,
+                            size: 18,
+                          ),
+                          label: const Text(
+                            'Riepilogo',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: (partner == null || !qrAvailable)
+                              ? null
+                              : () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => BookingQrScreen(
+                                        bookingId: booking.id,
+                                        bookingCode: booking.bookingCode,
+                                      ),
+                                    ),
+                                  );
+                                },
+                          icon: const Icon(Icons.qr_code_2, size: 18),
+                          label: const Text(
+                            'QR code',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            elevation: 0,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        // =========================================
+        // 3) ALTRI STATI: IDENTICO A PRIMA (in_store/completed ecc.)
+        // =========================================
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
           shape: RoundedRectangleBorder(
@@ -687,7 +1563,6 @@ class _BookingListItemState extends State<_BookingListItem> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Riga superiore: stato + date
                 Row(
                   children: [
                     Container(
@@ -696,24 +1571,27 @@ class _BookingListItemState extends State<_BookingListItem> {
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: _statusColor(context, status).withOpacity(0.12),
+                        color: _statusColor(
+                          context,
+                          statusRaw,
+                        ).withOpacity(0.12),
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
-                            _statusIcon(status),
+                            _statusIcon(statusRaw),
                             size: 14,
-                            color: _statusColor(context, status),
+                            color: _statusColor(context, statusRaw),
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            _statusLabel(status),
+                            _statusLabel(statusRaw),
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w800,
-                              color: _statusColor(context, status),
+                              color: _statusColor(context, statusRaw),
                             ),
                           ),
                         ],
@@ -744,8 +1622,6 @@ class _BookingListItemState extends State<_BookingListItem> {
                   ],
                 ),
                 const SizedBox(height: 8),
-
-                // Nome partner
                 Text(
                   partnerName,
                   style: const TextStyle(
@@ -764,7 +1640,6 @@ class _BookingListItemState extends State<_BookingListItem> {
                       ),
                     ),
                   ),
-
                 const SizedBox(height: 4),
                 Row(
                   children: [
@@ -783,8 +1658,7 @@ class _BookingListItemState extends State<_BookingListItem> {
                     ),
                   ],
                 ),
-
-                if (status == 'in_store') ...[
+                if (statusRaw == 'in_store') ...[
                   const SizedBox(height: 10),
                   _buildInStoreReminder(
                     context,
@@ -792,11 +1666,7 @@ class _BookingListItemState extends State<_BookingListItem> {
                     pickup: pickup,
                   ),
                 ],
-
                 const SizedBox(height: 8),
-
-                // Bottoni: Riepilogo + QR code
-                // Bottoni: se completed -> solo riepilogo finale
                 if (isCompleted) ...[
                   SizedBox(
                     width: double.infinity,
@@ -873,8 +1743,6 @@ class _BookingListItemState extends State<_BookingListItem> {
 }
 
 /// Versione light di SectionTitle / HintCard per riusare lo stile in questa pagina.
-/// Puoi anche importarli da home_shell.dart se preferisci.
-
 class _SectionTitle extends StatelessWidget {
   final String text;
   const _SectionTitle(this.text);
@@ -907,11 +1775,11 @@ class _HintCard extends StatelessWidget {
 
 enum _StatusFilter {
   all,
-  //pending,
+  // pending,
   confirmed,
   inStore,
   rejected,
-  //cancelled,
+  cancelled,
   completed,
 }
 

@@ -536,7 +536,7 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
     return Scaffold(
       backgroundColor: cs.surface,
       appBar: AppBar(
-        title: const Text('QR CODE Prenotazione'),
+        title: const Text('QR CODE'),
         backgroundColor: cs.primary,
         foregroundColor: cs.onPrimary,
         elevation: 0,
@@ -862,7 +862,7 @@ class _BookingQrScreenState extends State<BookingQrScreen> {
                       if (_quotePaidTotalCents != null && _quoteRequiredTotalCents != null) ...[
                         const SizedBox(height: 10),
                         Text(
-                          'Hai pagato finora: ${_euro(_quotePaidTotalCents!)}'
+                          'Hai pagato : ${_euro(_quotePaidTotalCents!)}'
                           '${_quoteFromUntil != null ? ' (coperto fino a ${_fmt(_quoteFromUntil!)} )' : ''}',
                           style: TextStyle(fontSize: 12, color: cs.onSurface.withOpacity(0.75)),
                         ),

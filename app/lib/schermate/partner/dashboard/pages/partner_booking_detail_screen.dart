@@ -18,6 +18,7 @@ class PartnerBookingDetailScreen extends StatefulWidget {
 class _PartnerBookingDetailScreenState
     extends State<PartnerBookingDetailScreen> {
   PartnerBooking get booking => widget.booking;
+  bool _rejecting = false;
 
   String _formatDateTime(DateTime dt) {
     final dd = dt.day.toString().padLeft(2, '0');
@@ -28,15 +29,9 @@ class _PartnerBookingDetailScreenState
   }
 
   bool get _canReject {
-    final s = (booking.status).toLowerCase();
-    return ![
-      'in_store',
-      'completed',
-      'cancelled',
-      'cancelled_by_user',
-      'cancelled_by_partner',
-      'expired',
-    ].contains(s);
+    final kind = _StatusUI.from(booking.uiStatus).kind;
+    // ✅ rifiutabile SOLO prima del check-in
+    return kind == _StatusKind.pending || kind == _StatusKind.confirmed;
   }
 
   Future<String?> _askRejectReason(BuildContext context) {
@@ -152,6 +147,38 @@ class _PartnerBookingDetailScreenState
                       ),
                     ],
                   ),
+
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.06),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.red.withOpacity(0.18)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.warning_amber_rounded,
+                          size: 18,
+                          color: Colors.red.shade700,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Il rifiuto è consentito solo prima del check-in. '
+                            'Se l’utente ha già pagato, verrà avviato il rimborso automatico.',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.red.shade800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             );
@@ -162,8 +189,12 @@ class _PartnerBookingDetailScreenState
   }
 
   Future<void> _rejectBooking() async {
+    if (!_canReject || _rejecting) return;
+
     final reason = await _askRejectReason(context);
     if (!mounted || reason == null || reason.trim().isEmpty) return;
+
+    setState(() => _rejecting = true);
 
     try {
       final repo = PartnerBookingRepo(Supabase.instance.client);
@@ -179,6 +210,8 @@ class _PartnerBookingDetailScreenState
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Errore: ${e.toString()}')));
+    } finally {
+      if (mounted) setState(() => _rejecting = false);
     }
   }
 
@@ -191,13 +224,13 @@ class _PartnerBookingDetailScreenState
 
     final totalBags = (booking.bagsS) + (booking.bagsM) + (booking.bagsL);
 
-    final dropoff = booking.plannedDropoffLocal;
-    final pickup = booking.plannedPickupLocal;
+    final dropoff = booking.plannedDropoffAtLocal;
+    final pickup = booking.plannedPickupAtLocal;
 
     final dropoffStr = _formatDateTime(dropoff);
     final pickupStr = _formatDateTime(pickup);
 
-    final statusUi = _statusUi(booking.status);
+    final statusUi = _StatusUI.from(booking.uiStatus);
 
     return Scaffold(
       appBar: AppBar(
@@ -283,7 +316,7 @@ class _PartnerBookingDetailScreenState
           ),
 
           // Motivo rifiuto (callout)
-          if ((booking.status).toLowerCase() == 'rejected' &&
+          if (statusUi.kind == _StatusKind.rejected &&
               (booking.rejectReason ?? '').trim().isNotEmpty) ...[
             const SizedBox(height: 12),
             _Callout(
@@ -307,11 +340,11 @@ class _PartnerBookingDetailScreenState
                   '${booking.firstName} ${booking.lastName}'.trim(),
                   style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
                 ),
-                if ((booking.phone ?? '').isNotEmpty) ...[
+                if (booking.phone.trim().isNotEmpty) ...[
                   const SizedBox(height: 6),
                   _InfoLine(icon: Icons.phone_outlined, text: booking.phone!),
                 ],
-                if ((booking.email ?? '').isNotEmpty) ...[
+                if (booking.email.trim().isNotEmpty) ...[
                   const SizedBox(height: 6),
                   _InfoLine(icon: Icons.email_outlined, text: booking.email!),
                 ],
@@ -441,9 +474,17 @@ class _PartnerBookingDetailScreenState
                 child: SizedBox(
                   height: 52,
                   child: ElevatedButton.icon(
-                    onPressed: _rejectBooking,
-                    icon: const Icon(Icons.block),
-                    label: const Text('Rifiuta prenotazione'),
+                    onPressed: _rejecting ? null : _rejectBooking,
+                    icon: _rejecting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.block),
+                    label: Text(
+                      _rejecting ? 'Rifiuto…' : 'Rifiuta prenotazione',
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.brandYellow,
                       foregroundColor: Colors.black,
@@ -461,7 +502,7 @@ class _PartnerBookingDetailScreenState
   }
 }
 
-enum _StatusKind { pending, confirmed, rejected, cancelled, completed }
+enum _StatusKind { pending, confirmed, inStore, rejected, cancelled, completed }
 
 class _StatusUI {
   final _StatusKind kind;
@@ -490,8 +531,19 @@ class _StatusUI {
         icon: Icons.hourglass_bottom,
       );
     }
-    // ✅ Rifiutata = cancelled_by_partner (irreversibile + reason)
-    if (st == 'cancelled_by_partner') {
+
+    if (st == 'in_store') {
+      return _StatusUI(
+        kind: _StatusKind.inStore,
+        label: 'In deposito',
+        bg: Colors.blue.withOpacity(0.12),
+        fg: Colors.blue.shade800,
+        icon: Icons.lock_clock_outlined,
+      );
+    }
+
+    // ✅ rifiutata lato partner
+    if (st == 'rejected' || st == 'cancelled_by_partner') {
       return _StatusUI(
         kind: _StatusKind.rejected,
         label: 'Rifiutata',
@@ -500,6 +552,7 @@ class _StatusUI {
         icon: Icons.block,
       );
     }
+
     if (st == 'completed') {
       return _StatusUI(
         kind: _StatusKind.completed,
@@ -509,6 +562,7 @@ class _StatusUI {
         icon: Icons.check_circle_outline,
       );
     }
+
     if (st == 'cancelled' ||
         st == 'canceled' ||
         st == 'cancelled_by_user' ||
@@ -522,7 +576,7 @@ class _StatusUI {
       );
     }
 
-    // ✅ Confermata in tema BagDrop (viola)
+    // default: confirmed
     return _StatusUI(
       kind: _StatusKind.confirmed,
       label: 'Confermata',

@@ -147,13 +147,12 @@ class PartnerBooking {
     if (s == 'cancelled' ||
         s == 'canceled' ||
         s == 'cancelled_by_user' ||
-        s == 'cancelled_by_partner' ||
         s == 'expired') {
       return 'cancelled';
     }
 
     // rifiutata dal partner: vogliamo mantenerla distinta
-    if (s == 'rejected') return 'rejected';
+    if (s == 'cancelled_by_partner' || s == 'rejected') return 'rejected';
 
     // derivati dagli effettivi
     if (pickupEffectiveAt != null) return 'completed';

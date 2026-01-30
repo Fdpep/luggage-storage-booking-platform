@@ -147,15 +147,25 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
         statusText = 'In attesa';
         statusColor = Colors.orange;
         break;
-      case 'cancelled':
-      case 'canceled':
-        statusText = 'Annullata';
+
+      case 'cancelled_by_partner':
+      case 'rejected':
+        statusText = 'Rifiutata';
         statusColor = Colors.red;
         break;
+
+      case 'cancelled':
+      case 'canceled':
+      case 'cancelled_by_user':
+        statusText = 'Annullata';
+        statusColor = Colors.grey;
+        break;
+
       case 'completed':
         statusText = 'Completata';
         statusColor = Colors.blue;
         break;
+
       default:
         statusText = 'Confermata';
         statusColor = Colors.green;
@@ -433,9 +443,8 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
                         style: TextStyle(fontSize: 12, color: cs.error),
                       ),
                     ] else ...[
-                      _InfoRow('Pagato finora', _euroCents(_totalPaidCents)),
+                      _InfoRow('Pagato', _euroCents(_totalPaidCents)),
                       _InfoRow('Numero pagamenti', '${_payments.length}'),
-                 
                     ],
                   ],
                 ],
@@ -568,13 +577,12 @@ class _IconLabelRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final defaultLabelStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
-          fontWeight: FontWeight.w600,
-          color: cs.onSurface.withOpacity(0.85),
-        );
-    final defaultValueStyle = Theme.of(context)
-        .textTheme
-        .bodyMedium
-        ?.copyWith(color: cs.onSurface.withOpacity(0.9));
+      fontWeight: FontWeight.w600,
+      color: cs.onSurface.withOpacity(0.85),
+    );
+    final defaultValueStyle = Theme.of(
+      context,
+    ).textTheme.bodyMedium?.copyWith(color: cs.onSurface.withOpacity(0.9));
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,

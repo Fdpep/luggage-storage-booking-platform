@@ -95,6 +95,16 @@ L’app è sviluppata in **Flutter** e utilizza **Supabase** come backend per au
 
     * **scheda attività collegata** (`BookingPartnerDetailScreen`)
     * da cui si può vedere il riepilogo della prenotazione (`BookingRecapScreen`)
+
+    * azioni lato utente:
+    * **Annulla prenotazione** (da lista/dettaglio)
+      * disponibile solo se la prenotazione è ancora “attiva” (es. `pending` / `confirmed`)
+      * non disponibile se è già avvenuto il check-in (`dropoff_effective_at` valorizzato) o se già chiusa
+      * alla conferma:
+        * lo stato passa a **`cancelled_by_user`** (fallback legacy: `cancelled`)
+        * la prenotazione non viene più conteggiata nella capacità (quindi libera spazio)
+      * la card lato utente mostra “**Annullata**” con badge rosso (stessa UI di annullamento partner)
+
   
   * nei riepiloghi e nelle schermate prenotazione mostriamo:
     * **Consegna prevista**
