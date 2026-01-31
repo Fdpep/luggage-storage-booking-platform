@@ -6,6 +6,9 @@ class BagDropPricingInterval {
   final BagDropDuration duration; // fascia tariffaria determinata
   final DateTime effectiveEnd; // scadenza reale della fascia (da salvare a DB)
   final bool upgraded; // true se abbiamo scalato fascia (es. 3h -> 1d)
+  final int extraDays;
+
+  /// Giorni extra OLTRE i 3 giorni (0 se <=3 giorni)
 
   const BagDropPricingInterval({
     required this.start,
@@ -13,6 +16,7 @@ class BagDropPricingInterval {
     required this.duration,
     required this.effectiveEnd,
     required this.upgraded,
+    required this.extraDays,
   });
 }
 
@@ -108,6 +112,7 @@ class BagDropPricing {
     required int bagsS,
     required int bagsM,
     required int bagsL,
+    int extraDays = 0,
   }) {
     double priceS;
     double priceM;
@@ -141,7 +146,15 @@ class BagDropPricing {
         break;
     }
 
-    return priceS * bagsS + priceM * bagsM + priceL * bagsL;
+    double base = priceS * bagsS + priceM * bagsM + priceL * bagsL;
+
+    // ✅ Oltre 3 giorni: +2€ per bagaglio per ogni giorno extra (indipendente dalla taglia)
+    if (duration == BagDropDuration.threeDays && extraDays > 0) {
+      final bagCount = bagsS + bagsM + bagsL;
+      base += extraDays * 2.0 * bagCount;
+    }
+
+    return base;
   }
 
   /// Utility per formattare un prezzo in euro con due decimali.
@@ -265,12 +278,33 @@ class BagDropPricing {
       }
     }
 
+    // 4) ✅ Gestione oltre 3 giorni: calcolo extraDays e aggiorno effectiveEnd
+    int extraDays = 0;
+
+    if (duration == BagDropDuration.threeDays) {
+      final startDay = _dateOnly(start);
+      final userDay = _dateOnly(userEnd);
+      final dayIndex = userDay.difference(startDay).inDays; // 0=stesso giorno
+
+      // threeDays copre fino a startDay + 2
+      if (dayIndex > 2) {
+        extraDays = dayIndex - 2;
+
+        final targetDay = startDay.add(Duration(days: 2 + extraDays));
+        final close = _closeOrFallback(getCloseForDay, targetDay);
+        effectiveEnd =
+            close ??
+            DateTime(targetDay.year, targetDay.month, targetDay.day, 23, 59);
+      }
+    }
+
     return BagDropPricingInterval(
       start: start,
       userEnd: userEnd,
       duration: duration,
       effectiveEnd: effectiveEnd,
       upgraded: upgraded,
+      extraDays: extraDays,
     );
   }
 
@@ -359,12 +393,14 @@ class BagDropPricing {
       bagsL: bagsL,
     );
 
-    // extra days > 3 giorni: +2€ each 
+    final bagCount = bagsS + bagsM + bagsL;
+
+    // extra days oltre 3 giorni: +2€ per bagaglio per giorno extra
     if (to == BagDropDuration.threeDays && extraDaysTo > 0) {
-      toTotal += extraDaysTo * 2.0;
+      toTotal += extraDaysTo * 2.0 * bagCount;
     }
     if (from == BagDropDuration.threeDays && extraDaysFrom > 0) {
-      fromTotal += extraDaysFrom * 2.0;
+      fromTotal += extraDaysFrom * 2.0 * bagCount;
     }
 
     final diff = (toTotal - fromTotal);

@@ -46,42 +46,52 @@ class DashboardPage extends StatelessWidget {
   }
 }
 
+
 /// Titolo “BagDrop” in AppBar con brand:
-/// - “Bag” chiaro
-/// - “Drop” giallo
+/// - “Bag” bianco fisso
+/// - “Drop” giallo brand
 class _LogoTitle extends StatelessWidget {
-  const _LogoTitle();
+  const _LogoTitle({this.fontSize = 20});
+
+  final double fontSize;
 
   @override
   Widget build(BuildContext context) {
-    return RichText(
-      text: const TextSpan(
-        children: [
-          TextSpan(
-            text: 'Bag',
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 20,
-              color: Colors.white,
-              letterSpacing: 0.5,
+    return Semantics(
+      label: 'BagDrop',
+      child: RichText(
+        maxLines: 1,
+        overflow: TextOverflow.fade,
+        softWrap: false,
+        text: TextSpan(
+          children: [
+            TextSpan(
+              text: 'Bag',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: fontSize,
+                color: Colors.white,
+                letterSpacing: 0.2,
+                height: 1.0,
+              ),
             ),
-          ),
-          TextSpan(text: ' '),
-          TextSpan(
-            text: 'Drop',
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 20,
-              color: AppTheme.brandYellow,
-              letterSpacing: 0.5,
+            const TextSpan(text: ' '),
+            TextSpan(
+              text: 'Drop',
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: fontSize,
+                color: AppTheme.brandYellow,
+                letterSpacing: 0.2,
+                height: 1.0,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
-
 class _NoPartnerState extends StatelessWidget {
   final User? user;
   final VoidCallback onPartnerChanged;

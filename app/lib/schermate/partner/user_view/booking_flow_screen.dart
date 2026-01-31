@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:BagDrop/config/bagdrop_pricing.dart';
 import 'package:BagDrop/models/partner.dart';
 import 'package:BagDrop/services/supabase/partner_booking_repo.dart';
+import 'package:flutter/cupertino.dart';
 
 class BookingFlowScreen extends StatefulWidget {
   final Partner partner;
@@ -48,10 +49,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
   /// Orario di ritiro
   TimeOfDay? _endTime;
-
-  // Data/Ora: ritiro scelto dall'utente (quello che già hai)
-  DateTime? _userEndDate;
-  TimeOfDay? _userEndTime;
 
   // End effettivo (scadenza fascia) - quello che salveremo a DB
   DateTime? _effectiveEndDate;
@@ -347,8 +344,15 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     }
 
     // ❌ Orario di consegna nel passato (se consegni oggi)
-    if (startDateOnly.isAtSameMomentAs(today) && startDt.isBefore(now)) {
-      return 'L\'orario di consegna non può essere nel passato.';
+    // ✅ Tolleranza: consegna oggi può essere fino a 2 minuti "nel passato"
+    if (startDateOnly.isAtSameMomentAs(today)) {
+      const grace = Duration(minutes: 2);
+      final limit = now.subtract(grace);
+
+      // vietato solo se è più vecchio di 2 minuti
+      if (startDt.isBefore(limit)) {
+        return 'L\'orario di consegna non può essere nel passato (tolleranza 2 minuti).';
+      }
     }
 
     // ❌ Requested end deve essere dopo start
@@ -381,14 +385,16 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     }
 
     // ✅ NORMALIZZAZIONE FASCIA: calcolo scadenza effettiva (effective end)
-    final normalized = BagDropPricing.normalizeBookingInterval(
-      start: startDt,
-      userEnd: endDtRequested,
-      getCloseForDay: (day) {
-        final dayOnly = DateTime(day.year, day.month, day.day);
-        return _closeDateTimeForDay(dayOnly); // DateTime?
-      },
-    );
+    final normalized =
+        _normalizedPricingInterval ??
+        BagDropPricing.normalizeBookingInterval(
+          start: startDt,
+          userEnd: endDtRequested,
+          getCloseForDay: (day) {
+            final dayOnly = DateTime(day.year, day.month, day.day);
+            return _closeDateTimeForDay(dayOnly);
+          },
+        );
 
     final effEnd = normalized.effectiveEnd;
     final effEndDateOnly = DateTime(effEnd.year, effEnd.month, effEnd.day);
@@ -557,6 +563,46 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     }
   }
 
+  BagDropPricingInterval? get _pricingIntervalLive {
+    final start = _startDateTime;
+    final userEnd = _endDateTime;
+    if (start == null || userEnd == null) return null;
+
+    return BagDropPricing.normalizeBookingInterval(
+      start: start,
+      userEnd: userEnd,
+      getCloseForDay: (day) {
+        final dayOnly = DateTime(day.year, day.month, day.day);
+        return _closeDateTimeForDay(dayOnly);
+      },
+    );
+  }
+
+  int get _extraDaysLive => _pricingIntervalLive?.extraDays ?? 0;
+
+  BagDropDuration? get _durationLive => _pricingIntervalLive?.duration;
+
+  double _priceBaseNoExtra() {
+    final it = _pricingIntervalLive;
+    if (it == null) return 0.0;
+    return BagDropPricing.totalFor(
+      duration: it.duration,
+      extraDays: 0,
+      bagsS: _bagsS,
+      bagsM: _bagsM,
+      bagsL: _bagsL,
+    );
+  }
+
+  double _priceExtraDaysOnly() {
+    final it = _pricingIntervalLive;
+    if (it == null) return 0.0;
+    final bagCount = _bagsS + _bagsM + _bagsL;
+    if (it.duration != BagDropDuration.threeDays || it.extraDays <= 0)
+      return 0.0;
+    return it.extraDays * 2.0 * bagCount;
+  }
+
   /// Data+ora di consegna effettive, oppure null se manca qualcosa.
   DateTime? get _startDateTime {
     if (_selectedDate == null || _startTime == null) return null;
@@ -687,11 +733,11 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     final client = Supabase.instance.client;
     final repo = PartnerBookingRepo(client);
 
-final bookingStartDate = _selectedDate!;
+    final bookingStartDate = _selectedDate!;
 
-// ✅ usa l'end effettivo (scadenza fascia) se già calcolato da _validateDateTimeSelection()
-final bookingEndDate = _effectiveEndDate ?? _endDate!;
-final endTimeForApi = _effectiveEndTime ?? _endTime!;
+    // ✅ usa l'end effettivo (scadenza fascia) se già calcolato da _validateDateTimeSelection()
+    final bookingEndDate = _effectiveEndDate ?? _endDate!;
+    final endTimeForApi = _effectiveEndTime ?? _endTime!;
 
     try {
       final av = await repo.getPartnerAvailabilityForInterval(
@@ -700,7 +746,7 @@ final endTimeForApi = _effectiveEndTime ?? _endTime!;
         startDate: bookingStartDate,
         endDate: bookingEndDate,
         startTime: startStr,
-        endTime: _formatTimeForApi(endTimeForApi)
+        endTime: _formatTimeForApi(endTimeForApi),
       );
 
       if (!mounted) return;
@@ -737,6 +783,153 @@ final endTimeForApi = _effectiveEndTime ?? _endTime!;
     return '$h:$m';
   }
 
+  //helper pickers (iOS bottom sheet)
+
+  Future<DateTime?> _pickDateIOS({
+    required String title,
+    required DateTime initial,
+    required DateTime firstDate,
+    required DateTime lastDate,
+  }) async {
+    DateTime temp = DateTime(initial.year, initial.month, initial.day);
+    final cs = Theme.of(context).colorScheme;
+
+    return showModalBottomSheet<DateTime>(
+      context: context,
+      backgroundColor: cs.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetCtx) {
+        return SafeArea(
+          top: false,
+          child: SizedBox(
+            height: 380,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 12, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.of(sheetCtx).pop(),
+                        child: const Text('Annulla'),
+                      ),
+                      const SizedBox(width: 4),
+                      FilledButton(
+                        onPressed: () => Navigator.of(sheetCtx).pop(temp),
+                        child: const Text('Fatto'),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: CupertinoTheme(
+                    data: CupertinoThemeData(
+                      primaryColor: cs.primary,
+                      brightness: Theme.of(context).brightness,
+                    ),
+                    child: CupertinoDatePicker(
+                      mode: CupertinoDatePickerMode.date,
+                      minimumDate: firstDate,
+                      maximumDate: lastDate,
+                      initialDateTime: temp,
+                      onDateTimeChanged: (dt) {
+                        temp = DateTime(dt.year, dt.month, dt.day);
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<TimeOfDay?> _pickTimeIOS({
+    required String title,
+    required TimeOfDay initial,
+  }) async {
+    TimeOfDay temp = initial;
+    final cs = Theme.of(context).colorScheme;
+
+    return showModalBottomSheet<TimeOfDay>(
+      context: context,
+      backgroundColor: cs.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetCtx) {
+        return SafeArea(
+          top: false,
+          child: SizedBox(
+            height: 360,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 12, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.of(sheetCtx).pop(),
+                        child: const Text('Annulla'),
+                      ),
+                      const SizedBox(width: 4),
+                      FilledButton(
+                        onPressed: () => Navigator.of(sheetCtx).pop(temp),
+                        child: const Text('Fatto'),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: CupertinoTheme(
+                    data: CupertinoThemeData(
+                      primaryColor: cs.primary,
+                      brightness: Theme.of(context).brightness,
+                    ),
+                    child: CupertinoDatePicker(
+                      mode: CupertinoDatePickerMode.time,
+                      use24hFormat: true,
+                      initialDateTime: DateTime(
+                        2000,
+                        1,
+                        1,
+                        initial.hour,
+                        initial.minute,
+                      ),
+                      onDateTimeChanged: (dt) {
+                        temp = TimeOfDay(hour: dt.hour, minute: dt.minute);
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   TimeOfDay? _parseTimeOfDay(String? value) {
     if (value == null || value.isEmpty) return null;
     final parts = value.split(':');
@@ -752,20 +945,20 @@ final endTimeForApi = _effectiveEndTime ?? _endTime!;
     setState(() => _step -= 1);
   }
 
-Future<void> _recordBasePayment({
-  required String bookingId,
-  required int amountCents,
-}) async {
-  final sb = Supabase.instance.client;
+  Future<void> _recordBasePayment({
+    required String bookingId,
+    required int amountCents,
+  }) async {
+    final sb = Supabase.instance.client;
 
-  await sb.from('booking_payments').insert({
-    'booking_id': bookingId,
-    'kind': 'base',
-    'amount_cents': amountCents,
-    // lascia paid_at al DEFAULT now() del DB (meno casini timezone)
-    'payment_reference': 'mock',
-  });
-}
+    await sb.from('booking_payments').insert({
+      'booking_id': bookingId,
+      'kind': 'base',
+      'amount_cents': amountCents,
+      // lascia paid_at al DEFAULT now() del DB (meno casini timezone)
+      'payment_reference': 'mock',
+    });
+  }
 
   Future<void> _confirmBooking() async {
     // TODO(PAYMENTS - Stripe):
@@ -945,15 +1138,14 @@ Future<void> _recordBasePayment({
       );
       final errors = <String>[];
       if (!availability.acceptS && _bagsS > 0) {
-  errors.add('Small (S): il locale non accetta questa taglia.');
-}
-if (!availability.acceptM && _bagsM > 0) {
-  errors.add('Medium (M): il locale non accetta questa taglia.');
-}
-if (!availability.acceptL && _bagsL > 0) {
-  errors.add('Large (L): il locale non accetta questa taglia.');
-}
-
+        errors.add('Small (S): il locale non accetta questa taglia.');
+      }
+      if (!availability.acceptM && _bagsM > 0) {
+        errors.add('Medium (M): il locale non accetta questa taglia.');
+      }
+      if (!availability.acceptL && _bagsL > 0) {
+        errors.add('Large (L): il locale non accetta questa taglia.');
+      }
 
       final bool hasPerSizeCapacity =
           (availability.capacityS +
@@ -1024,13 +1216,12 @@ if (!availability.acceptL && _bagsL > 0) {
         return;
       }
 
-      final duration = BagDropPricing.inferDuration(
-        start: startDt,
-        end: effectiveEnd,
-      );
+      final duration = normalized.duration;
+      final extraDays = normalized.extraDays;
 
       final baseTotal = BagDropPricing.totalFor(
         duration: duration,
+        extraDays: extraDays,
         bagsS: _bagsS,
         bagsM: _bagsM,
         bagsL: _bagsL,
@@ -1136,7 +1327,10 @@ if (!availability.acceptL && _bagsL > 0) {
 
   /// Testo leggibile per la durata, usato nel riepilogo.
   String _durationLabel() {
-    switch (_currentDuration()) {
+    final it = _pricingIntervalLive;
+    if (it == null) return '—';
+
+    switch (it.duration) {
       case BagDropDuration.threeHours:
         return '3 ore';
       case BagDropDuration.oneDay:
@@ -1146,15 +1340,18 @@ if (!availability.acceptL && _bagsL > 0) {
       case BagDropDuration.twoDays:
         return '2 giorni';
       case BagDropDuration.threeDays:
-        return '3 giorni';
+        return it.extraDays > 0 ? '3 giorni + ${it.extraDays}' : '3 giorni';
     }
   }
 
   /// Calcolo del prezzo totale usando BagDropPricing
   double _currentTotalPrice() {
-    final duration = _currentDuration();
+    final it = _pricingIntervalLive;
+    if (it == null) return 0.0;
+
     return BagDropPricing.totalFor(
-      duration: duration,
+      duration: it.duration,
+      extraDays: it.extraDays,
       bagsS: _bagsS,
       bagsM: _bagsM,
       bagsL: _bagsL,
@@ -1265,94 +1462,177 @@ if (!availability.acceptL && _bagsL > 0) {
   }
 
   Widget _buildContactForm() {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final tt = theme.textTheme;
+
+    InputDecoration deco(String label, {String? hint, Widget? suffix}) {
+      return InputDecoration(
+        labelText: label,
+        hintText: hint,
+        suffixIcon: suffix,
+        filled: true,
+        fillColor: cs.surface.withOpacity(0.75),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 14,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: cs.outlineVariant.withOpacity(0.35)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: cs.outlineVariant.withOpacity(0.35)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(
+            color: cs.primary.withOpacity(0.70),
+            width: 1.2,
+          ),
+        ),
+      );
+    }
+
+    Widget iosSection({required List<Widget> children}) {
+      return Container(
+        decoration: BoxDecoration(
+          color: cs.surfaceVariant.withOpacity(0.25),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Column(mainAxisSize: MainAxisSize.min, children: children),
+        ),
+      );
+    }
+
+    Widget sectionTitle(String title, {String? subtitle}) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+            ),
+            if (subtitle != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: tt.bodySmall?.copyWith(
+                  color: cs.onSurface.withOpacity(0.70),
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
+    Widget thinDivider() => Divider(
+      height: 1,
+      thickness: 1,
+      color: cs.outlineVariant.withOpacity(0.35),
+    );
+
     return Form(
       key: _formContactKey,
       child: ListView(
         children: [
-          Text(
-            'Dati di contatto',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 12),
+          iosSection(
+            children: [
+              sectionTitle(
+                'Dati di contatto',
+                subtitle: 'Inserisci i dati per completare la prenotazione',
+              ),
+              thinDivider(),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                child: Column(
+                  children: [
+                    // Nome
+                    TextFormField(
+                      controller: _firstNameCtrl,
+                      decoration: deco('Nome'),
+                      validator: (v) {
+                        if ((v ?? '').trim().isEmpty) {
+                          return 'Inserisci il nome';
+                        }
+                        return null;
+                      },
+                      textInputAction: TextInputAction.next,
+                    ),
+                    const SizedBox(height: 12),
 
-          // Nome
-          TextFormField(
-            controller: _firstNameCtrl,
-            decoration: const InputDecoration(labelText: 'Nome'),
-            validator: (v) {
-              if ((v ?? '').trim().isEmpty) {
-                return 'Inserisci il nome';
-              }
-              return null;
-            },
-            textInputAction: TextInputAction.next,
-          ),
-          const SizedBox(height: 12),
+                    // Cognome
+                    TextFormField(
+                      controller: _lastNameCtrl,
+                      decoration: deco('Cognome'),
+                      validator: (v) {
+                        if ((v ?? '').trim().isEmpty) {
+                          return 'Inserisci il cognome';
+                        }
+                        return null;
+                      },
+                      textInputAction: TextInputAction.next,
+                    ),
+                    const SizedBox(height: 12),
 
-          // Cognome
-          TextFormField(
-            controller: _lastNameCtrl,
-            decoration: const InputDecoration(labelText: 'Cognome'),
-            validator: (v) {
-              if ((v ?? '').trim().isEmpty) {
-                return 'Inserisci il cognome';
-              }
-              return null;
-            },
-            textInputAction: TextInputAction.next,
-          ),
-          const SizedBox(height: 12),
+                    // Telefono
+                    TextFormField(
+                      controller: _phoneCtrl,
+                      decoration: deco('Telefono', hint: '+39 ...'),
+                      keyboardType: TextInputType.phone,
+                      validator: (v) {
+                        final t = (v ?? '').trim();
+                        if (t.isEmpty) {
+                          return 'Inserisci un numero di telefono';
+                        }
+                        // Teniamo solo le cifre
+                        final digitsOnly = t.replaceAll(RegExp(r'[^0-9]'), '');
+                        if (digitsOnly.length != 10) {
+                          return 'Il numero deve avere esattamente 10 cifre';
+                        }
+                        return null;
+                      },
+                      textInputAction: TextInputAction.next,
+                    ),
+                    const SizedBox(height: 12),
 
-          // Telefono
-          TextFormField(
-            controller: _phoneCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Telefono',
-              hintText: '+39 ...',
-            ),
-            keyboardType: TextInputType.phone,
-            validator: (v) {
-              final t = (v ?? '').trim();
-              if (t.isEmpty) {
-                return 'Inserisci un numero di telefono';
-              }
-              // Teniamo solo le cifre
-              final digitsOnly = t.replaceAll(RegExp(r'[^0-9]'), '');
-              if (digitsOnly.length != 10) {
-                return 'Il numero deve avere esattamente 10 cifre';
-              }
-              return null;
-            },
-            textInputAction: TextInputAction.next,
-          ),
-          const SizedBox(height: 12),
+                    // Email
+                    TextFormField(
+                      controller: _emailCtrl,
+                      decoration: deco('E-mail'),
+                      keyboardType: TextInputType.emailAddress,
+                      validator: (v) {
+                        final t = (v ?? '').trim();
+                        if (t.isEmpty) return 'Inserisci un’e-mail';
+                        if (!t.contains('@')) return 'E-mail non valida';
+                        return null;
+                      },
+                      textInputAction: TextInputAction.next,
+                    ),
+                    const SizedBox(height: 12),
 
-          // Email
-          TextFormField(
-            controller: _emailCtrl,
-            decoration: const InputDecoration(labelText: 'E-mail'),
-            keyboardType: TextInputType.emailAddress,
-            validator: (v) {
-              final t = (v ?? '').trim();
-              if (t.isEmpty) return 'Inserisci un’e-mail';
-              if (!t.contains('@')) return 'E-mail non valida';
-              return null;
-            },
-            textInputAction: TextInputAction.next,
-          ),
-          const SizedBox(height: 12),
-
-          // Note
-          TextFormField(
-            controller: _notesCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Note per il locale (opzionale)',
-              hintText: 'Es. Arrivo in treno alle 10:30…',
-            ),
-            maxLines: 3,
-            maxLength: 500,
+                    // Note
+                    TextFormField(
+                      controller: _notesCtrl,
+                      decoration: deco(
+                        'Note per il locale (opzionale)',
+                        hint: 'Es. Arrivo in treno alle 10:30…',
+                      ),
+                      maxLines: 3,
+                      maxLength: 500,
+                      textInputAction: TextInputAction.newline,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1369,6 +1649,50 @@ if (!availability.acceptL && _bagsL > 0) {
       return '${d.day.toString().padLeft(2, '0')}/'
           '${d.month.toString().padLeft(2, '0')}/'
           '${d.year}';
+    }
+
+    Widget iosRow({
+      required IconData icon,
+      required String title,
+      required String value,
+      required VoidCallback onTap,
+      bool showChevron = true,
+    }) {
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: cs.primary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Text(
+                value,
+                style: textTheme.bodyMedium?.copyWith(
+                  color: cs.onSurface.withOpacity(0.75),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (showChevron) ...[
+                const SizedBox(width: 6),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: cs.onSurface.withOpacity(0.45),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
     }
 
     String startSummary;
@@ -1395,15 +1719,25 @@ if (!availability.acceptL && _bagsL > 0) {
       durationSummary = 'Durata tariffaria stimata: ${_durationLabel()}';
     }
 
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final in7Days = today.add(const Duration(days: 7));
+
+    final startDate = _selectedDate ?? today;
+    final pickupBase = _selectedDate ?? today;
+    final pickupLast = pickupBase.add(const Duration(days: 7));
+
+    final startOpen = _firstOpenTime;
+    final startClose = _lastCloseTime;
+
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
       children: [
-        // Titolo sezione
         Text(
           'Quando vuoi lasciare e ritirare i bagagli?',
-          style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         Text(
           'Scegli giorno e ora di consegna e ritiro. L’intervallo deve rientrare negli orari di apertura del locale.',
           style: textTheme.bodySmall?.copyWith(
@@ -1411,394 +1745,308 @@ if (!availability.acceptL && _bagsL > 0) {
           ),
         ),
 
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
 
-        // ✅ INFO PREZZI / TARIFFE (cliccabile)
-        Card(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+        // ✅ INFO PREZZI / TARIFFE
+        Container(
+          decoration: BoxDecoration(
+            color: cs.surfaceVariant.withOpacity(0.35),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
           ),
           child: ListTile(
-            onTap: _openPricingScreen, // oppure inline Navigator.push(...)
+            onTap: _openPricingScreen,
             leading: Container(
-              padding: const EdgeInsets.all(8),
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(
                 color: cs.primary.withOpacity(0.12),
-                shape: BoxShape.circle,
+                borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(Icons.payments_outlined, size: 20, color: cs.primary),
+              child: Icon(Icons.payments_outlined, color: cs.primary),
             ),
             title: Text(
               'Prezzi e tariffe',
               style: textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w900,
               ),
             ),
             subtitle: Text(
-              durationSummary, // <-- usa il tuo testo già calcolato
+              durationSummary,
               style: textTheme.bodySmall?.copyWith(
                 color: cs.onSurface.withOpacity(0.7),
               ),
             ),
             trailing: Icon(
               Icons.chevron_right_rounded,
-              color: cs.onSurface.withOpacity(0.6),
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-
-        // CARD CONSEGNA
-        Card(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: cs.primary.withOpacity(0.12),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(Icons.login, size: 20, color: cs.primary),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Consegna dei bagagli',
-                      style: textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-
-                // Bottoni data + ora in riga
-                Row(
-                  children: [
-                    Expanded(
-                      child: _DateTimePillButton(
-                        label: 'Giorno',
-                        value: _formatDate(_selectedDate, 'Seleziona giorno'),
-                        icon: Icons.calendar_today,
-                        onTap: () async {
-                          final now = DateTime.now();
-                          final today = DateTime(now.year, now.month, now.day);
-                          final in7Days = today.add(const Duration(days: 7));
-
-                          final picked = await showDatePicker(
-                            context: context,
-                            initialDate: _selectedDate ?? today,
-                            firstDate: today,
-                            lastDate: in7Days,
-                          );
-                          if (picked != null) {
-                            setState(() {
-                              _selectedDate = DateTime(
-                                picked.year,
-                                picked.month,
-                                picked.day,
-                              );
-
-                              // se il ritiro non è ancora impostato,
-                              // o è prima della consegna, lo riallineiamo
-                              //reset
-                              _selectedPresetIndex = null;
-                              _plusDaysPreset = 0;
-
-                              if (_endDate == null ||
-                                  _endDate!.isBefore(_selectedDate!)) {
-                                _endDate = _selectedDate;
-                              }
-                            });
-                          }
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _DateTimePillButton(
-                        label: 'Orario',
-                        value: _startTime == null
-                            ? 'Seleziona ora'
-                            : _formatTimeDisplay(_startTime!),
-                        icon: Icons.access_time,
-                        onTap: () async {
-                          final initial =
-                              _startTime ??
-                              const TimeOfDay(hour: 10, minute: 0);
-                          final picked = await showTimePicker(
-                            context: context,
-                            initialTime: initial,
-                          );
-                          if (picked != null) {
-                            setState(() {
-                              _startTime = picked;
-                              _selectedPresetIndex = null;
-                              _plusDaysPreset = 0;
-                            });
-                          }
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+              color: cs.onSurface.withOpacity(0.55),
             ),
           ),
         ),
 
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
 
-        // MINI TIMELINE VISIVA TRA CONSEGNA E RITIRO
-        Center(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
+        // ✅ CONSEGNA (stile iOS section)
+        Text(
+          'Consegna',
+          style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: cs.surfaceVariant.withOpacity(0.25),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
+          ),
+          child: Column(
             children: [
-              Icon(Icons.circle, size: 8, color: cs.primary),
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                width: 48,
-                height: 2,
-                decoration: BoxDecoration(
-                  color: cs.primary.withOpacity(0.6),
-                  borderRadius: BorderRadius.circular(999),
+              iosRow(
+                icon: Icons.calendar_today_outlined,
+                title: 'Giorno',
+                value: _formatDate(_selectedDate, 'Seleziona'),
+                onTap: () async {
+                  final picked = await _pickDateIOS(
+                    title: 'Scegli il giorno di consegna',
+                    initial: startDate,
+                    firstDate: today,
+                    lastDate: in7Days,
+                  );
+                  if (picked != null) {
+                    setState(() {
+                      _selectedDate = DateTime(
+                        picked.year,
+                        picked.month,
+                        picked.day,
+                      );
+
+                      // reset preset
+                      _selectedPresetIndex = null;
+                      _plusDaysPreset = 0;
+
+                      // riallinea ritiro se serve
+                      if (_endDate == null ||
+                          _endDate!.isBefore(_selectedDate!)) {
+                        _endDate = _selectedDate;
+                      }
+                    });
+                  }
+                },
+              ),
+              Divider(height: 1, color: cs.outlineVariant.withOpacity(0.35)),
+              iosRow(
+                icon: Icons.access_time_rounded,
+                title: 'Orario',
+                value: _startTime == null
+                    ? 'Seleziona'
+                    : _formatTimeDisplay(_startTime!),
+                onTap: () async {
+                  final initial =
+                      _startTime ?? TimeOfDay.fromDateTime(DateTime.now());
+                  final picked = await _pickTimeIOS(
+                    title: 'Scegli l’orario di consegna',
+                    initial: initial,
+                  );
+                  if (picked != null) {
+                    setState(() {
+                      _startTime = picked;
+                      _selectedPresetIndex = null;
+                      _plusDaysPreset = 0;
+                    });
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+
+        if (startOpen != null && startClose != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            'Orari del locale: ${_formatTimeDisplay(startOpen)}–${_formatTimeDisplay(startClose)}',
+            style: textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.65),
+            ),
+          ),
+        ],
+
+        const SizedBox(height: 14),
+
+        // ✅ DURATA RAPIDA (chip più ordinati)
+        Text(
+          'Durata rapida',
+          style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ChoiceChip(
+              label: const Text('+ 3 ore'),
+              selected: _selectedPresetIndex == 0,
+              onSelected: (selected) {
+                if (selected) {
+                  _applyPreset(0);
+                } else {
+                  setState(() => _selectedPresetIndex = null);
+                }
+              },
+            ),
+            ChoiceChip(
+              label: const Text('Tutto il giorno'),
+              selected: _selectedPresetIndex == 1,
+              onSelected: (selected) {
+                if (selected) {
+                  _applyPreset(1);
+                } else {
+                  setState(() => _selectedPresetIndex = null);
+                }
+              },
+            ),
+            ChoiceChip(
+              label: Text(
+                _plusDaysPreset == 0
+                    ? '+ 1 giorno'
+                    : '+ $_plusDaysPreset giorni',
+              ),
+              selected: _selectedPresetIndex == 2 && _plusDaysPreset > 0,
+              onSelected: (_) => _applyPlusDaysPreset(),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 14),
+
+        // ✅ RITIRO (stile iOS section)
+        Text(
+          'Ritiro',
+          style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: cs.surfaceVariant.withOpacity(0.25),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
+          ),
+          child: Column(
+            children: [
+              iosRow(
+                icon: Icons.calendar_today_outlined,
+                title: 'Giorno',
+                value: _formatDate(_endDate, 'Seleziona'),
+                onTap: () async {
+                  final initial = _endDate ?? pickupBase;
+                  final picked = await _pickDateIOS(
+                    title: 'Scegli il giorno di ritiro',
+                    initial: initial,
+                    firstDate: pickupBase,
+                    lastDate: pickupLast,
+                  );
+                  if (picked != null) {
+                    setState(() {
+                      _endDate = DateTime(
+                        picked.year,
+                        picked.month,
+                        picked.day,
+                      );
+                    });
+                  }
+                },
+              ),
+              Divider(height: 1, color: cs.outlineVariant.withOpacity(0.35)),
+              iosRow(
+                icon: Icons.access_time_rounded,
+                title: 'Orario',
+                value: _endTime == null
+                    ? 'Seleziona'
+                    : _formatTimeDisplay(_endTime!),
+                onTap: () async {
+                  final initial =
+                      _endTime ??
+                      _startTime ??
+                      const TimeOfDay(hour: 18, minute: 0);
+                  final picked = await _pickTimeIOS(
+                    title: 'Scegli l’orario di ritiro',
+                    initial: initial,
+                  );
+                  if (picked != null) {
+                    setState(() {
+                      _endTime = picked;
+                    });
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 14),
+
+        // ✅ RIEPILOGO
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: cs.surfaceVariant.withOpacity(0.35),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Riepilogo',
+                style: textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
                 ),
               ),
-              Icon(Icons.flag, size: 16, color: cs.primary),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Icon(Icons.login, size: 16, color: cs.primary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Consegna: $startSummary',
+                      style: textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Icon(Icons.logout, size: 16, color: cs.primary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Ritiro: $endSummary',
+                      style: textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Icon(Icons.timer_outlined, size: 16, color: cs.primary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      durationSummary,
+                      style: textTheme.bodySmall?.copyWith(
+                        color: cs.onSurface.withOpacity(0.7),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
 
         const SizedBox(height: 12),
-        // PRESET RAPIDI DURATA
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: ChoiceChip(
-                label: const Text('+ 3 ore'),
-                selected: _selectedPresetIndex == 0,
-                onSelected: (selected) {
-                  if (selected) {
-                    _applyPreset(0);
-                  } else {
-                    setState(() => _selectedPresetIndex = null);
-                  }
-                },
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: ChoiceChip(
-                label: const Text('Tutto il giorno'),
-                selected: _selectedPresetIndex == 1,
-                onSelected: (selected) {
-                  if (selected) {
-                    _applyPreset(1);
-                  } else {
-                    setState(() => _selectedPresetIndex = null);
-                  }
-                },
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: ChoiceChip(
-                label: Text(
-                  _plusDaysPreset == 0
-                      ? '+ 1 giorno'
-                      : '+ ${_plusDaysPreset} giorni',
-                ),
-                selected: _selectedPresetIndex == 2 && _plusDaysPreset > 0,
-                onSelected: (_) {
-                  _applyPlusDaysPreset();
-                },
-              ),
-            ),
-          ],
-        ),
 
-        const SizedBox(height: 12),
-
-        const SizedBox(height: 12),
-
-        // CARD RITIRO
-        Card(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: cs.secondaryContainer.withOpacity(0.4),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(Icons.logout, size: 20, color: cs.secondary),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Ritiro dei bagagli',
-                      style: textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-
-                Row(
-                  children: [
-                    Expanded(
-                      child: _DateTimePillButton(
-                        label: 'Giorno',
-                        value: _formatDate(_endDate, 'Seleziona giorno'),
-                        icon: Icons.calendar_today,
-                        onTap: () async {
-                          final now = DateTime.now();
-                          final today = DateTime(now.year, now.month, now.day);
-
-                          final baseStartDate = _selectedDate ?? today;
-                          final firstDate = baseStartDate;
-                          final lastDate = baseStartDate.add(
-                            const Duration(days: 7),
-                          );
-                          final initial = _endDate ?? baseStartDate;
-
-                          final picked = await showDatePicker(
-                            context: context,
-                            initialDate: initial,
-                            firstDate: firstDate,
-                            lastDate: lastDate,
-                          );
-                          if (picked != null) {
-                            setState(() {
-                              _endDate = DateTime(
-                                picked.year,
-                                picked.month,
-                                picked.day,
-                              );
-                            });
-                          }
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _DateTimePillButton(
-                        label: 'Orario',
-                        value: _endTime == null
-                            ? 'Seleziona ora'
-                            : _formatTimeDisplay(_endTime!),
-                        icon: Icons.access_time,
-                        onTap: () async {
-                          final initialTime =
-                              _endTime ??
-                              _startTime ??
-                              const TimeOfDay(hour: 18, minute: 0);
-                          final picked = await showTimePicker(
-                            context: context,
-                            initialTime: initialTime,
-                          );
-                          if (picked != null) {
-                            setState(() {
-                              _endTime = picked;
-                            });
-                          }
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 16),
-
-        // RIEPILOGO ORARI + DURATA
-        Card(
-          elevation: 0,
-          color: cs.surfaceVariant.withOpacity(0.4),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Riepilogo orari',
-                  style: textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Icon(Icons.login, size: 16),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        'Consegna: $startSummary',
-                        style: textTheme.bodySmall,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    const Icon(Icons.logout, size: 16),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        'Ritiro:   $endSummary',
-                        style: textTheme.bodySmall,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Icon(Icons.timer_outlined, size: 16, color: cs.primary),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        durationSummary,
-                        style: textTheme.bodySmall?.copyWith(color: cs.outline),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 16),
-
-        // INFO DI AIUTO
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1806,7 +2054,7 @@ if (!availability.acceptL && _bagsL > 0) {
             const SizedBox(width: 6),
             Expanded(
               child: Text(
-                'Puoi prenotare da oggi fino a 7 giorni dopo. Gli orari devono rientrare negli orari di apertura del locale.',
+                'Puoi prenotare da oggi fino a 7 giorni dopo. La consegna di oggi ha 2 minuti di tolleranza (se mentre compili passano 1–2 minuti, va bene).',
                 style: textTheme.bodySmall?.copyWith(color: cs.outline),
               ),
             ),
@@ -1826,21 +2074,20 @@ if (!availability.acceptL && _bagsL > 0) {
   void _updateBags({int? small, int? medium, int? large}) {
     final av = _availability;
     // ✅ blocca taglie non accettate (extra-sicurezza)
-if (av != null) {
-  if (!av.acceptS && (small ?? _bagsS) > 0) {
-    _showAvailabilitySnack('Il locale non accetta bagagli Small (S).');
-    return;
-  }
-  if (!av.acceptM && (medium ?? _bagsM) > 0) {
-    _showAvailabilitySnack('Il locale non accetta bagagli Medium (M).');
-    return;
-  }
-  if (!av.acceptL && (large ?? _bagsL) > 0) {
-    _showAvailabilitySnack('Il locale non accetta bagagli Large (L).');
-    return;
-  }
-}
-
+    if (av != null) {
+      if (!av.acceptS && (small ?? _bagsS) > 0) {
+        _showAvailabilitySnack('Il locale non accetta bagagli Small (S).');
+        return;
+      }
+      if (!av.acceptM && (medium ?? _bagsM) > 0) {
+        _showAvailabilitySnack('Il locale non accetta bagagli Medium (M).');
+        return;
+      }
+      if (!av.acceptL && (large ?? _bagsL) > 0) {
+        _showAvailabilitySnack('Il locale non accetta bagagli Large (L).');
+        return;
+      }
+    }
 
     final newS = small ?? _bagsS;
     final newM = medium ?? _bagsM;
@@ -1893,10 +2140,15 @@ if (av != null) {
       return const Center(child: CircularProgressIndicator());
     }
 
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final tt = theme.textTheme;
+
     final av = _availability;
-final bool canS = av?.acceptS ?? true;
-final bool canM = av?.acceptM ?? true;
-final bool canL = av?.acceptL ?? true;
+    final bool canS = av?.acceptS ?? true;
+    final bool canM = av?.acceptM ?? true;
+    final bool canL = av?.acceptL ?? true;
+
     int? maxS;
     int? maxM;
     int? maxL;
@@ -1904,23 +2156,19 @@ final bool canL = av?.acceptL ?? true;
     if (av != null) {
       final hasPerSizeCapacity =
           (av.capacityS + av.capacityM + av.capacityL) > 0;
-
       if (hasPerSizeCapacity) {
         maxS = av.availableS;
         maxM = av.availableM;
         maxL = av.availableL;
       }
-      // se non c'è capacità per taglia, lasciamo i max null
-      // e lasciamo il controllo "di sicurezza" solo a _confirmBooking
-      // ✅ se il partner non accetta una taglia, max = 0 (blocca + e mostra "Disponibili: 0")
-if (!canS) maxS = 0;
-if (!canM) maxM = 0;
-if (!canL) maxL = 0;
+      if (!canS) maxS = 0;
+      if (!canM) maxM = 0;
+      if (!canL) maxL = 0;
     }
 
     final totalBags = _bagsS + _bagsM + _bagsL;
 
-    // 🔹 Dati per la barra di spazio totale (unità equivalenti: 1S = 1, 1M = 2, 1L = 4)
+    // Totale capacity bar
     int capacityUnits = 0;
     int usedUnits = 0;
     int selectionUnits = 0;
@@ -1929,356 +2177,509 @@ if (!canL) maxL = 0;
     bool isOverCapacity = false;
 
     if (av != null && av.capacityTotal > 0) {
-      capacityUnits = av.capacityTotal; // capacità totale in unità equivalenti
-      usedUnits = av.usedTotal; // già occupato da altre prenotazioni
-      selectionUnits =
-          _currentRequestedUnits2x(); // unità equivalenti dei bagagli scelti ora
+      capacityUnits = av.capacityTotal;
+      usedUnits = av.usedTotal;
+      selectionUnits = _currentRequestedUnits2x();
       futureUsedUnits = usedUnits + selectionUnits;
 
-      if (futureUsedUnits > capacityUnits) {
-        isOverCapacity = true;
-      }
+      isOverCapacity = futureUsedUnits > capacityUnits;
 
       final clamped = futureUsedUnits.clamp(0, capacityUnits);
       occupancyRatio = capacityUnits > 0 ? clamped / capacityUnits : 0.0;
     }
 
-    // Per mostrare un numero più leggibile (coerente col messaggio in _confirmBooking)
     final double capacityHuman = capacityUnits / 2.0;
     final double futureUsedHuman = futureUsedUnits / 2.0;
 
-    return ListView(
-      children: [
-        Text(
-          'Seleziona numero e dimensione dei bagagli',
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        if (av != null) ...[
-          const SizedBox(height: 4),
+    Widget sectionTitle(String title, {String? subtitle}) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Text(
-            'Disponibili - S: ${av.availableS} • M: ${av.availableM} • L: ${av.availableL}',
-            style: Theme.of(context).textTheme.bodySmall,
+            title,
+            style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w900),
           ),
+          if (subtitle != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: tt.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.7),
+              ),
+            ),
+          ],
         ],
+      );
+    }
+
+    Widget iosSection({required List<Widget> children}) {
+      return Container(
+        decoration: BoxDecoration(
+          color: cs.surfaceVariant.withOpacity(0.25),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
+        ),
+        child: Column(children: children),
+      );
+    }
+
+    Widget divider() =>
+        Divider(height: 1, color: cs.outlineVariant.withOpacity(0.35));
+
+    final it = _pricingIntervalLive; // ✅ interval vero (duration + extraDays)
+    final canShowPrice =
+        _selectedDate != null &&
+        _startTime != null &&
+        _endTime != null &&
+        totalBags > 0;
+
+    final baseNoExtra = canShowPrice ? _priceBaseNoExtra() : 0.0;
+    final extraOnly = canShowPrice ? _priceExtraDaysOnly() : 0.0;
+    final totalPrice = canShowPrice ? _currentTotalPrice() : 0.0;
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      children: [
+        sectionTitle(
+          'Bagagli',
+          subtitle:
+              'Seleziona numero e dimensione. Il prezzo si aggiorna in tempo reale.',
+        ),
+
         const SizedBox(height: 12),
-        _BagRow(
-          label: 'Small (S)',
-          description: 'Zainetti o trolley piccoli',
-          count: _bagsS,
-          max: canS ? maxS : 0,
-          onChanged: (v) => _updateBags(small: v),
-        ),
-        const SizedBox(height: 8),
-        _BagRow(
-          label: 'Medium (M)',
-          description: 'Trolley medi',
-          count: _bagsM,
-          max: canM ? maxM : 0,
-          onChanged: (v) => _updateBags(medium: v),
-        ),
-        const SizedBox(height: 8),
-        _BagRow(
-          label: 'Large (L)',
-          description: 'Valigie grandi',
-          count: _bagsL,
-          max: canL ? maxL : 0,
-          onChanged: (v) => _updateBags(large: v),
+
+        if (av != null) ...[
+          Text(
+            'Disponibilità • S: ${av.availableS}  ·  M: ${av.availableM}  ·  L: ${av.availableL}',
+            style: tt.bodySmall?.copyWith(
+              color: cs.onSurface.withOpacity(0.75),
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+
+        iosSection(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+              child: Text(
+                'Selezione',
+                style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: Column(
+                children: [
+                  _BagRow(
+                    label: 'Small (S)',
+                    description: 'Zainetti o trolley piccoli',
+                    count: _bagsS,
+                    max: canS ? maxS : 0,
+                    onChanged: (v) => _updateBags(small: v),
+                  ),
+                  const SizedBox(height: 8),
+                  _BagRow(
+                    label: 'Medium (M)',
+                    description: 'Trolley medi',
+                    count: _bagsM,
+                    max: canM ? maxM : 0,
+                    onChanged: (v) => _updateBags(medium: v),
+                  ),
+                  const SizedBox(height: 8),
+                  _BagRow(
+                    label: 'Large (L)',
+                    description: 'Valigie grandi',
+                    count: _bagsL,
+                    max: canL ? maxL : 0,
+                    onChanged: (v) => _updateBags(large: v),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
 
         if (av != null && av.capacityTotal > 0) ...[
-          const SizedBox(height: 12),
-          Text(
-            'Spazio totale per questo intervallo',
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: occupancyRatio.clamp(0.0, 1.0),
-              minHeight: 10,
-              backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                isOverCapacity
-                    ? Theme.of(context).colorScheme.error
-                    : Theme.of(context).colorScheme.primary,
+          const SizedBox(height: 14),
+          sectionTitle('Spazio totale per questo intervallo'),
+          const SizedBox(height: 8),
+          iosSection(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: occupancyRatio.clamp(0.0, 1.0),
+                    minHeight: 10,
+                    backgroundColor: cs.surfaceVariant,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      isOverCapacity ? cs.error : cs.primary,
+                    ),
+                  ),
+                ),
               ),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            isOverCapacity
-                ? 'Stai superando lo spazio disponibile: riduci il numero di bagagli.'
-                : 'Occupato: ${futureUsedHuman.toStringAsFixed(1)}'
-                      ' / ${capacityHuman.toStringAsFixed(1)} unità equivalenti',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: isOverCapacity
-                  ? Theme.of(context).colorScheme.error
-                  : Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            'Equivalenze: 1 S = 1 • 1 M = 2 • 1 L = 4 unità.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              fontSize: 11,
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-            ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isOverCapacity
+                          ? 'Stai superando lo spazio disponibile: riduci il numero di bagagli.'
+                          : 'Occupato: ${futureUsedHuman.toStringAsFixed(1)} / ${capacityHuman.toStringAsFixed(1)} unità equivalenti',
+                      style: tt.bodySmall?.copyWith(
+                        color: isOverCapacity
+                            ? cs.error
+                            : cs.onSurface.withOpacity(0.7),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Equivalenze: 1 S = 1 • 1 M = 2 • 1 L = 4 unità.',
+                      style: tt.bodySmall?.copyWith(
+                        fontSize: 11,
+                        color: cs.onSurface.withOpacity(0.65),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
 
-        const SizedBox(height: 16),
+        const SizedBox(height: 14),
 
-        // 👇 Box prezzo dinamico in Step 3
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Anteprima del prezzo',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 4),
-                if (_selectedDate == null ||
-                    _startTime == null ||
-                    _endTime == null ||
-                    totalBags == 0)
-                  const Text(
-                    'Seleziona data, orario e almeno un bagaglio per vedere il prezzo.',
-                  )
-                else
-                  Text(
-                    _formatPrice(_currentTotalPrice()),
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
+        // ✅ ANTEPRIMA PREZZO (vera anche >3 giorni)
+        sectionTitle('Anteprima prezzo'),
+        const SizedBox(height: 8),
+        iosSection(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (!canShowPrice) ...[
+                    Text(
+                      'Seleziona date/orari e almeno un bagaglio per vedere il prezzo.',
+                      style: tt.bodySmall?.copyWith(
+                        color: cs.onSurface.withOpacity(0.7),
+                      ),
                     ),
-                  ),
-              ],
+                  ] else ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Totale',
+                            style: tt.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          _formatPrice(totalPrice),
+                          style: tt.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Durata tariffaria: ${_durationLabel()}',
+                      style: tt.bodySmall?.copyWith(
+                        color: cs.onSurface.withOpacity(0.7),
+                      ),
+                    ),
+                    if (it != null &&
+                        it.duration == BagDropDuration.threeDays &&
+                        it.extraDays > 0) ...[
+                      const SizedBox(height: 10),
+                      divider(),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Base (fino a 3 giorni)',
+                              style: tt.bodySmall?.copyWith(
+                                color: cs.onSurface.withOpacity(0.75),
+                              ),
+                            ),
+                          ),
+                          Text(
+                            _formatPrice(baseNoExtra),
+                            style: tt.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Giorni extra: ${it.extraDays} × 2€ × $totalBags bagagli',
+                              style: tt.bodySmall?.copyWith(
+                                color: cs.onSurface.withOpacity(0.75),
+                              ),
+                            ),
+                          ),
+                          Text(
+                            '+ ${_formatPrice(extraOnly)}',
+                            style: tt.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ],
+              ),
             ),
-          ),
+          ],
         ),
       ],
     );
   }
 
   Widget _buildSummary() {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final tt = theme.textTheme;
+
     final totalBags = _bagsS + _bagsM + _bagsL;
 
-    final start = _startTime;
-    final end = _endTime;
+    String fmtDate(DateTime? d) {
+      if (d == null) return '—';
+      return '${d.day.toString().padLeft(2, '0')}/'
+          '${d.month.toString().padLeft(2, '0')}/'
+          '${d.year}';
+    }
 
-    String timeText;
-    if (start == null || end == null) {
-      timeText = 'Orario non selezionato';
-    } else {
-      timeText =
-          '${_formatTimeDisplay(start)} - ${_formatTimeDisplay(end)} (${_durationLabel()})';
+    final it = _pricingIntervalLive;
+    final canShowPrice =
+        _selectedDate != null &&
+        _startTime != null &&
+        _endTime != null &&
+        totalBags > 0;
+
+    final baseNoExtra = canShowPrice ? _priceBaseNoExtra() : 0.0;
+    final extraOnly = canShowPrice ? _priceExtraDaysOnly() : 0.0;
+    final totalPrice = canShowPrice ? _currentTotalPrice() : 0.0;
+
+    Widget sectionTitle(String title) => Text(
+      title,
+      style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+    );
+
+    Widget iosSection({required List<Widget> children}) {
+      return Container(
+        decoration: BoxDecoration(
+          color: cs.surfaceVariant.withOpacity(0.25),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
+        ),
+        child: Column(children: children),
+      );
+    }
+
+    Widget divider() =>
+        Divider(height: 1, color: cs.outlineVariant.withOpacity(0.35));
+
+    Widget rowKV(String k, String v, {bool bold = false}) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                k,
+                style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            ),
+            Text(
+              v,
+              style: tt.bodyMedium?.copyWith(
+                fontWeight: bold ? FontWeight.w900 : FontWeight.w700,
+                color: cs.onSurface.withOpacity(bold ? 1.0 : 0.75),
+              ),
+            ),
+          ],
+        ),
+      );
     }
 
     return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
       children: [
         Text(
           'Riepilogo prenotazione',
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+          style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w900),
         ),
         const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.partner.name,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
+
+        sectionTitle('Attività'),
+        const SizedBox(height: 8),
+        iosSection(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.partner.name,
+                    style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+                  ),
+                  if ((widget.partner.address ?? '').trim().isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      widget.partner.address!,
+                      style: tt.bodySmall?.copyWith(
+                        color: cs.onSurface.withOpacity(0.75),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 14),
+
+        sectionTitle('Data e orario'),
+        const SizedBox(height: 8),
+        iosSection(
+          children: [
+            rowKV('Deposito', fmtDate(_selectedDate)),
+            divider(),
+            rowKV(
+              'Ora deposito',
+              _startTime == null ? '—' : _formatTimeDisplay(_startTime!),
+            ),
+            divider(),
+            rowKV('Ritiro', fmtDate(_endDate)),
+            divider(),
+            rowKV(
+              'Ora ritiro',
+              _endTime == null ? '—' : _formatTimeDisplay(_endTime!),
+            ),
+            divider(),
+            rowKV('Durata tariffaria', _durationLabel(), bold: true),
+          ],
+        ),
+
+        const SizedBox(height: 14),
+
+        sectionTitle('Contatto'),
+        const SizedBox(height: 8),
+        iosSection(
+          children: [
+            rowKV(
+              'Nome',
+              '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
+            ),
+            divider(),
+            rowKV('Telefono', _phoneCtrl.text.trim()),
+            divider(),
+            rowKV('E-mail', _emailCtrl.text.trim()),
+          ],
+        ),
+
+        const SizedBox(height: 14),
+
+        sectionTitle('Bagagli'),
+        const SizedBox(height: 8),
+        iosSection(
+          children: [
+            rowKV('Totale', '$totalBags'),
+            if (_bagsS > 0) ...[divider(), rowKV('Small (S)', '$_bagsS')],
+            if (_bagsM > 0) ...[divider(), rowKV('Medium (M)', '$_bagsM')],
+            if (_bagsL > 0) ...[divider(), rowKV('Large (L)', '$_bagsL')],
+          ],
+        ),
+
+        const SizedBox(height: 14),
+
+        sectionTitle('Prezzo finale'),
+        const SizedBox(height: 8),
+        iosSection(
+          children: [
+            if (!canShowPrice)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                child: Text(
+                  'Seleziona date/orari e almeno un bagaglio per vedere il prezzo.',
+                  style: tt.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(0.7),
                   ),
                 ),
-                if ((widget.partner.address ?? '').trim().isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(widget.partner.address!),
-                ],
+              )
+            else ...[
+              rowKV('Totale', _formatPrice(totalPrice), bold: true),
+              if (it != null &&
+                  it.duration == BagDropDuration.threeDays &&
+                  it.extraDays > 0) ...[
+                divider(),
+                rowKV('Base (fino a 3 giorni)', _formatPrice(baseNoExtra)),
+                divider(),
+                rowKV('Giorni extra', '+ ${_formatPrice(extraOnly)}'),
               ],
-            ),
-          ),
+            ],
+          ],
         ),
+
         const SizedBox(height: 12),
 
-        // Data e orario
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Data e orario',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 4),
-
-                // Deposito
-                Text(
-                  _selectedDate == null
-                      ? 'Data di deposito non selezionata'
-                      : '${_selectedDate!.day.toString().padLeft(2, '0')}/'
-                            '${_selectedDate!.month.toString().padLeft(2, '0')}/'
-                            '${_selectedDate!.year}',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 2),
-                Text(timeText),
-
-                const SizedBox(height: 8),
-
-                // Ritiro
-                const Text(
-                  'Ritiro bagagli',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  _endDate == null
-                      ? 'Data di ritiro non selezionata'
-                      : '${_endDate!.day.toString().padLeft(2, '0')}/'
-                            '${_endDate!.month.toString().padLeft(2, '0')}/'
-                            '${_endDate!.year}',
-                ),
-                if (_endTime != null)
-                  Text('Ore ${_formatTimeDisplay(_endTime!)}'),
-
-                const SizedBox(height: 8),
-
-                // Durata tariffaria
-                Text(
-                  'Durata tariffaria: ${_durationLabel()}',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Contatto',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
-                ),
-                Text(_phoneCtrl.text.trim()),
-                Text(_emailCtrl.text.trim()),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Bagagli',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 4),
-                Text('Totale: $totalBags'),
-                if (_bagsS > 0) Text('• $_bagsS × Small (S)'),
-                if (_bagsM > 0) Text('• $_bagsM × Medium (M)'),
-                if (_bagsL > 0) Text('• $_bagsL × Large (L)'),
-              ],
-            ),
-          ),
-        ),
-
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Prezzo Finale',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 4),
-                if (_selectedDate == null || totalBags == 0)
-                  const Text(
-                    'Seleziona data, orario e almeno un bagaglio per vedere il prezzo.',
-                  )
-                else
-                  Text(
-                    _formatPrice(_currentTotalPrice()),
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
+        iosSection(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.lock_outline,
+                    size: 18,
+                    color: cs.onSurface.withOpacity(0.75),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Con “Paga e conferma” verrai indirizzato al pagamento. '
+                      'La prenotazione risulta confermata solo dopo esito positivo.',
+                      style: tt.bodySmall?.copyWith(
+                        color: cs.onSurface.withOpacity(0.75),
+                      ),
                     ),
                   ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ),
-
-        Card(child: Padding(padding: const EdgeInsets.all(12))),
-
-        const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.lock_outline, size: 18),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Con “Paga e conferma” verrai indirizzato al pagamento. '
-                    'La prenotazione risulta confermata solo dopo l’esito positivo.',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-              ],
-            ),
-          ),
+          ],
         ),
 
         if (_notesCtrl.text.trim().isNotEmpty) ...[
           const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Note',
-                    style: TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(_notesCtrl.text.trim()),
-                ],
+          sectionTitle('Note'),
+          const SizedBox(height: 8),
+          iosSection(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                child: Text(_notesCtrl.text.trim(), style: tt.bodySmall),
               ),
-            ),
+            ],
           ),
         ],
       ],

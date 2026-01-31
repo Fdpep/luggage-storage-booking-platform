@@ -10,6 +10,106 @@ class BagDropPricingScreen extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
+    Widget section({
+      required String title,
+      required IconData icon,
+      required List<Widget> children,
+    }) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: cs.primary),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: cs.surfaceVariant.withOpacity(0.25),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
+            ),
+            child: Column(children: children),
+          ),
+        ],
+      );
+    }
+
+    Widget cell({required String title, String? subtitle, Widget? trailing}) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: tt.bodySmall?.copyWith(
+                        color: cs.onSurface.withOpacity(0.7),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (trailing != null) ...[const SizedBox(width: 10), trailing],
+          ],
+        ),
+      );
+    }
+
+    Widget divider() =>
+        Divider(height: 1, color: cs.outlineVariant.withOpacity(0.35));
+
+    Widget priceRow(String label, double price) {
+      return cell(
+        title: label,
+        trailing: Text(
+          BagDropPricing.formatEuro(price),
+          style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w900),
+        ),
+      );
+    }
+
+    Widget pricingSize({
+      required String title,
+      required String subtitle,
+      required List<Widget> rows,
+    }) {
+      return section(
+        title: title,
+        icon: Icons.local_offer_outlined,
+        children: [
+          cell(
+            title: title,
+            subtitle: subtitle,
+            trailing: Icon(
+              Icons.check_circle_outline,
+              color: cs.primary,
+              size: 18,
+            ),
+          ),
+          divider(),
+          ..._withDividers(rows, divider),
+        ],
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: cs.primary,
@@ -17,13 +117,13 @@ class BagDropPricingScreen extends StatelessWidget {
         title: const _LogoTitle(),
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
           Text(
             'Tariffe standard BagDrop',
-            style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+            style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w900),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
             'Queste tariffe sono uguali per tutte le attività partner.',
             style: tt.bodyMedium?.copyWith(
@@ -33,337 +133,202 @@ class BagDropPricingScreen extends StatelessWidget {
 
           const SizedBox(height: 16),
 
-          // =========================
-          // COME FUNZIONA (LOGICA)
-          // =========================
-          _InfoCard(
+          section(
             title: 'Come funzionano le fasce',
             icon: Icons.layers_outlined,
-            children: const [
-              _Bullet('3 ore'),
-              _Bullet('Tutto il giorno (fino alla chiusura del locale)'),
-              _Bullet('1 giorno e mezzo (fino alle 13:00 del giorno dopo)'),
-              _Bullet('2 giorni, 3 giorni, …'),
+            children: [
+              cell(title: '• 3 ore'),
+              divider(),
+              cell(
+                title: '• Tutto il giorno',
+                subtitle: 'Fino alla chiusura del locale',
+              ),
+              divider(),
+              cell(
+                title: '• 1 giorno e mezzo',
+                subtitle: 'Fino alle 13:00 del giorno dopo',
+              ),
+              divider(),
+              cell(title: '• 2 giorni, 3 giorni, …'),
             ],
           ),
-          const SizedBox(height: 12),
 
-          _InfoCard(
+          const SizedBox(height: 14),
+
+          section(
             title: 'Ritiro scelto vs scadenza fascia',
             icon: Icons.compare_arrows_rounded,
             children: [
-              _Bullet(
-                'Puoi scegliere un orario per il ritiro anche prima della scadenza della fascia: è il tuo “ritiro scelto”.',
+              cell(
+                title: 'Ritiro scelto',
+                subtitle:
+                    'Puoi scegliere un orario anche prima della scadenza della fascia.',
               ),
-              _Bullet(
-                'Il prezzo e la validità tariffaria seguono comunque le scadenze della fascia orario in cui si colloca il ritiro scelto.',
+              divider(),
+              cell(
+                title: 'Scadenza fascia',
+                subtitle:
+                    'Prezzo e validità seguono la scadenza della fascia in cui ricade il ritiro scelto.',
               ),
-              const SizedBox(height: 8),
-              _MiniNote(
-                text:
-                    'Esempio: consegni 14:00 e scegli ritiro 16:00 → ricadi nella fascia “3 ore” → scadenza fascia 17:00.',
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          _InfoCard(
-            title: 'Ritardo, supplemento ed estensione',
-            icon: Icons.warning_amber_rounded,
-            children: const [
-              _Bullet(
-                'C’è una tolleranza di 15 minuti dopo la scadenza fascia.',
-              ),
-              _Bullet(
-                'Il ritardo si calcola dalla scadenza fascia (non dal ritiro scelto).',
-              ),
-              _Bullet(
-                'Se superi scadenza fascia + 15 min, puoi pagare un supplemento per estendere la prenotazione.',
-              ),
-              _Bullet(
-                'Il supplemento è la differenza tra la nuova fascia e quella già pagata (upgrade di fascia).',
-              ),
-              SizedBox(height: 8),
-              _MiniNote(
-                text:
-                    'Esempio: 3 ore = €3, ma ritiri tardi → devi passare a 1 giorno = €5 → supplemento = €2 (5−3). '
-                    'Dopo il pagamento la prenotazione viene estesa e torna “in regola”.',
+              divider(),
+              cell(
+                title: 'Esempio',
+                subtitle:
+                    'Consegni 14:00 e scegli ritiro 16:00 → fascia “3 ore” → scadenza fascia 17:00.',
               ),
             ],
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 14),
 
-          Divider(color: cs.onSurface.withOpacity(0.12)),
-          const SizedBox(height: 12),
+          section(
+            title: 'Oltre 3 giorni',
+            icon: Icons.add_circle_outline,
+            children: [
+              cell(
+                title: 'Regola',
+                subtitle:
+                    'Dal 4° giorno in poi: +2,00 € per bagaglio per ogni giorno extra (qualsiasi taglia).',
+              ),
+              divider(),
+              cell(
+                title: 'Esempio',
+                subtitle:
+                    '2 bagagli per 6 giorni → prezzo(3 giorni) + 3 giorni extra × 2€ × 2 bagagli.',
+              ),
+            ],
+          ),
 
-          // =========================
-          // PREZZI
-          // =========================
+          const SizedBox(height: 18),
+
           Text(
             'Prezzi per taglia',
-            style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 10),
 
-          _PricingCard(
+          pricingSize(
             title: 'Small (S)',
             subtitle: 'Zaini / borse piccole',
             rows: [
-              _PricingRow('3 ore', BagDropPricing.s3h),
-              _PricingRow('1 giorno', BagDropPricing.s1d),
-              _PricingRow('1,5 giorni', BagDropPricing.s1_5d),
-              _PricingRow('2 giorni', BagDropPricing.s2d),
-              _PricingRow('3 giorni', BagDropPricing.s3d),
+              priceRow('3 ore', BagDropPricing.s3h),
+              priceRow('1 giorno', BagDropPricing.s1d),
+              priceRow('1,5 giorni', BagDropPricing.s1_5d),
+              priceRow('2 giorni', BagDropPricing.s2d),
+              priceRow('3 giorni', BagDropPricing.s3d),
             ],
           ),
+
           const SizedBox(height: 12),
 
-          _PricingCard(
+          pricingSize(
             title: 'Medium (M)',
             subtitle: 'Trolley / valigie medie',
             rows: [
-              _PricingRow('3 ore', BagDropPricing.m3h),
-              _PricingRow('1 giorno', BagDropPricing.m1d),
-              _PricingRow('1,5 giorni', BagDropPricing.m1_5d),
-              _PricingRow('2 giorni', BagDropPricing.m2d),
-              _PricingRow('3 giorni', BagDropPricing.m3d),
+              priceRow('3 ore', BagDropPricing.m3h),
+              priceRow('1 giorno', BagDropPricing.m1d),
+              priceRow('1,5 giorni', BagDropPricing.m1_5d),
+              priceRow('2 giorni', BagDropPricing.m2d),
+              priceRow('3 giorni', BagDropPricing.m3d),
             ],
           ),
+
           const SizedBox(height: 12),
 
-          _PricingCard(
+          pricingSize(
             title: 'Large (L)',
             subtitle: 'Valigie grandi',
             rows: [
-              _PricingRow('3 ore', BagDropPricing.l3h),
-              _PricingRow('1 giorno', BagDropPricing.l1d),
-              _PricingRow('1,5 giorni', BagDropPricing.l1_5d),
-              _PricingRow('2 giorni', BagDropPricing.l2d),
-              _PricingRow('3 giorni', BagDropPricing.l3d),
+              priceRow('3 ore', BagDropPricing.l3h),
+              priceRow('1 giorno', BagDropPricing.l1d),
+              priceRow('1,5 giorni', BagDropPricing.l1_5d),
+              priceRow('2 giorni', BagDropPricing.l2d),
+              priceRow('3 giorni', BagDropPricing.l3d),
             ],
           ),
 
-          const SizedBox(height: 18),
+          const SizedBox(height: 16),
 
-          _InfoCard(
-            title: 'Esempi rapidi (supplemento)',
-            icon: Icons.lightbulb_outline,
-            children: const [
-              _Bullet(
-                'Paghi sempre e solo la differenza tra fasce, quando serve estendere.',
+          section(
+            title: 'Supplemento (estensione)',
+            icon: Icons.warning_amber_rounded,
+            children: [
+              cell(
+                title: 'Come si calcola',
+                subtitle:
+                    'Paghi sempre e solo la differenza tra la nuova fascia e quella già pagata.',
               ),
-              _Bullet(
-                'Puoi estendere più volte se vai di nuovo oltre la scadenza fascia.',
-              ),
-              SizedBox(height: 8),
-              _MiniNote(
-                text:
-                    '3 ore → 1 giorno: supplemento = prezzo(1 giorno) − prezzo(3 ore)\n'
-                    '1 giorno → 1,5 giorni: supplemento = prezzo(1,5) − prezzo(1)\n'
-                    '1,5 giorni → 2 giorni: supplemento = prezzo(2) − prezzo(1,5)',
+              divider(),
+              cell(
+                title: 'Esempio',
+                subtitle:
+                    '3 ore → 1 giorno: supplemento = prezzo(1 giorno) − prezzo(3 ore).',
               ),
             ],
           ),
 
-          const SizedBox(height: 18),
+          const SizedBox(height: 12),
 
-          _MiniNote(
-            text:
-                'Nota: la durata tariffaria e la scadenza fascia sono calcolate automaticamente in base alla consegna e al ritiro scelto.',
+          Text(
+            'Nota: durata tariffaria e scadenza fascia sono calcolate automaticamente in base a consegna e ritiro scelto.',
+            style: tt.bodySmall?.copyWith(color: cs.outline),
           ),
         ],
       ),
     );
   }
+}
+
+List<Widget> _withDividers(List<Widget> items, Widget Function() divider) {
+  final out = <Widget>[];
+  for (var i = 0; i < items.length; i++) {
+    out.add(items[i]);
+    if (i != items.length - 1) out.add(divider());
+  }
+  return out;
 }
 
 /// Titolo “BagDrop” in AppBar con brand:
-/// - “Bag” chiaro
-/// - “Drop” giallo
+/// - “Bag” bianco fisso
+/// - “Drop” giallo brand
 class _LogoTitle extends StatelessWidget {
-  const _LogoTitle();
+  const _LogoTitle({this.fontSize = 20});
+
+  final double fontSize;
 
   @override
   Widget build(BuildContext context) {
-    return RichText(
-      text: const TextSpan(
-        children: [
-          TextSpan(
-            text: 'Bag',
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 20,
-              color: Colors.white,
-              letterSpacing: 0.5,
-            ),
-          ),
-          TextSpan(text: ' '),
-          TextSpan(
-            text: 'Drop',
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 20,
-              color: AppTheme.brandYellow,
-              letterSpacing: 0.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PricingRow {
-  final String label;
-  final double price;
-
-  _PricingRow(this.label, this.price);
-}
-
-class _PricingCard extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final List<_PricingRow> rows;
-
-  const _PricingCard({
-    super.key,
-    required this.title,
-    required this.subtitle,
-    required this.rows,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
-
-    return Card(
-      elevation: 1.5,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Semantics(
+      label: 'BagDrop',
+      child: RichText(
+        maxLines: 1,
+        overflow: TextOverflow.fade,
+        softWrap: false,
+        text: TextSpan(
           children: [
-            Text(
-              title,
-              style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              style: tt.bodySmall?.copyWith(
-                color: cs.onSurface.withOpacity(0.65),
+            TextSpan(
+              text: 'Bag',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: fontSize,
+                color: Colors.white,
+                letterSpacing: 0.2,
+                height: 1.0,
               ),
             ),
-            const SizedBox(height: 10),
-            ...rows.map(
-              (r) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    Expanded(child: Text(r.label)),
-                    Text(
-                      BagDropPricing.formatEuro(r.price),
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                  ],
-                ),
+            const TextSpan(text: ' '),
+            TextSpan(
+              text: 'Drop',
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: fontSize,
+                color: AppTheme.brandYellow,
+                letterSpacing: 0.2,
+                height: 1.0,
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _InfoCard extends StatelessWidget {
-  final String title;
-  final IconData icon;
-  final List<Widget> children;
-
-  const _InfoCard({
-    required this.title,
-    required this.icon,
-    required this.children,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
-
-    return Card(
-      elevation: 1.2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, color: cs.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            ...children,
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Bullet extends StatelessWidget {
-  final String text;
-  const _Bullet(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '• ',
-            style: TextStyle(color: cs.primary, fontWeight: FontWeight.w900),
-          ),
-          Expanded(child: Text(text)),
-        ],
-      ),
-    );
-  }
-}
-
-class _MiniNote extends StatelessWidget {
-  final String text;
-  const _MiniNote({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: cs.primary.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(fontSize: 12, color: cs.onSurface.withOpacity(0.78)),
       ),
     );
   }

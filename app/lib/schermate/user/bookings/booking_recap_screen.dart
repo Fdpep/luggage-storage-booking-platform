@@ -89,7 +89,6 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
     }
   }
 
-  /// Format semplice senza dipendenze (intl).
   /// Output: dd/MM/yyyy • HH:mm
   String _formatDateTime(DateTime dt) {
     final local = dt.toLocal();
@@ -112,32 +111,33 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
 
     final totalBags = booking.totalBags;
     final dropoff = booking.plannedDropoffLocal;
-
-    // ritiro scelto dall’utente (requested)
     final pickupRequested = booking.requestedPickupLocal;
-
-    // scadenza tariffaria (effective end, salvata in end_date/end_time)
     final pickupEffective = booking.plannedPickupLocal;
 
-    // Calcolo durata + prezzo
-    BagDropDuration? duration;
-    double? totalPrice;
+    // ✅ FIX già applicato: interval normalizzato (extraDays incluso)
+    BagDropPricingInterval? interval;
+    double? plannedTotalEuro;
     String durationLabel = '';
+    int extraDays = 0;
 
-    if (pickupEffective.isAfter(dropoff)) {
-      duration = BagDropPricing.inferDuration(
+    if (pickupRequested.isAfter(dropoff)) {
+      interval = BagDropPricing.normalizeBookingInterval(
         start: dropoff,
-        end: pickupEffective,
+        userEnd: pickupRequested,
+        getCloseForDay: (_) => null,
       );
 
-      totalPrice = BagDropPricing.totalFor(
-        duration: duration,
+      extraDays = interval.extraDays;
+
+      plannedTotalEuro = BagDropPricing.totalFor(
+        duration: interval.duration,
+        extraDays: interval.extraDays,
         bagsS: booking.bagsS,
         bagsM: booking.bagsM,
         bagsL: booking.bagsL,
       );
 
-      durationLabel = _durationLabel(duration);
+      durationLabel = _durationLabel(interval.duration);
     }
 
     String statusText;
@@ -147,32 +147,31 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
         statusText = 'In attesa';
         statusColor = Colors.orange;
         break;
-
       case 'cancelled_by_partner':
       case 'rejected':
         statusText = 'Rifiutata';
         statusColor = Colors.red;
         break;
-
       case 'cancelled':
       case 'canceled':
       case 'cancelled_by_user':
         statusText = 'Annullata';
         statusColor = Colors.grey;
         break;
-
       case 'completed':
         statusText = 'Completata';
         statusColor = Colors.blue;
         break;
-
       default:
         statusText = 'Confermata';
         statusColor = Colors.green;
     }
 
-    final plannedCents = totalPrice == null ? 0 : _toCents(totalPrice!);
-    final balanceCents = plannedCents - _totalPaidCents;
+    final plannedCents = plannedTotalEuro == null ? 0 : _toCents(plannedTotalEuro!);
+    // saldo calcolato ma NON mostrato (come richiesto)
+    final _ = plannedCents - _totalPaidCents;
+
+    final bool paymentsOk = !_loadingPayments && _paymentsError == null;
 
     return Scaffold(
       appBar: AppBar(
@@ -185,7 +184,7 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
         children: [
           Text(
             'Riepilogo prenotazione',
-            style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+            style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 8),
           Text(
@@ -194,294 +193,283 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Card partner + stato + date
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            elevation: 1.5,
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Partner + stato chip
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              partner.name,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 18,
-                              ),
-                            ),
-                            if (partner.address != null &&
-                                partner.address!.trim().isNotEmpty) ...[
-                              const SizedBox(height: 4),
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.location_on_outlined,
-                                    size: 16,
-                                    color: cs.onSurface.withOpacity(0.6),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Expanded(
-                                    child: Text(
-                                      partner.address!,
-                                      style: TextStyle(
-                                        color: cs.onSurface.withOpacity(0.7),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: statusColor.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          statusText,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: statusColor,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Date e orari con icone
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _IconLabelRow(
-                        icon: Icons.login,
-                        label: 'Consegna prevista',
-                        value: _formatDateTime(dropoff),
-                      ),
-                      const SizedBox(height: 4),
-                      _IconLabelRow(
-                        icon: Icons.logout,
-                        label: 'Ritiro scelto',
-                        value: _formatDateTime(pickupRequested),
-                      ),
-                      const SizedBox(height: 4),
-                      _IconLabelRow(
-                        icon: Icons.hourglass_bottom,
-                        label: 'Scadenza fascia',
-                        value: _formatDateTime(pickupEffective),
-                      ),
-                      const SizedBox(height: 4),
-                      _IconLabelRow(
-                        icon: Icons.schedule_outlined,
-                        label: 'Prenotazione creata il',
-                        value: _formatDateTime(booking.createdAt),
-                        labelStyle: tt.bodySmall?.copyWith(
-                          color: cs.onSurface.withOpacity(0.6),
-                        ),
-                        valueStyle: tt.bodySmall?.copyWith(
-                          color: cs.onSurface.withOpacity(0.6),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                PartnerDetailScreen(partner: partner),
-                          ),
-                        );
-                      },
-                      icon: const Icon(
-                        Icons.store_mall_directory_outlined,
-                        size: 18,
-                      ),
-                      label: const Text('Dettagli locale'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Dati contatto
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            elevation: 1,
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Dati di contatto',
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-                  ),
-                  const SizedBox(height: 8),
-                  _InfoRow('Nome', '${booking.firstName} ${booking.lastName}'),
-                  _InfoRow('Email', booking.email),
-                  if (booking.phone.isNotEmpty)
-                    _InfoRow('Telefono', booking.phone),
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Bagagli
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            elevation: 1,
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Bagagli',
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-                  ),
-                  const SizedBox(height: 8),
-                  _InfoRow('Totale bagagli', '$totalBags'),
-                  _InfoRow('Small (S)', '${booking.bagsS}'),
-                  _InfoRow('Medium (M)', '${booking.bagsM}'),
-                  _InfoRow('Large (L)', '${booking.bagsL}'),
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Prezzo totale
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            elevation: 1,
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Prezzo e pagamenti',
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-                  ),
-                  const SizedBox(height: 8),
-                  if (totalPrice == null)
-                    Text(
-                      'Durata non valida: controlla che data e orario di ritiro siano successivi alla consegna.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: cs.onSurface.withOpacity(0.7),
-                      ),
-                    )
-                  else ...[
-                    Text(
-                      BagDropPricing.formatEuro(totalPrice),
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    if (durationLabel.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        'Durata tariffaria: $durationLabel',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: cs.onSurface.withOpacity(0.7),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 12),
-
-                    // Pagato / Numero pagamenti / Saldo
-                    if (_loadingPayments) ...[
-                      const LinearProgressIndicator(minHeight: 4),
-                      const SizedBox(height: 10),
-                      Text(
-                        'Caricamento pagamenti…',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: cs.onSurface.withOpacity(0.7),
-                        ),
-                      ),
-                    ] else if (_paymentsError != null) ...[
-                      Text(
-                        'Impossibile caricare pagamenti: $_paymentsError',
-                        style: TextStyle(fontSize: 12, color: cs.error),
-                      ),
-                    ] else ...[
-                      _InfoRow('Pagato', _euroCents(_totalPaidCents)),
-                      _InfoRow('Numero pagamenti', '${_payments.length}'),
-                    ],
-                  ],
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Note
-          if (booking.notes != null && booking.notes!.trim().isNotEmpty)
-            Card(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              elevation: 1,
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
+          // SECTION: Partner + stato + date
+          _iosSection(
+            context,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Note',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 16,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            partner.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+                          ),
+                          if (partner.address != null && partner.address!.trim().isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  Icons.location_on_outlined,
+                                  size: 16,
+                                  color: cs.onSurface.withOpacity(0.6),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    partner.address!.trim(),
+                                    style: tt.bodySmall?.copyWith(
+                                      color: cs.onSurface.withOpacity(0.7),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      booking.notes!.trim(),
-                      style: TextStyle(color: cs.onSurface.withOpacity(0.9)),
+                    const SizedBox(width: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.10),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: statusColor.withOpacity(0.25)),
+                      ),
+                      child: Text(
+                        statusText,
+                        style: tt.labelSmall?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: statusColor,
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
+              _thinDivider(context),
+
+              _rowIconKV(
+                context,
+                icon: Icons.login,
+                k: 'Consegna prevista',
+                v: _formatDateTime(dropoff),
+              ),
+              _thinDivider(context),
+              _rowIconKV(
+                context,
+                icon: Icons.logout,
+                k: 'Ritiro scelto',
+                v: _formatDateTime(pickupRequested),
+              ),
+              _thinDivider(context),
+              _rowIconKV(
+                context,
+                icon: Icons.hourglass_bottom,
+                k: 'Scadenza fascia',
+                v: _formatDateTime(pickupEffective),
+              ),
+              _thinDivider(context),
+              _rowIconKV(
+                context,
+                icon: Icons.schedule_outlined,
+                k: 'Prenotazione creata il',
+                v: _formatDateTime(booking.createdAt),
+                subtle: true,
+              ),
+
+              // ✅ Pulsante centrato + giallo soft
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+                child: Center(
+                  child: TextButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => PartnerDetailScreen(partner: partner),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.store_mall_directory_outlined, size: 18),
+                    label: const Text('Dettagli locale'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // SECTION: Dati contatto
+          _sectionHeader(context, 'Dati di contatto'),
+          const SizedBox(height: 8),
+          _iosSection(
+            context,
+            children: [
+              _rowKV(context, 'Nome', '${booking.firstName} ${booking.lastName}'),
+              _thinDivider(context),
+              _rowKV(context, 'Email', booking.email),
+              if (booking.phone.isNotEmpty) ...[
+                _thinDivider(context),
+                _rowKV(context, 'Telefono', booking.phone),
+              ],
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // SECTION: Bagagli
+          _sectionHeader(context, 'Bagagli'),
+          const SizedBox(height: 8),
+          _iosSection(
+            context,
+            children: [
+              _rowKV(context, 'Totale bagagli', '$totalBags', boldValue: true),
+              _thinDivider(context),
+              _rowKV(context, 'Small (S)', '${booking.bagsS}'),
+              _thinDivider(context),
+              _rowKV(context, 'Medium (M)', '${booking.bagsM}'),
+              _thinDivider(context),
+              _rowKV(context, 'Large (L)', '${booking.bagsL}'),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // SECTION: Prezzo e pagamenti
+          _sectionHeader(context, 'Prezzo e pagamenti'),
+          const SizedBox(height: 8),
+          _iosSection(
+            context,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (plannedTotalEuro == null)
+                      Text(
+                        'Durata non valida: controlla che data e orario di ritiro siano successivi alla consegna.',
+                        style: tt.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.7)),
+                      )
+                    else ...[
+                      if (paymentsOk) ...[
+                        Text(
+                          'Pagato',
+                          style: tt.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            color: cs.onSurface.withOpacity(0.7),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _euroCents(_totalPaidCents),
+                          style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
+                        ),
+                      ] else ...[
+                        Text(
+                          'Totale previsto',
+                          style: tt.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            color: cs.onSurface.withOpacity(0.7),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          BagDropPricing.formatEuro(plannedTotalEuro),
+                          style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      Text(
+                        extraDays > 0
+                            ? 'Durata tariffaria: $durationLabel + $extraDays giorni extra'
+                            : 'Durata tariffaria: $durationLabel',
+                        style: tt.bodySmall?.copyWith(
+                          color: cs.onSurface.withOpacity(0.7),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (extraDays > 0) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'Extra: +€2 per bagaglio per ogni giorno oltre i 3 giorni.',
+                          style: tt.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.7)),
+                        ),
+                      ],
+                    ],
+                  ],
+                ),
+              ),
+              _thinDivider(context),
+
+              if (_loadingPayments) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const LinearProgressIndicator(minHeight: 3),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Caricamento pagamenti…',
+                        style: tt.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.7)),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else if (_paymentsError != null) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                  child: Text(
+                    'Impossibile caricare pagamenti: $_paymentsError',
+                    style: tt.bodySmall?.copyWith(color: cs.error, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ] else if (plannedTotalEuro != null) ...[
+                //_rowKV(context, 'Totale previsto', _euroCents(plannedCents)),
+                //_thinDivider(context),
+                // ✅ saldo rimosso (come richiesto)
+                _rowKV(context, 'Numero pagamenti', '${_payments.length}'),
+              ] else ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                  child: Text(
+                    'Pagamenti non disponibili.',
+                    style: tt.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.7)),
+                  ),
+                ),
+              ],
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          if (booking.notes != null && booking.notes!.trim().isNotEmpty) ...[
+            _sectionHeader(context, 'Note'),
+            const SizedBox(height: 8),
+            _iosSection(
+              context,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+                  child: Text(
+                    booking.notes!.trim(),
+                    style: tt.bodyMedium?.copyWith(color: cs.onSurface.withOpacity(0.9)),
+                  ),
+                ),
+              ],
             ),
+          ],
         ],
       ),
     );
@@ -489,39 +477,163 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
 }
 
 /// Titolo “BagDrop” in AppBar con brand:
-/// - “Bag” chiaro
-/// - “Drop” giallo
+/// - “Bag” bianco fisso
+/// - “Drop” giallo brand
 class _LogoTitle extends StatelessWidget {
-  const _LogoTitle();
+  const _LogoTitle({this.fontSize = 20});
+
+  final double fontSize;
 
   @override
   Widget build(BuildContext context) {
-    return RichText(
-      text: const TextSpan(
-        children: [
-          TextSpan(
-            text: 'Bag',
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 20,
-              color: Colors.white,
-              letterSpacing: 0.5,
+    return Semantics(
+      label: 'BagDrop',
+      child: RichText(
+        maxLines: 1,
+        overflow: TextOverflow.fade,
+        softWrap: false,
+        text: TextSpan(
+          children: [
+            TextSpan(
+              text: 'Bag',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: fontSize,
+                color: Colors.white,
+                letterSpacing: 0.2,
+                height: 1.0,
+              ),
             ),
-          ),
-          TextSpan(text: ' '),
-          TextSpan(
-            text: 'Drop',
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 20,
-              color: AppTheme.brandYellow,
-              letterSpacing: 0.5,
+            const TextSpan(text: ' '),
+            TextSpan(
+              text: 'Drop',
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: fontSize,
+                color: AppTheme.brandYellow,
+                letterSpacing: 0.2,
+                height: 1.0,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
+}
+
+// -----------------------
+// UI helpers (iOS-like)
+// -----------------------
+
+Widget _iosSection(BuildContext context, {required List<Widget> children}) {
+  final cs = Theme.of(context).colorScheme;
+  return Container(
+    decoration: BoxDecoration(
+      color: cs.surfaceVariant.withOpacity(0.25),
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
+    ),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: Column(children: children),
+    ),
+  );
+}
+
+Widget _sectionHeader(BuildContext context, String title) {
+  final tt = Theme.of(context).textTheme;
+  final cs = Theme.of(context).colorScheme;
+  return Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 2),
+    child: Text(
+      title,
+      style: tt.titleSmall?.copyWith(
+        fontWeight: FontWeight.w900,
+        color: cs.onSurface,
+      ),
+    ),
+  );
+}
+
+Widget _thinDivider(BuildContext context) {
+  final cs = Theme.of(context).colorScheme;
+  return Divider(
+    height: 1,
+    thickness: 1,
+    color: cs.outlineVariant.withOpacity(0.7),
+  );
+}
+
+Widget _rowKV(
+  BuildContext context,
+  String k,
+  String v, {
+  bool boldValue = false,
+}) {
+  final cs = Theme.of(context).colorScheme;
+  final tt = Theme.of(context).textTheme;
+  return Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            k,
+            style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          v,
+          style: tt.bodyMedium?.copyWith(
+            fontWeight: boldValue ? FontWeight.w900 : FontWeight.w700,
+            color: cs.onSurface.withOpacity(boldValue ? 1.0 : 0.75),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _rowIconKV(
+  BuildContext context, {
+  required IconData icon,
+  required String k,
+  required String v,
+  bool subtle = false,
+}) {
+  final cs = Theme.of(context).colorScheme;
+  final tt = Theme.of(context).textTheme;
+  final labelColor = subtle ? cs.onSurface.withOpacity(0.6) : cs.onSurface.withOpacity(0.8);
+  final valueColor = subtle ? cs.onSurface.withOpacity(0.6) : cs.onSurface.withOpacity(0.75);
+
+  return Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+    child: Row(
+      children: [
+        Icon(icon, size: 18, color: cs.onSurface.withOpacity(0.6)),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            k,
+            style: tt.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: labelColor,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          v,
+          style: tt.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: valueColor,
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _InfoRow extends StatelessWidget {

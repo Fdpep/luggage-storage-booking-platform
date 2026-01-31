@@ -132,8 +132,11 @@ class _HomeShellState extends State<HomeShell> {
 
             return Column(
               children: [
-                Container(height: topPad, color: cs.primary),
-                _DrawerHeader(isLoggedIn: _isLoggedIn, user: _user),
+                _DrawerHeader(
+                  isLoggedIn: _isLoggedIn,
+                  user: _user,
+                  onAction: _tap,
+                ),
 
                 // ✅ voci menu (scrollabili)
                 Expanded(
@@ -369,36 +372,46 @@ class _HomeShellState extends State<HomeShell> {
 }
 
 /// Titolo “BagDrop” in AppBar con brand:
-/// - “Bag” chiaro
-/// - “Drop” giallo
+/// - “Bag” bianco fisso
+/// - “Drop” giallo brand
 class _LogoTitle extends StatelessWidget {
-  const _LogoTitle();
+  const _LogoTitle({this.fontSize = 20});
+
+  final double fontSize;
 
   @override
   Widget build(BuildContext context) {
-    return RichText(
-      text: const TextSpan(
-        children: [
-          TextSpan(
-            text: 'Bag',
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 20,
-              color: Colors.white,
-              letterSpacing: 0.5,
+    return Semantics(
+      label: 'BagDrop',
+      child: RichText(
+        maxLines: 1,
+        overflow: TextOverflow.fade,
+        softWrap: false,
+        text: TextSpan(
+          children: [
+            TextSpan(
+              text: 'Bag',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: fontSize,
+                color: Colors.white,
+                letterSpacing: 0.2,
+                height: 1.0,
+              ),
             ),
-          ),
-          TextSpan(text: ' '),
-          TextSpan(
-            text: 'Drop',
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 20,
-              color: AppTheme.brandYellow,
-              letterSpacing: 0.5,
+            const TextSpan(text: ' '),
+            TextSpan(
+              text: 'Drop',
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: fontSize,
+                color: AppTheme.brandYellow,
+                letterSpacing: 0.2,
+                height: 1.0,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -407,86 +420,134 @@ class _LogoTitle extends StatelessWidget {
 /// Header del Drawer:
 /// - Non loggato: invito ad accedere/registrarsi.
 /// - Loggato: avatar con iniziali + email.
+/// Usa `onAction(ctx, '...')` per azioni non implementate (es. _tap).
 class _DrawerHeader extends StatelessWidget {
   final bool isLoggedIn;
   final User? user;
+  final void Function(BuildContext context, String target)? onAction;
 
-  const _DrawerHeader({required this.isLoggedIn, required this.user});
+  const _DrawerHeader({
+    required this.isLoggedIn,
+    required this.user,
+    this.onAction,
+  });
+
+  String _firstLetter(String fullName, String email) {
+    final s = fullName.trim().isNotEmpty ? fullName.trim() : email.trim();
+    if (s.isEmpty) return 'U';
+    return s.characters.first.toUpperCase();
+  }
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final topPad = MediaQuery.of(context).padding.top;
 
-    if (!isLoggedIn) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: cs.primary,
-          gradient: LinearGradient(
-            colors: [cs.primary, AppTheme.brandPurple.withOpacity(0.85)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Benvenuto in', style: TextStyle(color: Colors.white70)),
-            SizedBox(height: 4),
-            Text(
-              'BagDrop',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w800,
-                fontSize: 24,
-              ),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Accedi o registrati per prenotare e gestire i tuoi depositi.',
-              style: TextStyle(color: Colors.white70),
-            ),
-          ],
-        ),
-      );
-    }
+    final email = user?.email ?? '';
+    final meta = user?.userMetadata ?? {};
+    final first = (meta['first_name'] as String?)?.trim() ?? '';
+    final last = (meta['last_name'] as String?)?.trim() ?? '';
+    final fullName = ('$first $last').trim();
 
-    final email = user?.email ?? 'utente@bagdrop.app';
-    final initials = (email.isNotEmpty ? email[0] : 'U').toUpperCase();
+    final initial = _firstLetter(fullName, email);
 
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      color: cs.primary,
+      padding: EdgeInsets.fromLTRB(16, topPad + 14, 16, 14),
+      color: cs.primary, // ✅ niente gradiente: uniforme con status bar/appbar
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 24,
-            backgroundColor: AppTheme.brandYellow,
-            foregroundColor: Colors.black,
-            child: Text(
-              initials,
-              style: const TextStyle(fontWeight: FontWeight.w800),
+          // Avatar coerente col profilo: soft purple + iniziale viola
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.16),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: Colors.white.withOpacity(0.18)),
+            ),
+            alignment: Alignment.center,
+            child: CircleAvatar(
+              radius: 22,
+              backgroundColor: Colors.white.withOpacity(0.92),
+              child: Text(
+                initial,
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 18,
+                  color: cs.primary,
+                ),
+              ),
             ),
           ),
           const SizedBox(width: 12),
+
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Connesso come',
-                  style: TextStyle(color: Colors.white70),
-                ),
                 Text(
-                  email,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  isLoggedIn
+                      ? (fullName.isNotEmpty ? fullName : 'Profilo')
+                      : 'Benvenuto',
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
+                  style: tt.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: cs.onPrimary,
+                  ),
                 ),
+                const SizedBox(height: 2),
+                Text(
+                  isLoggedIn
+                      ? (email.isNotEmpty ? email : 'Account')
+                      : 'Accedi o registrati per gestire prenotazioni e profilo.',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: tt.bodySmall?.copyWith(
+                    color: cs.onPrimary.withOpacity(0.78),
+                    height: 1.25,
+                  ),
+                ),
+                if (!isLoggedIn) ...[
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: () => onAction?.call(context, 'Accedi'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: cs.primary,
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: const Text('Accedi'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () =>
+                              onAction?.call(context, 'Registrati'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: BorderSide(
+                              color: Colors.white.withOpacity(0.35),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: const Text('Registrati'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
@@ -609,9 +670,142 @@ class _ProfiloPageState extends State<_ProfiloPage> {
     }
   }
 
+  String _firstLetter(String fullName, String email) {
+    final s = fullName.trim().isNotEmpty ? fullName.trim() : email.trim();
+    if (s.isEmpty) return 'U';
+    return s.characters.first.toUpperCase();
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
+    Widget thinDivider() => Divider(
+      height: 1,
+      thickness: 1,
+      color: cs.outlineVariant.withOpacity(0.7),
+    );
+
+    Widget iosSection(List<Widget> children) {
+      return Container(
+        decoration: BoxDecoration(
+          color: cs.surfaceVariant.withOpacity(0.25),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Column(children: children),
+        ),
+      );
+    }
+
+    Widget sectionTitle(String title) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+        child: Text(
+          title,
+          style: tt.titleMedium?.copyWith(
+            fontWeight: FontWeight.w900,
+            color: cs.onSurface.withOpacity(0.9),
+          ),
+        ),
+      );
+    }
+
+    Widget infoRow({
+      required IconData icon,
+      required String label,
+      required String value,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: cs.onSurface.withOpacity(0.75)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Flexible(
+              child: Text(
+                value,
+                textAlign: TextAlign.right,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: tt.bodyMedium?.copyWith(
+                  color: cs.onSurface.withOpacity(0.70),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    Widget actionRow({
+      required IconData icon,
+      required String title,
+      String? subtitle,
+      Color? color,
+      required VoidCallback onTap,
+    }) {
+      final rowColor = color ?? cs.onSurface;
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          hoverColor: cs.onSurface.withOpacity(0.04),
+          splashColor: cs.onSurface.withOpacity(0.06),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Icon(icon, size: 20, color: rowColor.withOpacity(0.85)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: tt.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: rowColor.withOpacity(0.92),
+                        ),
+                      ),
+                      if (subtitle != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: tt.bodySmall?.copyWith(
+                            color: cs.onSurface.withOpacity(0.65),
+                            height: 1.2,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right,
+                  color: cs.onSurface.withOpacity(0.35),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
@@ -636,72 +830,84 @@ class _ProfiloPageState extends State<_ProfiloPage> {
               '${createdAt.month.toString().padLeft(2, '0')}/'
               '${createdAt.year}';
 
+    final initial = _firstLetter(fullName, email);
+
     return RefreshIndicator(
       onRefresh: _loadData,
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const _SectionTitle('Profilo'),
+          // Titolo pagina (gerarchia iOS)
+          Text(
+            'Profilo',
+            style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Dati account e preferenze.',
+            style: tt.bodyMedium?.copyWith(
+              color: cs.onSurface.withOpacity(0.7),
+            ),
+          ),
           const SizedBox(height: 12),
 
-          // HEADER PROFILO
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
+          // Header profilo in section
+          iosSection([
+            Padding(
+              padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
                   CircleAvatar(
                     radius: 28,
-                    backgroundColor: AppTheme.brandYellow,
-                    foregroundColor: Colors.black,
+                    backgroundColor: cs.primary.withOpacity(0.12),
                     child: Text(
-                      fullName.isNotEmpty
-                          ? fullName[0].toUpperCase()
-                          : (email.isNotEmpty ? email[0].toUpperCase() : 'U'),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
+                      initial,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
                         fontSize: 22,
+                        color: cs.primary,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 14),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           fullName,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 18,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: tt.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           email,
-                          style: TextStyle(
-                            color: cs.onSurface.withOpacity(0.7),
-                            fontSize: 13,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: tt.bodySmall?.copyWith(
+                            color: cs.onSurface.withOpacity(0.70),
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
+                            horizontal: 10,
+                            vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: cs.primary.withOpacity(0.08),
+                            color: cs.primary.withOpacity(0.10),
                             borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: cs.primary.withOpacity(0.18),
+                            ),
                           ),
                           child: Text(
                             role,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
+                            style: tt.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w800,
                               color: cs.primary,
                             ),
                           ),
@@ -712,108 +918,98 @@ class _ProfiloPageState extends State<_ProfiloPage> {
                 ],
               ),
             ),
-          ),
+          ]),
 
-          Text(
-            'Dati personali',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 16),
+          sectionTitle('Dati personali'),
 
-          _CardGroup(
-            children: [
-              _InfoTile(
-                label: 'Nome',
-                value: fullName,
-                icon: Icons.badge_outlined,
-              ),
-              _InfoTile(
-                label: 'Telefono',
-                value: phone,
-                icon: Icons.phone_outlined,
-              ),
-              _InfoTile(label: 'Email', value: email, icon: Icons.mail_outline),
-              _InfoTile(
-                label: 'Cliente su BagDrop dal',
-                value: createdText,
-                icon: Icons.event_outlined,
-              ),
-              _InfoTile(
-                label: 'Prenotazioni effettuate',
-                value: '$_myBookingsCount',
-                icon: Icons.receipt_long_outlined,
-              ),
+          iosSection([
+            infoRow(icon: Icons.badge_outlined, label: 'Nome', value: fullName),
+            thinDivider(),
+            infoRow(
+              icon: Icons.phone_outlined,
+              label: 'Telefono',
+              value: phone,
+            ),
+            thinDivider(),
+            infoRow(icon: Icons.mail_outline, label: 'Email', value: email),
+            thinDivider(),
+            infoRow(
+              icon: Icons.event_outlined,
+              label: 'Cliente su BagDrop dal',
+              value: createdText,
+            ),
+            thinDivider(),
+            infoRow(
+              icon: Icons.receipt_long_outlined,
+              label: 'Prenotazioni effettuate',
+              value: '$_myBookingsCount',
+            ),
+            thinDivider(),
 
-              // ✅ Modifica dati (come riga, non bottone)
-              _ActionTile(
-                icon: Icons.edit_outlined,
-                title: 'Modifica dati',
-                subtitle: 'Aggiorna le informazioni del profilo',
-                onTap: () async {
-                  final changed = await Navigator.of(context).push<bool>(
-                    MaterialPageRoute(
-                      builder: (_) => const _EditProfileScreen(),
-                    ),
-                  );
-                  if (changed == true) {
-                    await _loadData();
-                  }
-                },
-              ),
-            ],
-          ),
+            actionRow(
+              icon: Icons.edit_outlined,
+              title: 'Modifica dati',
+              subtitle: 'Aggiorna le informazioni del profilo',
+              onTap: () async {
+                // 🔧 FIX: push sul rootNavigator per evitare apertura “in overlay/trasparente”
+                final changed = await Navigator.of(context, rootNavigator: true)
+                    .push<bool>(
+                      MaterialPageRoute(
+                        builder: (_) => const _EditProfileScreen(),
+                      ),
+                    );
 
-          const SizedBox(height: 24),
-          Text(
-            'Azioni account',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 8),
+                if (!mounted) return;
+                if (changed == true) {
+                  await _loadData();
+                }
+              },
+            ),
+          ]),
 
-          _CardGroup(
-            children: [
-              _ActionTile(
-                icon: Icons.logout_rounded,
-                title: 'Logout',
-                subtitle: 'Esci dal tuo account',
-                onTap: () async {
-                  final didLogout = await AuthActions.confirmAndLogout(context);
-                  if (!didLogout) return;
-                  if (!mounted) return;
+          const SizedBox(height: 16),
+          sectionTitle('Azioni account'),
 
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(const SnackBar(content: Text('Disconnesso')));
+          iosSection([
+            actionRow(
+              icon: Icons.logout_rounded,
+              title: 'Logout',
+              subtitle: 'Esci dal tuo account',
+              onTap: () async {
+                final didLogout = await AuthActions.confirmAndLogout(context);
+                if (!didLogout) return;
+                if (!mounted) return;
 
-                  // ✅ torna alla root (dove di solito hai AuthGate / schermata "Accedi")
-                  Navigator.of(context).popUntil((route) => route.isFirst);
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('Disconnesso')));
 
-                  // opzionale: se questa pagina rimane visibile per qualche motivo
-                  // setState(() => _currentUser = null);
-                },
-              ),
-              _ActionTile(
-                icon: Icons.delete_outline,
-                title: 'Elimina account',
-                subtitle: 'Operazione irreversibile',
-                color: cs.error,
-                onTap: () async {
-                  final deleted = await Navigator.of(context).push<bool>(
-                    MaterialPageRoute(
-                      builder: (_) => const DeleteAccountScreen(),
-                    ),
-                  );
-                  if (deleted == true && mounted) {
-                    // di solito la schermata gestisce già signOut/redirect
-                  }
-                },
-              ),
-            ],
-          ),
+                Navigator.of(context).popUntil((route) => route.isFirst);
+              },
+            ),
+            thinDivider(),
+            actionRow(
+              icon: Icons.delete_outline,
+              title: 'Elimina account',
+              subtitle: 'Operazione irreversibile',
+              color: cs.error,
+              onTap: () async {
+                // 🔧 FIX: push sul rootNavigator per evitare apertura “in overlay/trasparente”
+                final deleted = await Navigator.of(context, rootNavigator: true)
+                    .push<bool>(
+                      MaterialPageRoute(
+                        builder: (_) => const DeleteAccountScreen(),
+                      ),
+                    );
+
+                if (!mounted) return;
+                if (deleted == true) {
+                  // la schermata gestisce già signOut/redirect
+                }
+              },
+            ),
+          ]),
 
           if (_error != null) ...[
             const SizedBox(height: 12),
@@ -911,6 +1107,7 @@ class _CardGroup extends StatelessWidget {
 /// Schermata separata per modificare i dati del profilo utente.
 /// Apre un form con Nome, Cognome e Telefono.
 /// Alla fine aggiorna i metadata di Supabase + user_profiles.full_name
+
 class _EditProfileScreen extends StatefulWidget {
   const _EditProfileScreen();
 

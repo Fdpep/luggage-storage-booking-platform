@@ -7,6 +7,9 @@ import 'package:BagDrop/services/supabase/partner_photo/partner_photo_repo.dart'
 import 'package:BagDrop/services/supabase/partner_booking_repo.dart';
 import 'package:BagDrop/schermate/partner/user_view/booking_flow_screen.dart';
 import 'package:BagDrop/theme/app_theme.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/foundation.dart';
 
 /// Schermata di dettaglio di un partner (vista dall'utente).
 ///
@@ -363,26 +366,20 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
     final lat = widget.partner.lat;
     final lng = widget.partner.lng;
     if (lat == null || lng == null) {
-      return const Text('Posizione non disponibile');
+      return const Center(child: Text('Posizione non disponibile'));
     }
 
     final position = LatLng(lat, lng);
 
-    return SizedBox(
-      height: 180,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: GoogleMap(
-          initialCameraPosition: CameraPosition(target: position, zoom: 15),
-          markers: {
-            Marker(markerId: const MarkerId('partner'), position: position),
-          },
-          myLocationButtonEnabled: false,
-          zoomControlsEnabled: false,
-          liteModeEnabled: true, // se hai abilitato Lite Mode
-          onMapCreated: (_) {},
-        ),
-      ),
+    return GoogleMap(
+      initialCameraPosition: CameraPosition(target: position, zoom: 15),
+      markers: {
+        Marker(markerId: const MarkerId('partner'), position: position),
+      },
+      myLocationButtonEnabled: false,
+      zoomControlsEnabled: false,
+      liteModeEnabled: true,
+      onMapCreated: (_) {},
     );
   }
 
@@ -391,7 +388,215 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
     final partner = widget.partner;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final textTheme = theme.textTheme;
+    final tt = theme.textTheme;
+
+    // ----- iOS section helpers -----
+    Widget iosSection({required List<Widget> children}) {
+      return Container(
+        decoration: BoxDecoration(
+          color: cs.surfaceVariant.withOpacity(0.25),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Column(mainAxisSize: MainAxisSize.min, children: children),
+        ),
+      );
+    }
+
+    Widget thinDivider({double? indent, double? endIndent}) => Divider(
+      height: 1,
+      thickness: 1,
+      indent: indent,
+      endIndent: endIndent,
+      color: cs.outlineVariant.withOpacity(0.35),
+    );
+
+    Widget sectionHeader({
+      required IconData icon,
+      required String title,
+      String? subtitle,
+      Widget? trailing,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 10, 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: cs.primary.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, size: 20, color: cs.primary),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: tt.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: tt.bodySmall?.copyWith(
+                        color: cs.onSurface.withOpacity(0.70),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (trailing != null) ...[const SizedBox(width: 8), trailing],
+          ],
+        ),
+      );
+    }
+
+    Widget iosTextSection({
+      required IconData icon,
+      required String title,
+      String? subtitle,
+      required Widget child,
+    }) {
+      return iosSection(
+        children: [
+          sectionHeader(icon: icon, title: title, subtitle: subtitle),
+          thinDivider(indent: 14, endIndent: 14),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+            child: child,
+          ),
+        ],
+      );
+    }
+
+    // ----- DATA -----
+    final hasAddress =
+        partner.address != null && partner.address!.trim().isNotEmpty;
+    final addressText = hasAddress ? partner.address!.trim() : '';
+
+    final hasCoords = partner.lat != null && partner.lng != null;
+
+    // ----- MAPS actions -----
+    Future<void> _launchExternal(Uri uri) async {
+      try {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } catch (_) {
+        // niente dialog; se vuoi, puoi mostrare SnackBar qui
+      }
+    }
+
+    Uri _appleMapsSearchUri(String q, {double? lat, double? lng}) {
+      // Apple Maps: q=... oppure ll=lat,lng
+      final params = <String, String>{'q': q};
+      if (lat != null && lng != null) params['ll'] = '$lat,$lng';
+      return Uri.parse(
+        'http://maps.apple.com/?${Uri(queryParameters: params).query}',
+      );
+    }
+
+    Uri _appleMapsDirectionsUri(String dest, {double? lat, double? lng}) {
+      final params = <String, String>{'daddr': dest};
+      if (lat != null && lng != null) params['daddr'] = '$lat,$lng';
+      return Uri.parse(
+        'http://maps.apple.com/?${Uri(queryParameters: params).query}',
+      );
+    }
+
+    Uri _googleMapsSearchUri(String q, {double? lat, double? lng}) {
+      final query = (lat != null && lng != null) ? '$lat,$lng' : q;
+      return Uri.https('www.google.com', '/maps/search/', {
+        'api': '1',
+        'query': query,
+      });
+    }
+
+    Uri _googleMapsDirectionsUri(String dest, {double? lat, double? lng}) {
+      final destination = (lat != null && lng != null) ? '$lat,$lng' : dest;
+      return Uri.https('www.google.com', '/maps/dir/', {
+        'api': '1',
+        'destination': destination,
+      });
+    }
+
+    Future<void> openInMaps() async {
+      if (!hasAddress && !hasCoords) return;
+
+      final lat = partner.lat;
+      final lng = partner.lng;
+
+      final isApple =
+          !kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.iOS ||
+              defaultTargetPlatform == TargetPlatform.macOS);
+
+      final uri = isApple
+          ? _appleMapsSearchUri(
+              hasAddress ? addressText : 'BagDrop partner',
+              lat: lat,
+              lng: lng,
+            )
+          : _googleMapsSearchUri(
+              hasAddress ? addressText : 'BagDrop partner',
+              lat: lat,
+              lng: lng,
+            );
+
+      await _launchExternal(uri);
+    }
+
+    Future<void> openDirections() async {
+      if (!hasAddress && !hasCoords) return;
+
+      final lat = partner.lat;
+      final lng = partner.lng;
+
+      final isApple =
+          !kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.iOS ||
+              defaultTargetPlatform == TargetPlatform.macOS);
+
+      final uri = isApple
+          ? _appleMapsDirectionsUri(
+              hasAddress ? addressText : 'BagDrop partner',
+              lat: lat,
+              lng: lng,
+            )
+          : _googleMapsDirectionsUri(
+              hasAddress ? addressText : 'BagDrop partner',
+              lat: lat,
+              lng: lng,
+            );
+
+      await _launchExternal(uri);
+    }
+
+    void copyAddress() {
+      if (!hasAddress) return;
+      Clipboard.setData(ClipboardData(text: addressText));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Indirizzo copiato'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+
+    // CTA contrast
+    final ctaTextColor =
+        ThemeData.estimateBrightnessForColor(cs.primary) == Brightness.dark
+        ? Colors.white
+        : Colors.black;
 
     return Scaffold(
       appBar: AppBar(
@@ -408,52 +613,52 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
               _buildPhotoSection(cs),
               const SizedBox(height: 12),
 
-              // Header “moderno”
-              Card(
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                  side: BorderSide(color: cs.outlineVariant.withOpacity(0.35)),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              partner.name,
-                              style: textTheme.headlineSmall?.copyWith(
-                                fontWeight: FontWeight.w900,
-                              ),
+              // HEADER partner (iOS section)
+              iosSection(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            partner.name,
+                            style: tt.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.w900,
                             ),
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: cs.primary.withOpacity(0.10),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              'BagDrop partner',
-                              style: textTheme.labelSmall?.copyWith(
-                                color: cs.primary,
-                                fontWeight: FontWeight.w700,
-                              ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: cs.primary.withOpacity(0.10),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: cs.primary.withOpacity(0.18),
                             ),
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-
-                      if (partner.address != null &&
-                          partner.address!.trim().isNotEmpty)
-                        Row(
+                          child: Text(
+                            'BagDrop partner',
+                            style: tt.labelSmall?.copyWith(
+                              color: cs.primary,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (hasAddress) ...[
+                    thinDivider(),
+                    InkWell(
+                      onTap: openInMaps,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 12, 10, 14),
+                        child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Icon(
@@ -461,59 +666,79 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
                               size: 18,
                               color: cs.onSurface.withOpacity(0.70),
                             ),
-                            const SizedBox(width: 6),
+                            const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                partner.address!.trim(),
-                                style: textTheme.bodyMedium?.copyWith(
+                                addressText,
+                                style: tt.bodyMedium?.copyWith(
                                   color: cs.onSurface.withOpacity(0.85),
+                                  fontWeight: FontWeight.w600,
                                 ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            IconButton(
+                              tooltip: 'Copia indirizzo',
+                              onPressed: copyAddress,
+                              icon: Icon(
+                                Icons.copy_rounded,
+                                size: 18,
+                                color: cs.onSurfaceVariant,
+                              ),
+                              style: IconButton.styleFrom(
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                minimumSize: const Size(40, 40),
                               ),
                             ),
                           ],
                         ),
-                    ],
-                  ),
-                ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
 
               const SizedBox(height: 12),
 
-              // Descrizione
-              _SectionCard(
+              // DESCRIZIONE (ora uguale a Orari/Posizione)
+              iosTextSection(
                 icon: Icons.info_outline,
                 title: 'Descrizione',
                 child: Text(
                   (partner.description?.trim().isNotEmpty ?? false)
                       ? partner.description!.trim()
                       : 'Nessuna descrizione disponibile.',
-                  style: textTheme.bodyMedium,
+                  style: tt.bodyMedium?.copyWith(
+                    color: cs.onSurface.withOpacity(0.88),
+                  ),
                 ),
               ),
 
               const SizedBox(height: 12),
 
-              // Orari (tendina moderna)
+              // ORARI
               _OpeningHoursDropdown(hoursContent: _buildOpeningHours(theme)),
 
               const SizedBox(height: 12),
 
-              // Regole
-              _SectionCard(
+              // REGOLE
+              iosTextSection(
                 icon: Icons.rule_folder_outlined,
                 title: 'Regole deposito',
                 child: Text(
                   (partner.rules?.trim().isNotEmpty ?? false)
                       ? partner.rules!.trim()
                       : 'Nessuna regola specificata. Evita comunque oggetti di valore e materiali pericolosi.',
-                  style: textTheme.bodyMedium,
+                  style: tt.bodyMedium?.copyWith(
+                    color: cs.onSurface.withOpacity(0.88),
+                  ),
                 ),
               ),
 
               const SizedBox(height: 12),
 
-              // Contatti
-              _SectionCard(
+              // CONTATTI
+              iosTextSection(
                 icon: Icons.call_outlined,
                 title: 'Contatti',
                 child:
@@ -523,34 +748,121 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
                           Expanded(
                             child: Text(
                               partner.phone!.trim(),
-                              style: textTheme.bodyMedium,
+                              style: tt.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
-                          // Se vuoi renderli “cliccabili”, qui agganci url_launcher (tel:, sms:, whatsapp)
                           IconButton(
                             onPressed: () {
                               // TODO: launchUrl(Uri.parse('tel:${partner.phone!.trim()}'));
                             },
                             icon: const Icon(Icons.phone_outlined),
+                            style: IconButton.styleFrom(
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              minimumSize: const Size(44, 44),
+                            ),
                           ),
                         ],
                       )
                     : Text(
                         'Telefono non disponibile.',
-                        style: textTheme.bodyMedium,
+                        style: tt.bodyMedium?.copyWith(
+                          color: cs.onSurface.withOpacity(0.75),
+                        ),
                       ),
               ),
 
               const SizedBox(height: 12),
 
-              // Mappa
-              _SectionCard(
-                icon: Icons.map_outlined,
-                title: 'Posizione',
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(14),
-                  child: _buildMapPreview(),
-                ),
+              // POSIZIONE (no più tagliata, bottoni full-width)
+              iosSection(
+                children: [
+                  sectionHeader(
+                    icon: Icons.map_outlined,
+                    title: 'Posizione',
+                    subtitle: (hasAddress || hasCoords)
+                        ? 'Tocca la mappa o usa i pulsanti'
+                        : 'Posizione non disponibile',
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: (hasAddress || hasCoords) ? openInMaps : null,
+                        borderRadius: BorderRadius.circular(14),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: SizedBox(
+                            height: 180,
+                            child: hasCoords
+                                ? _buildMapPreview()
+                                : Container(
+                                    alignment: Alignment.center,
+                                    color: cs.surface,
+                                    child: Text(
+                                      'Posizione non disponibile',
+                                      style: tt.bodyMedium?.copyWith(
+                                        color: cs.onSurface.withOpacity(0.70),
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  thinDivider(indent: 14, endIndent: 14),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                    child: Column(
+                      children: [
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.tonalIcon(
+                            onPressed: (hasAddress || hasCoords)
+                                ? openInMaps
+                                : null,
+                            icon: const Icon(Icons.map_outlined, size: 18),
+                            label: const Text('Apri in Maps'),
+                            style: FilledButton.styleFrom(
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: (hasAddress || hasCoords)
+                                ? openDirections
+                                : null,
+                            icon: const Icon(
+                              Icons.directions_rounded,
+                              size: 18,
+                            ),
+                            label: const Text('Indicazioni'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              side: BorderSide(
+                                color: cs.outlineVariant.withOpacity(0.45),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
 
               const SizedBox(height: 80),
@@ -558,13 +870,12 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
           ),
         ),
       ),
-
       bottomNavigationBar: SafeArea(
         top: false,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: SizedBox(
-            height: 50,
+            height: 52,
             child: ElevatedButton(
               onPressed: partner.acceptingBookings
                   ? () {
@@ -575,6 +886,21 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
                       );
                     }
                   : null,
+              style: ElevatedButton.styleFrom(
+                elevation: 0,
+                backgroundColor: cs.primary, // viola tema
+                foregroundColor: Colors.white, // testo sempre bianco
+                textStyle: tt.titleSmall?.copyWith(
+                  // font coerente ma senza forzare colore nel Text
+                  fontWeight: FontWeight.w900,
+                ),
+                disabledBackgroundColor: cs.surfaceVariant.withOpacity(0.35),
+                disabledForegroundColor: cs.onSurface.withOpacity(0.55),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              // 👇 niente style qui, così non override il colore
               child: Text(
                 partner.acceptingBookings
                     ? 'Prenota ora'
@@ -689,41 +1015,59 @@ class _OpeningHoursDropdown extends StatelessWidget {
     final cs = theme.colorScheme;
     final tt = theme.textTheme;
 
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.surfaceVariant.withOpacity(0.25),
         borderRadius: BorderRadius.circular(18),
-        side: BorderSide(color: cs.outlineVariant.withOpacity(0.35)),
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
       ),
-      child: Theme(
-        data: theme.copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-          leading: Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: cs.primary.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(12),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: Theme(
+          data: theme.copyWith(
+            dividerColor: Colors.transparent,
+            splashColor: cs.primary.withOpacity(0.06),
+            highlightColor: cs.primary.withOpacity(0.04),
+          ),
+          child: ExpansionTile(
+            tilePadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 6,
             ),
-            child: Icon(Icons.schedule_outlined, size: 20, color: cs.primary),
-          ),
-          title: Text(
-            'Orari di apertura',
-            style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          subtitle: Text(
-            'Tocca per vedere i dettagli',
-            style: tt.bodySmall?.copyWith(
-              color: cs.onSurface.withOpacity(0.65),
+            childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+            leading: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: cs.primary.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(Icons.schedule_outlined, size: 20, color: cs.primary),
             ),
+            title: Text(
+              'Orari di apertura',
+              style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+            ),
+            subtitle: Text(
+              'Tocca per vedere i dettagli',
+              style: tt.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.70),
+              ),
+            ),
+            trailing: Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: cs.onSurfaceVariant,
+            ),
+            children: [
+              Divider(
+                height: 1,
+                thickness: 1,
+                color: cs.outlineVariant.withOpacity(0.35),
+              ),
+              const SizedBox(height: 10),
+              hoursContent,
+            ],
           ),
-          trailing: Icon(
-            Icons.keyboard_arrow_down_rounded,
-            color: cs.onSurfaceVariant,
-          ),
-          children: [hoursContent],
         ),
       ),
     );
@@ -731,36 +1075,46 @@ class _OpeningHoursDropdown extends StatelessWidget {
 }
 
 /// Titolo “BagDrop” in AppBar con brand:
-/// - “Bag” chiaro
-/// - “Drop” giallo
+/// - “Bag” bianco fisso
+/// - “Drop” giallo brand
 class _LogoTitle extends StatelessWidget {
-  const _LogoTitle();
+  const _LogoTitle({this.fontSize = 20});
+
+  final double fontSize;
 
   @override
   Widget build(BuildContext context) {
-    return RichText(
-      text: const TextSpan(
-        children: [
-          TextSpan(
-            text: 'Bag',
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 20,
-              color: Colors.white,
-              letterSpacing: 0.5,
+    return Semantics(
+      label: 'BagDrop',
+      child: RichText(
+        maxLines: 1,
+        overflow: TextOverflow.fade,
+        softWrap: false,
+        text: TextSpan(
+          children: [
+            TextSpan(
+              text: 'Bag',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: fontSize,
+                color: Colors.white,
+                letterSpacing: 0.2,
+                height: 1.0,
+              ),
             ),
-          ),
-          TextSpan(text: ' '),
-          TextSpan(
-            text: 'Drop',
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 20,
-              color: AppTheme.brandYellow,
-              letterSpacing: 0.5,
+            const TextSpan(text: ' '),
+            TextSpan(
+              text: 'Drop',
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: fontSize,
+                color: AppTheme.brandYellow,
+                letterSpacing: 0.2,
+                height: 1.0,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

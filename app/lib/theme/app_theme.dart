@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 /// Tema dell’app BagDrop (Stowee)
 /// - Colori brand: viola #4E40CA, giallo #F9CC21
-/// - Fornisce un ThemeData coerente (Material 3 ok)
+/// - Material 3 attivo, ma UI più “iOS-like” (flat, pulita, leggibile)
 class AppTheme {
   // Colori brand
   static const Color brandPurple = Color(0xFF4E40CA);
@@ -25,7 +25,6 @@ class AppTheme {
     onBackground: brandNavy,
     surface: Colors.white,
     onSurface: Color(0xFF222222),
-    // Non usati direttamente ma richiesti da ColorScheme completo:
     tertiary: Color(0xFF3D3B4E),
     onTertiary: Colors.white,
     surfaceVariant: Color(0xFFE6E6F2),
@@ -56,9 +55,10 @@ class AppTheme {
         backgroundColor: scheme.surface,
         foregroundColor: scheme.onSurface,
         scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
         titleTextStyle: const TextStyle(
           fontSize: 20,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w700,
         ),
       ),
 
@@ -76,7 +76,7 @@ class AppTheme {
           fontWeight: FontWeight.w400,
         ),
         showUnselectedLabels: true,
-        elevation: 8,
+        elevation: 0, // più “iOS-like”
       ),
 
       snackBarTheme: SnackBarThemeData(
@@ -90,42 +90,27 @@ class AppTheme {
 
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 14,
-        ),
+        fillColor: scheme.surface,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(
-            color: scheme.outlineVariant,
-          ),
+          borderSide: BorderSide(color: scheme.outlineVariant),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(
-            color: scheme.outlineVariant,
-          ),
+          borderSide: BorderSide(color: scheme.outlineVariant),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(
-            color: scheme.primary,
-            width: 1.4,
-          ),
+          borderSide: BorderSide(color: scheme.primary, width: 1.4),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(
-            color: scheme.error,
-          ),
+          borderSide: BorderSide(color: scheme.error),
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(
-            color: scheme.error,
-            width: 1.4,
-          ),
+          borderSide: BorderSide(color: scheme.error, width: 1.4),
         ),
         hintStyle: TextStyle(
           color: scheme.outline,
@@ -133,13 +118,15 @@ class AppTheme {
         ),
       ),
 
+      // Card flat: niente shadow pesanti, bordi coerenti con le “sections”
       cardTheme: CardThemeData(
-        elevation: 4,
-        shadowColor: scheme.shadow,
+        elevation: 0,
+        shadowColor: Colors.transparent,
         color: scheme.surface,
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(color: scheme.outlineVariant.withOpacity(0.35)),
         ),
         clipBehavior: Clip.antiAlias,
       ),
@@ -185,46 +172,55 @@ class AppTheme {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(18),
         ),
+        elevation: 0,
       ),
 
       dialogTheme: DialogThemeData(
         backgroundColor: scheme.surface,
+        surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(color: scheme.outlineVariant.withOpacity(0.35)),
         ),
         titleTextStyle: TextStyle(
           fontSize: 18,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w800,
           color: scheme.onSurface,
         ),
         contentTextStyle: TextStyle(
           fontSize: 14,
-          color: scheme.onSurface,
+          color: scheme.onSurface.withOpacity(0.85),
+          height: 1.35,
         ),
       ),
 
-      // Testi un filo più “soft” e leggibili
-      textTheme: const TextTheme(
+      // Testi più “chiari” e gerarchia più netta
+      textTheme: TextTheme(
         titleLarge: TextStyle(
           fontSize: 20,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w900,
           letterSpacing: 0.1,
+          color: scheme.onSurface,
         ),
         titleMedium: TextStyle(
           fontSize: 16,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w800,
+          color: scheme.onSurface,
         ),
         bodyLarge: TextStyle(
           fontSize: 16,
           height: 1.4,
+          color: scheme.onSurface,
         ),
         bodyMedium: TextStyle(
           fontSize: 14,
           height: 1.4,
+          color: scheme.onSurface,
         ),
         labelLarge: TextStyle(
           fontSize: 14,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w700,
+          color: scheme.onSurface,
         ),
       ),
     );
