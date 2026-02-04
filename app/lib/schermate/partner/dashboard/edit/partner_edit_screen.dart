@@ -3,7 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:BagDrop/models/partner.dart';
 import 'package:BagDrop/services/supabase/partner_repo.dart';
-
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:BagDrop/services/supabase/partner_booking_repo.dart';
 import 'package:BagDrop/widgets/opening_hours_editors.dart';
@@ -54,7 +54,6 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
   bool _acceptS = true;
   bool _acceptM = true;
   bool _acceptL = true;
-
 
   Map<String, dynamic>? _openingHoursStructured;
   Map<String, dynamic>? _openingExceptions;
@@ -191,7 +190,6 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
       _acceptM = partner.acceptM;
       _acceptL = partner.acceptL;
 
-
       // Orari di apertura settimanali (weekly)
       _openingHoursStructured = _normalizeOpeningWeekly(partner.openingHours);
 
@@ -243,21 +241,24 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
     final extraM = nn(_extraMCtrl.text);
     final extraL = nn(_extraLCtrl.text);
 
+    /*
+
     if (baseM <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Inserisci almeno 1 bagaglio M nello spazio generale.')),
+        const SnackBar(
+          content: Text('Inserisci almeno 1 bagaglio M nello spazio generale.'),
+        ),
       );
       return;
-    }
+    }  
     if (!_acceptS && !_acceptM && !_acceptL) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Seleziona almeno una taglia (S/M/L).')),
       );
       return;
-    }
+    }  */
 
     final baseCapacityU = baseM * 2;
-
 
     // Orari di apertura settimanali (weekly_v1)
     Map<String, dynamic>? openingHours;
@@ -301,7 +302,7 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Dati salvati. Orari e capacità non sono stati modificati perché ci sono prenotazioni future.',
+              'Dati salvati. Orari e capacità non sono stati modificati perché ci sono prenotazioni attive (confermate o in deposito).',
             ),
           ),
         );
@@ -332,29 +333,86 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final tt = theme.textTheme;
+
+    PreferredSizeWidget buildModernAppBar() {
+      return AppBar(
+        centerTitle: true,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        backgroundColor: cs.primary,
+        foregroundColor: cs.onPrimary,
+        title: Text(
+          'Modifica scheda locale',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: tt.titleMedium?.copyWith(
+            fontWeight: FontWeight.w900,
+            color: cs.onPrimary,
+            letterSpacing: 0.2,
+          ),
+        ),
+      );
+    }
+
+    // ✅ input “iOS-like” uniforme
+    InputDecoration iosInput({
+      required String label,
+      String? hint,
+      String? helper,
+      Widget? suffixIcon,
+    }) {
+      final baseBorder = OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(
+          color: cs.outlineVariant.withOpacity(0.35),
+          width: 1,
+        ),
+      );
+
+      return InputDecoration(
+        labelText: label,
+        hintText: hint,
+        helperText: helper,
+        suffixIcon: suffixIcon,
+        filled: true,
+        fillColor: cs.surfaceVariant.withOpacity(0.18),
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 14,
+        ),
+        border: baseBorder,
+        enabledBorder: baseBorder,
+        focusedBorder: baseBorder.copyWith(
+          borderSide: BorderSide(
+            color: cs.primary.withOpacity(0.65),
+            width: 1.2,
+          ),
+        ),
+      );
+    }
+
+    SnackBar iosSnack(String text) {
+      return SnackBar(
+        content: Text(text),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      );
+    }
 
     if (_loading) {
       return Scaffold(
-        appBar: AppBar(
-          centerTitle: false,
-          title: const Text('Modifica scheda locale'),
-          backgroundColor: theme.colorScheme.primary,
-          foregroundColor: theme.colorScheme.onPrimary,
-          elevation: 0,
-        ),
+        appBar: buildModernAppBar(),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     if (_partner == null) {
       return Scaffold(
-        appBar: AppBar(
-          centerTitle: false,
-          title: const Text('Modifica scheda locale'),
-          backgroundColor: theme.colorScheme.primary,
-          foregroundColor: theme.colorScheme.onPrimary,
-          elevation: 0,
-        ),
+        appBar: buildModernAppBar(),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -368,15 +426,8 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
       );
     }
 
-    // ✅ QUI il tuo scaffold “moderno” (quello che avevi messo dentro _loading)
     return Scaffold(
-      appBar: AppBar(
-        centerTitle: false,
-        title: const Text('Modifica scheda locale'),
-        backgroundColor: theme.colorScheme.primary,
-        foregroundColor: theme.colorScheme.onPrimary,
-        elevation: 0,
-      ),
+      appBar: buildModernAppBar(),
       body: SafeArea(
         child: Form(
           key: _formKey,
@@ -390,10 +441,7 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                   children: [
                     TextFormField(
                       controller: _nameCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Nome attività',
-                        border: OutlineInputBorder(),
-                      ),
+                      decoration: iosInput(label: 'Nome attività'),
                       validator: (v) {
                         if ((v ?? '').trim().isEmpty) {
                           return 'Inserisci il nome dell’attività';
@@ -402,23 +450,20 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                       },
                     ),
                     const SizedBox(height: 12),
-
                     TextFormField(
                       controller: _addressCtrl,
                       readOnly: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Indirizzo',
-                        hintText: 'Via / Piazza, numero civico, città',
-                        border: OutlineInputBorder(),
-                        helperText:
+                      decoration: iosInput(
+                        label: 'Indirizzo',
+                        hint: 'Via / Piazza, numero civico, città',
+                        helper:
                             'Non modificabile da qui. Per aggiornamenti: support@bagdrop.app',
+                        suffixIcon: Icon(Icons.lock_outline, size: 18),
                       ),
                       onTap: () {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Per modificare l\'indirizzo del locale scrivi a support@bagdrop.app',
-                            ),
+                          iosSnack(
+                            'Per modificare l\'indirizzo del locale scrivi a support@bagdrop.app',
                           ),
                         );
                       },
@@ -429,26 +474,21 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                         return null;
                       },
                     ),
-
                     const SizedBox(height: 12),
-
                     TextFormField(
                       controller: _descCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Descrizione breve',
-                        hintText: 'Es. Bar vicino al Duomo, deposito sicuro…',
-                        border: OutlineInputBorder(),
+                      decoration: iosInput(
+                        label: 'Descrizione breve',
+                        hint: 'Es. Bar vicino al Duomo, deposito sicuro…',
                       ),
                       maxLines: 3,
                     ),
                     const SizedBox(height: 12),
-
                     TextFormField(
                       controller: _phoneCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Telefono',
-                        hintText: 'Es. +39 333 1234567',
-                        border: OutlineInputBorder(),
+                      decoration: iosInput(
+                        label: 'Telefono',
+                        hint: 'Es. +39 333 1234567',
                       ),
                       keyboardType: TextInputType.phone,
                       validator: (v) {
@@ -472,10 +512,9 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                 subtitle: 'Cosa è consentito / non consentito',
                 child: TextFormField(
                   controller: _rulesCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Regole deposito',
-                    hintText: 'Es. No oggetti di valore, no liquidi, max 25kg…',
-                    border: OutlineInputBorder(),
+                  decoration: iosInput(
+                    label: 'Regole deposito',
+                    hint: 'Es. No oggetti di valore, no liquidi, max 25kg…',
                   ),
                   maxLines: 3,
                 ),
@@ -499,6 +538,7 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                         ),
                       ),
 
+                    // ✅ logica invariata: stesso IgnorePointer + Opacity
                     IgnorePointer(
                       ignoring: _hasFutureBookings,
                       child: Opacity(
@@ -506,6 +546,8 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            // ⬇️ qui dentro (OpeningHoursEditor) il tuo time picking deve diventare wheel iOS.
+                            // Ti ho messo sotto la funzione pickTimeIosSheet pronta per sostituire showTimePicker.
                             OpeningHoursEditor(
                               initialValue: _openingHoursStructured,
                               onChanged: (value) {
@@ -539,26 +581,27 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Spazio generale (bagagli M)',
-                      style: TextStyle(fontWeight: FontWeight.w800),
+                      style: tt.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     TextFormField(
                       controller: _baseMCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Base M',
-                        hintText: 'Es. 10',
-                        border: OutlineInputBorder(),
-                      ),
+                      decoration: iosInput(label: 'Base M', hint: 'Es. 10'),
                       keyboardType: TextInputType.number,
                       enabled: !_hasFutureBookings,
                     ),
+
                     const SizedBox(height: 12),
 
-                    const Text(
+                    Text(
                       'Extra dedicati (opzionale)',
-                      style: TextStyle(fontWeight: FontWeight.w800),
+                      style: tt.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                     const SizedBox(height: 8),
 
@@ -567,10 +610,7 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                         Expanded(
                           child: TextFormField(
                             controller: _extraSCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Extra S',
-                              border: OutlineInputBorder(),
-                            ),
+                            decoration: iosInput(label: 'Extra S'),
                             keyboardType: TextInputType.number,
                             enabled: !_hasFutureBookings && _acceptS,
                           ),
@@ -579,10 +619,7 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                         Expanded(
                           child: TextFormField(
                             controller: _extraMCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Extra M',
-                              border: OutlineInputBorder(),
-                            ),
+                            decoration: iosInput(label: 'Extra M'),
                             keyboardType: TextInputType.number,
                             enabled: !_hasFutureBookings && _acceptM,
                           ),
@@ -591,10 +628,7 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                         Expanded(
                           child: TextFormField(
                             controller: _extraLCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Extra L',
-                              border: OutlineInputBorder(),
-                            ),
+                            decoration: iosInput(label: 'Extra L'),
                             keyboardType: TextInputType.number,
                             enabled: !_hasFutureBookings && _acceptL,
                           ),
@@ -604,9 +638,11 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
 
                     const SizedBox(height: 14),
 
-                    const Text(
+                    Text(
                       'Accetto queste taglie',
-                      style: TextStyle(fontWeight: FontWeight.w800),
+                      style: tt.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                     const SizedBox(height: 6),
 
@@ -620,9 +656,9 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                           onSelected: _hasFutureBookings
                               ? null
                               : (v) => setState(() {
-                                    _acceptS = v;
-                                    if (!v) _extraSCtrl.text = '0';
-                                  }),
+                                  _acceptS = v;
+                                  if (!v) _extraSCtrl.text = '0';
+                                }),
                         ),
                         FilterChip(
                           label: const Text('M'),
@@ -630,9 +666,9 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                           onSelected: _hasFutureBookings
                               ? null
                               : (v) => setState(() {
-                                    _acceptM = v;
-                                    if (!v) _extraMCtrl.text = '0';
-                                  }),
+                                  _acceptM = v;
+                                  if (!v) _extraMCtrl.text = '0';
+                                }),
                         ),
                         FilterChip(
                           label: const Text('L'),
@@ -640,19 +676,19 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                           onSelected: _hasFutureBookings
                               ? null
                               : (v) => setState(() {
-                                    _acceptL = v;
-                                    if (!v) _extraLCtrl.text = '0';
-                                  }),
+                                  _acceptL = v;
+                                  if (!v) _extraLCtrl.text = '0';
+                                }),
                         ),
                       ],
                     ),
 
                     const SizedBox(height: 14),
 
-                    // Riepilogo calcolato (modello capacità V2 reale)
                     Builder(
                       builder: (_) {
-                        int nn(String s) => (int.tryParse(s.trim()) ?? 0).clamp(0, 1000000);
+                        int nn(String s) =>
+                            (int.tryParse(s.trim()) ?? 0).clamp(0, 1000000);
 
                         final baseM = nn(_baseMCtrl.text);
                         final baseU = baseM * 2;
@@ -661,56 +697,73 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
                         final exM = nn(_extraMCtrl.text);
                         final exL = nn(_extraLCtrl.text);
 
-                        // Capacità massime MOSTRABILI per taglia (extra + base convertito)
                         final maxS = _acceptS ? (exS + baseU) : 0;
                         final maxM = _acceptM ? (exM + (baseU ~/ 2)) : 0;
                         final maxL = _acceptL ? (exL + (baseU ~/ 4)) : 0;
-
-                        // Totale in unità (solo informativo)
-                        final totalU =
-                            baseU + (exS * 1) + (exM * 2) + (exL * 4);
 
                         return Container(
                           margin: const EdgeInsets.only(top: 8),
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(14),
+                            borderRadius: BorderRadius.circular(18),
                             border: Border.all(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .outlineVariant
-                                  .withOpacity(0.6),
+                              color: cs.outlineVariant.withOpacity(0.35),
+                              width: 1,
                             ),
-                            color: Theme.of(context)
-                                .colorScheme
-                                .surfaceContainerHighest
-                                .withOpacity(0.35),
+                            color: cs.surfaceVariant.withOpacity(0.25),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
+                              Text(
                                 'Riepilogo capacità',
-                                style: TextStyle(fontWeight: FontWeight.w800),
+                                style: tt.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                ),
                               ),
-                              const SizedBox(height: 6),
+                              const SizedBox(height: 8),
                               Text(
                                 '• Spazio generale: $baseM bagagli M',
-                                style: const TextStyle(fontWeight: FontWeight.w600),
+                                style: tt.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: cs.onSurface.withOpacity(0.9),
+                                ),
                               ),
                               if (_acceptS)
-                                Text('• Extra S dedicati: $exS'),
+                                Text(
+                                  '• Extra S dedicati: $exS',
+                                  style: tt.bodyMedium?.copyWith(
+                                    color: cs.onSurface.withOpacity(0.75),
+                                  ),
+                                ),
                               if (_acceptM)
-                                Text('• Extra M dedicati: $exM'),
+                                Text(
+                                  '• Extra M dedicati: $exM',
+                                  style: tt.bodyMedium?.copyWith(
+                                    color: cs.onSurface.withOpacity(0.75),
+                                  ),
+                                ),
                               if (_acceptL)
-                                Text('• Extra L dedicati: $exL'),
-                              const SizedBox(height: 6),
+                                Text(
+                                  '• Extra L dedicati: $exL',
+                                  style: tt.bodyMedium?.copyWith(
+                                    color: cs.onSurface.withOpacity(0.75),
+                                  ),
+                                ),
+                              const SizedBox(height: 10),
                               Text(
-                                'Capacità massima utilizzabile:',
-                                style: const TextStyle(fontWeight: FontWeight.w700),
+                                'Capacità massima utilizzabile',
+                                style: tt.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                ),
                               ),
+                              const SizedBox(height: 4),
                               Text(
                                 'S $maxS  •  M $maxM  •  L $maxL',
+                                style: tt.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                  color: cs.onSurface.withOpacity(0.85),
+                                ),
                               ),
                             ],
                           ),
@@ -737,14 +790,32 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
               _EditSectionCard(
                 title: 'Stato del locale',
                 subtitle: 'Visibilità e disponibilità su BagDrop',
-                child: SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Locale attivo su BagDrop'),
-                  subtitle: const Text(
-                    'Disattiva per sospendere temporaneamente le prenotazioni.',
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: cs.surfaceVariant.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: cs.outlineVariant.withOpacity(0.35),
+                    ),
                   ),
-                  value: _isActive,
-                  onChanged: (v) => setState(() => _isActive = v),
+                  child: SwitchListTile.adaptive(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                    title: Text(
+                      'Locale attivo su BagDrop',
+                      style: tt.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'Disattiva la visibilità dell\'attività sulla mappa.',
+                      style: tt.bodySmall?.copyWith(
+                        color: cs.onSurface.withOpacity(0.7),
+                        height: 1.25,
+                      ),
+                    ),
+                    value: _isActive,
+                    onChanged: (v) => setState(() => _isActive = v),
+                  ),
                 ),
               ),
             ],
@@ -760,12 +831,13 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
             child: ElevatedButton(
               onPressed: _saving ? null : _save,
               style: ElevatedButton.styleFrom(
-                backgroundColor: theme.colorScheme.primary,
-                foregroundColor: theme.colorScheme.onPrimary,
+                backgroundColor: cs.primary,
+                foregroundColor: cs.onPrimary,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),
+                textStyle: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w900),
               ),
               child: _saving
                   ? const SizedBox(
@@ -781,6 +853,8 @@ class _PartnerEditScreenState extends State<PartnerEditScreen> {
     );
   }
 }
+
+//Helper widget: sezione con titolo, sottotitolo e card
 
 class _EditSectionCard extends StatelessWidget {
   final String title;
@@ -798,28 +872,31 @@ class _EditSectionCard extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
-    return Card(
-      elevation: 0,
-      color: cs.surface,
-      shape: RoundedRectangleBorder(
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.surfaceVariant.withOpacity(0.25),
         borderRadius: BorderRadius.circular(18),
-        side: BorderSide(color: cs.outlineVariant.withOpacity(0.6)),
+        border: Border.all(
+          color: cs.outlineVariant.withOpacity(0.35),
+          width: 1,
+        ),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               title,
-              style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w900),
             ),
             if (subtitle != null) ...[
               const SizedBox(height: 4),
               Text(
                 subtitle!,
                 style: tt.bodySmall?.copyWith(
-                  color: cs.onSurface.withOpacity(0.65),
+                  color: cs.onSurface.withOpacity(0.7),
+                  height: 1.25,
                 ),
               ),
             ],
@@ -839,16 +916,20 @@ class _InfoBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
 
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: cs.surfaceContainerHighest.withOpacity(0.55),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: cs.outlineVariant.withOpacity(0.6), width: 1),
+        color: cs.surfaceVariant.withOpacity(0.18),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: cs.outlineVariant.withOpacity(0.35),
+          width: 1,
+        ),
       ),
-
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
             Icons.info_outline,
@@ -856,7 +937,15 @@ class _InfoBanner extends StatelessWidget {
             color: cs.onSurface.withOpacity(0.7),
           ),
           const SizedBox(width: 10),
-          Expanded(child: Text(text)),
+          Expanded(
+            child: Text(
+              text,
+              style: tt.bodyMedium?.copyWith(
+                color: cs.onSurface.withOpacity(0.85),
+                height: 1.25,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -870,22 +959,96 @@ class _WarningBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
 
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: cs.errorContainer.withOpacity(0.35),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: cs.error.withOpacity(0.35), width: 1),
       ),
-
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(Icons.warning_amber_rounded, size: 18, color: cs.error),
           const SizedBox(width: 10),
-          Expanded(child: Text(text)),
+          Expanded(
+            child: Text(
+              text,
+              style: tt.bodyMedium?.copyWith(
+                color: cs.onErrorContainer,
+                height: 1.25,
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
+}
+
+Future<TimeOfDay?> pickTimeIosSheet({
+  required BuildContext context,
+  required String title,
+  required TimeOfDay initial,
+}) async {
+  TimeOfDay temp = initial;
+
+  return showModalBottomSheet<TimeOfDay>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) {
+      final cs = Theme.of(ctx).colorScheme;
+      final tt = Theme.of(ctx).textTheme;
+
+      DateTime toDate(TimeOfDay t) => DateTime(2020, 1, 1, t.hour, t.minute);
+
+      return SafeArea(
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+          decoration: BoxDecoration(
+            color: cs.surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: tt.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(temp),
+                    child: const Text('Fatto'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 200,
+                child: CupertinoDatePicker(
+                  mode: CupertinoDatePickerMode.time,
+                  use24hFormat: true,
+                  initialDateTime: toDate(initial),
+                  onDateTimeChanged: (d) {
+                    temp = TimeOfDay(hour: d.hour, minute: d.minute);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
 }

@@ -476,45 +476,90 @@ class PartnerBookingRepo {
     return list.isNotEmpty;
   }
 
-  /// Ritorna true se il partner ha prenotazioni future (>= oggi)
-  /// con status diverso da 'cancelled'.
+  /// Ritorna true se il partner ha prenotazioni che BLOCCANO la modifica orari/capacità:
+  /// - in_store (o dropoff_effective_at valorizzato) finché non c'è pickup_effective_at
+  /// - confirmed/pending solo se il pickup previsto è >= adesso
+  ///
+  /// Non consideriamo: cancelled / rejected / expired / completed ecc.
   Future<bool> hasActiveFutureBookingsForPartner(String partnerId) async {
-    final todayUtc = DateTime.now().toUtc();
-    final yyyy = todayUtc.year.toString().padLeft(4, '0');
-    final mm = todayUtc.month.toString().padLeft(2, '0');
-    final dd = todayUtc.day.toString().padLeft(2, '0');
-    final todayStr = '$yyyy-$mm-$dd';
-    final data = await client
-        .from('partner_bookings')
-        .select('id')
-        .eq('partner_id', partnerId)
-        .inFilter('status', ['pending', 'confirmed', 'in_store'])
-        .gte('booking_date', todayStr)
-        .limit(1);
+    DateTime? parseDateTime(dynamic v) {
+      if (v == null) return null;
+      if (v is DateTime) return v.toLocal();
+      if (v is String) return DateTime.parse(v).toLocal();
+      return null;
+    }
 
-    final list = data as List;
+    DateTime parseDate(dynamic v) {
+      if (v is DateTime) return DateTime(v.year, v.month, v.day);
+      if (v is String) {
+        final dt = DateTime.parse(v);
+        return DateTime(dt.year, dt.month, dt.day);
+      }
+      throw ArgumentError('Invalid Date value: $v');
+    }
+
+    int parseHour(String hhmm) {
+      final parts = hhmm.split(':');
+      return parts.isNotEmpty ? (int.tryParse(parts[0]) ?? 0) : 0;
+    }
+
+    int parseMinute(String hhmm) {
+      final parts = hhmm.split(':');
+      return parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0;
+    }
+
+    DateTime combineDateAndTime(DateTime date, String timeStr) {
+      final t = (timeStr.isEmpty) ? '00:00:00' : timeStr;
+      return DateTime(
+        date.year,
+        date.month,
+        date.day,
+        parseHour(t),
+        parseMinute(t),
+      );
+    }
 
     final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
 
+    // Prendiamo SOLO gli stati che possono bloccare (gli altri non ci interessano proprio).
     final rows = await client
         .from('partner_bookings')
-        .select('booking_date, end_date, status')
+        .select(
+          'status, booking_date, end_date, end_time, pickup_planned_at, '
+          'dropoff_effective_at, pickup_effective_at',
+        )
         .eq('partner_id', partnerId)
-        .neq('status', 'cancelled');
+        .inFilter('status', ['pending', 'confirmed', 'in_store']);
 
-    for (final raw in rows) {
+    for (final raw in (rows as List)) {
       final map = raw as Map<String, dynamic>;
+      final status = (map['status'] as String? ?? '').toLowerCase();
 
-      final DateTime startDay = DateTime.parse(map['booking_date'] as String);
-      final DateTime endDay = map['end_date'] == null
-          ? startDay
-          : DateTime.parse(map['end_date'] as String);
+      final dropoffEff = parseDateTime(map['dropoff_effective_at']);
+      final pickupEff = parseDateTime(map['pickup_effective_at']);
 
-      // Se l'intervallo [startDay, endDay] ha almeno un giorno >= oggi,
-      // la consideriamo "futura/attiva".
-      if (!endDay.isBefore(today)) {
+      // ✅ Se è in deposito (o risulta check-in effettivo) e non c'è ancora check-out → blocca SEMPRE.
+      if (pickupEff == null && (status == 'in_store' || dropoffEff != null)) {
         return true;
+      }
+
+      // ✅ Per confirmed/pending: blocca solo se il pickup previsto è nel futuro (>= adesso).
+      if (status == 'confirmed' || status == 'pending') {
+        DateTime? plannedPickup = parseDateTime(map['pickup_planned_at']);
+
+        // Fallback per record vecchi (se pickup_planned_at non c'è)
+        if (plannedPickup == null) {
+          final startDay = parseDate(map['booking_date']);
+          final endDay = map['end_date'] == null
+              ? startDay
+              : parseDate(map['end_date']);
+          final endTime = (map['end_time'] as String?) ?? '23:59:00';
+          plannedPickup = combineDateAndTime(endDay, endTime);
+        }
+
+        if (!plannedPickup.isBefore(now)) {
+          return true;
+        }
       }
     }
 
