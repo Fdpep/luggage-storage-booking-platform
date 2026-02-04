@@ -4,7 +4,7 @@ import 'package:BagDrop/models/partner.dart';
 import 'package:BagDrop/models/partner_booking.dart';
 import 'package:BagDrop/schermate/partner/user_view/partner_detail_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:BagDrop/theme/app_theme.dart';
+
 
 class BookingPaymentRow {
   final String kind; // 'base' | 'late_fee'

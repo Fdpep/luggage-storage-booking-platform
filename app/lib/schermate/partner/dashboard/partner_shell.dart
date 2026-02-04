@@ -12,9 +12,9 @@ import 'pages/spazi_page.dart';
 import 'pages/profilo_page.dart';
 
 // Schermate esterne
-import '../auth_partner/partner_registration_screen.dart';
+
 import '../auth_partner/partner_waiting_screen.dart';
-import '../../autenticazione/auth_actions.dart';
+
 import '../auth_partner/partner_application_screen.dart';
 
 import '../user_view/partner_drawer.dart';

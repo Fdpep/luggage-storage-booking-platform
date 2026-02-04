@@ -1190,19 +1190,87 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
     }
   }
 
+  // ---------------------------
+  // iOS-like UI helpers
+  // ---------------------------
+
+  Widget iosSection(BuildContext context, {required List<Widget> children}) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.surfaceVariant.withOpacity(0.25),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
+      ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: children),
+    );
+  }
+
+  Widget thinDivider(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Divider(
+      height: 1,
+      thickness: 1,
+      color: cs.outlineVariant.withOpacity(0.35),
+    );
+  }
+
+  InputDecoration iosInputDecoration(
+    BuildContext context, {
+    required String label,
+    String? hint,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      filled: true,
+      fillColor: cs.surface,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: cs.outlineVariant.withOpacity(0.35)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: cs.outlineVariant.withOpacity(0.35)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: cs.outlineVariant.withOpacity(0.55)),
+      ),
+      disabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: cs.outlineVariant.withOpacity(0.20)),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
 
     return Scaffold(
       appBar: AppBar(
         backgroundColor: cs.primary,
         foregroundColor: cs.onPrimary,
         title: const _LogoTitle(),
+        centerTitle: true,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Divider(
+            height: 1,
+            thickness: 1,
+            color: cs.outlineVariant.withOpacity(0.35),
+          ),
+        ),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
           child: Form(
             key: _formKey,
             child: Column(
@@ -1210,74 +1278,120 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
               children: [
                 Text(
                   'Aggiorna i tuoi dati personali',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
+                  style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Modifica Nome, Cognome e Telefono. Le informazioni verranno aggiornate sul tuo profilo.',
+                  style: tt.bodyMedium?.copyWith(
+                    color: cs.onSurface.withOpacity(0.7),
                   ),
                 ),
                 const SizedBox(height: 16),
 
-                // Nome
-                TextFormField(
-                  controller: _firstNameCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Nome',
-                    border: OutlineInputBorder(),
-                  ),
-                  textInputAction: TextInputAction.next,
-                  validator: (v) {
-                    if ((v ?? '').trim().isEmpty) {
-                      return 'Inserisci il nome';
-                    }
-                    return null;
-                  },
+                iosSection(
+                  context,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                      child: TextFormField(
+                        controller: _firstNameCtrl,
+                        enabled: !_saving,
+                        decoration: iosInputDecoration(context, label: 'Nome'),
+                        textInputAction: TextInputAction.next,
+                        textCapitalization: TextCapitalization.words,
+                        autofillHints: const [AutofillHints.givenName],
+                        validator: (v) {
+                          if ((v ?? '').trim().isEmpty) {
+                            return 'Inserisci il nome';
+                          }
+                          return null;
+                        },
+                        onChanged: (_) {
+                          if (mounted) setState(() {}); // solo refresh UI
+                        },
+                      ),
+                    ),
+                    thinDivider(context),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                      child: TextFormField(
+                        controller: _lastNameCtrl,
+                        enabled: !_saving,
+                        decoration: iosInputDecoration(
+                          context,
+                          label: 'Cognome',
+                        ),
+                        textInputAction: TextInputAction.next,
+                        textCapitalization: TextCapitalization.words,
+                        autofillHints: const [AutofillHints.familyName],
+                        validator: (v) {
+                          if ((v ?? '').trim().isEmpty) {
+                            return 'Inserisci il cognome';
+                          }
+                          return null;
+                        },
+                        onChanged: (_) {
+                          if (mounted) setState(() {});
+                        },
+                      ),
+                    ),
+                    thinDivider(context),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                      child: TextFormField(
+                        controller: _phoneCtrl,
+                        enabled: !_saving,
+                        keyboardType: TextInputType.phone,
+                        decoration: iosInputDecoration(
+                          context,
+                          label: 'Telefono',
+                          hint: '+39 ...',
+                        ),
+                        textInputAction: TextInputAction.done,
+                        autofillHints: const [AutofillHints.telephoneNumber],
+                        validator: (v) {
+                          final t = (v ?? '').trim();
+                          if (t.isEmpty) {
+                            return 'Inserisci un numero di telefono';
+                          }
+                          final digitsOnly = t.replaceAll(
+                            RegExp(r'[^0-9]'),
+                            '',
+                          );
+                          if (digitsOnly.length < 9 || digitsOnly.length > 15) {
+                            return 'Inserisci un numero di telefono valido';
+                          }
+                          return null;
+                        },
+                        onChanged: (_) {
+                          if (mounted) setState(() {});
+                        },
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
 
-                // Cognome
-                TextFormField(
-                  controller: _lastNameCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Cognome',
-                    border: OutlineInputBorder(),
-                  ),
-                  textInputAction: TextInputAction.next,
-                  validator: (v) {
-                    if ((v ?? '').trim().isEmpty) {
-                      return 'Inserisci il cognome';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 12),
-
-                // Telefono
-                TextFormField(
-                  controller: _phoneCtrl,
-                  keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(
-                    labelText: 'Telefono',
-                    hintText: '+39 ...',
-                    border: OutlineInputBorder(),
-                  ),
-                  validator: (v) {
-                    final t = (v ?? '').trim();
-                    if (t.isEmpty) {
-                      return 'Inserisci un numero di telefono';
-                    }
-                    final digitsOnly = t.replaceAll(RegExp(r'[^0-9]'), '');
-                    if (digitsOnly.length < 9 || digitsOnly.length > 15) {
-                      return 'Inserisci un numero di telefono valido';
-                    }
-                    return null;
-                  },
-                ),
-
-                const SizedBox(height: 24),
+                const SizedBox(height: 18),
 
                 SizedBox(
                   width: double.infinity,
-                  child: ElevatedButton(
+                  child: FilledButton(
                     onPressed: _saving ? null : _save,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: cs.primary,
+                      foregroundColor: cs.onPrimary,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 14,
+                        horizontal: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      textStyle: tt.bodyLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
                     child: _saving
                         ? const SizedBox(
                             width: 22,
@@ -1285,6 +1399,14 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Text('Salva modifiche'),
+                  ),
+                ),
+
+                const SizedBox(height: 10),
+                Text(
+                  'I dati verranno salvati nel tuo profilo BagDrop.',
+                  style: tt.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(0.7),
                   ),
                 ),
               ],

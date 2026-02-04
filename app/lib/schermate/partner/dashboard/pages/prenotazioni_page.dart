@@ -150,119 +150,13 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
   }
 
   Future<String?> _openRejectSheet(BuildContext context) {
-    const presets = [
-      'Bagaglio non conforme (taglia diversa)',
-      'Cliente non si è presentato',
-      'Capienza insufficiente',
-      'Orario non rispettato',
-      'Altro',
-    ];
-
-    final ctrl = TextEditingController();
-    final focus = FocusNode();
-    String? selected;
-
     return showModalBottomSheet<String>(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
-      showDragHandle: true,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setM) {
-            final bottom = MediaQuery.of(ctx).viewInsets.bottom;
-            final canConfirm = ctrl.text.trim().isNotEmpty; // ✅ OBBLIGATORIO
-
-            void selectPreset(String p) {
-              setM(() {
-                selected = (selected == p) ? null : p;
-                if (selected == null) return;
-
-                if (selected == 'Altro') {
-                  ctrl.text = '';
-                } else {
-                  ctrl.text = selected!;
-                }
-                ctrl.selection = TextSelection.collapsed(
-                  offset: ctrl.text.length,
-                );
-              });
-              FocusScope.of(ctx).requestFocus(focus);
-            }
-
-            return Padding(
-              padding: EdgeInsets.fromLTRB(16, 12, 16, 16 + bottom),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Rifiuta prenotazione',
-                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Scegli una motivazione oppure scrivila. Il campo è obbligatorio.',
-                    style: TextStyle(
-                      color: Theme.of(
-                        ctx,
-                      ).colorScheme.onSurface.withOpacity(0.7),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: presets.map((p) {
-                      final isSel = selected == p;
-                      return ChoiceChip(
-                        label: Text(p),
-                        selected: isSel,
-                        onSelected: (_) => selectPreset(p),
-                      );
-                    }).toList(),
-                  ),
-
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: ctrl,
-                    focusNode: focus,
-                    maxLines: 3,
-                    decoration: InputDecoration(
-                      labelText: 'Motivazione *',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                    onChanged: (_) => setM(() {}),
-                  ),
-
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text('Annulla'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: !canConfirm
-                              ? null
-                              : () => Navigator.pop(ctx, ctrl.text.trim()),
-                          child: const Text('Conferma rifiuto'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withOpacity(0.35),
+      builder: (_) => const _RejectReasonSheet(),
     );
   }
 
@@ -451,10 +345,17 @@ class _PrenotazioniPageState extends State<PrenotazioniPage> {
         backgroundColor: AppTheme.brandPurple,
         foregroundColor: Colors.white,
         elevation: 0,
-        centerTitle: false,
-        title: const Text(
+        centerTitle: true,
+        title: Text(
           'Prenotazioni',
-          style: TextStyle(fontWeight: FontWeight.w900),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: (Theme.of(context).textTheme.titleMedium ?? const TextStyle())
+              .copyWith(
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.2,
+                color: Colors.white,
+              ),
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(62),
@@ -906,7 +807,9 @@ enum _BookingSort { dropoffAsc, dropoffDesc, createdAsc, createdDesc }
 
 enum _DatePreset { all, today, tomorrow, next7, next30, thisMonth, custom }
 
-/// Card singola prenotazione.
+/// Card singola prenotazione (partner) – moderna, flat, iOS-like.
+/// Nota: "Apri" e "Riepilogo" aprono lo stesso dettaglio → CTA unica contestuale.
+
 class _BookingCardModern extends StatelessWidget {
   final PartnerBooking booking;
   final VoidCallback onOpenDetail;
@@ -920,27 +823,121 @@ class _BookingCardModern extends StatelessWidget {
     required this.onReject,
   });
 
+  String _fmt(DateTime x) {
+    return '${x.day.toString().padLeft(2, '0')}/${x.month.toString().padLeft(2, '0')} '
+        '${x.hour.toString().padLeft(2, '0')}:${x.minute.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
-    final d = booking.plannedDropoffAtLocal;
-    final dropoffStr =
-        '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')} '
-        '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+    final dropoff = booking.plannedDropoffAtLocal;
+    final pickup = booking.plannedPickupAtLocal;
 
     final statusUi = _StatusUI.from(booking.uiStatus);
-    final showRejectReason =
-        statusUi.kind == _StatusKind.rejected &&
-        (booking.rejectReason ?? '').trim().isNotEmpty;
+    final uiLower = booking.uiStatus.trim().toLowerCase();
 
     final isInStore = statusUi.kind == _StatusKind.inStore;
+    final isCompleted = statusUi.kind == _StatusKind.completed;
+
+    final isRejected =
+        statusUi.kind == _StatusKind.rejected || uiLower == 'rejected';
+    final isCancelled =
+        statusUi.kind == _StatusKind.cancelled || uiLower == 'cancelled';
+    final isConfirmed = uiLower == 'confirmed';
+
+    // CTA unica
+    final String ctaLabel = isCompleted
+        ? 'Riepilogo finale'
+        : (isCancelled || isRejected)
+        ? 'Riepilogo'
+        : 'Apri dettagli';
+
+    final IconData ctaIcon = isCompleted
+        ? Icons.fact_check_outlined
+        : (isCancelled || isRejected)
+        ? Icons.receipt_long_outlined
+        : Icons.open_in_new_rounded;
+
+    // ✅ Tutte le card bianche (come richiesto)
+    final Color cardBg = cs.surface;
+
+    // bordo: normale oppure rosso se rifiutata
+    final Color cardBorder = cs.outlineVariant.withOpacity(0.35);
+
+    Widget buildCtaButton() {
+      if (isCancelled || isRejected) {
+        // ✅ cancelled -> pulsante bianco
+        return SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: onOpenDetail,
+            icon: Icon(ctaIcon, size: 18),
+            label: Text(ctaLabel),
+            style: FilledButton.styleFrom(
+              backgroundColor: cs.surface,
+              foregroundColor: cs.onSurface,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              side: BorderSide(color: cs.outlineVariant.withOpacity(0.35)),
+              textStyle: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w900),
+            ),
+          ),
+        );
+      }
+      /*
+      if (isRejected) {
+        // ✅ rejected -> CTA rossa ma su bianco
+        return SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: onOpenDetail,
+            icon: Icon(ctaIcon, size: 18, color: cs.error),
+            label: Text(
+              ctaLabel,
+              style: tt.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w900,
+                color: cs.error,
+              ),
+            ),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              side: BorderSide(color: cs.error.withOpacity(0.35)),
+              backgroundColor: cs.surface,
+            ),
+          ),
+        );
+      }
+      */
+
+      return SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          onPressed: onOpenDetail,
+          icon: Icon(ctaIcon, size: 18),
+          label: Text(ctaLabel),
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            textStyle: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w900),
+          ),
+        ),
+      );
+    }
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Material(
-        color: cs.surface,
+        color: cardBg,
         borderRadius: BorderRadius.circular(18),
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
@@ -948,17 +945,20 @@ class _BookingCardModern extends StatelessWidget {
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
+              border: Border.all(color: cardBorder),
             ),
             padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // ===== HEADER =====
                 Row(
                   children: [
                     Expanded(
                       child: Text(
                         '${booking.firstName} ${booking.lastName}'.trim(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: tt.titleMedium?.copyWith(
                           fontWeight: FontWeight.w900,
                         ),
@@ -966,32 +966,40 @@ class _BookingCardModern extends StatelessWidget {
                     ),
                     _StatusPill(ui: statusUi),
                     const SizedBox(width: 6),
-                    PopupMenuButton<String>(
+                    IconButton(
                       tooltip: 'Azioni',
-                      itemBuilder: (ctx) => [
-                        const PopupMenuItem(
-                          value: 'detail',
-                          child: Text('Apri dettagli'),
-                        ),
-                        if (canReject)
-                          const PopupMenuItem(
-                            value: 'reject',
-                            child: Text('Rifiuta'),
-                          ),
-                      ],
-                      onSelected: (v) {
-                        if (v == 'detail') onOpenDetail();
-                        if (v == 'reject' && onReject != null) onReject!();
-                      },
                       icon: Icon(
                         Icons.more_horiz,
                         color: cs.onSurface.withOpacity(0.7),
                       ),
+                      onPressed: () async {
+                        final action = await _openBookingActionsSheet(
+                          context,
+                          canReject: canReject && onReject != null,
+                        );
+
+                        if (action == null) return;
+
+                        if (action == _BookingCardAction.detail) {
+                          onOpenDetail();
+                          return;
+                        }
+
+                        if (action == _BookingCardAction.reject &&
+                            onReject != null) {
+                          // ✅ importantissimo: apri la reject-sheet DOPO che l’action-sheet è chiusa
+                          WidgetsBinding.instance.addPostFrameCallback(
+                            (_) => onReject!(),
+                          );
+                        }
+                      },
                     ),
                   ],
                 ),
 
-                const SizedBox(height: 6),
+                const SizedBox(height: 10),
+
+                // ===== DATE =====
                 Row(
                   children: [
                     Icon(
@@ -1000,21 +1008,54 @@ class _BookingCardModern extends StatelessWidget {
                       color: cs.onSurface.withOpacity(0.6),
                     ),
                     const SizedBox(width: 6),
-                    Text(
-                      'Consegna: $dropoffStr',
-                      style: tt.bodySmall?.copyWith(
-                        color: cs.onSurface.withOpacity(0.75),
+                    Expanded(
+                      child: Text(
+                        'Consegna: ${_fmt(dropoff)}',
+                        style: tt.bodySmall?.copyWith(
+                          color: cs.onSurface.withOpacity(0.75),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.history_toggle_off,
+                      size: 16,
+                      color: cs.onSurface.withOpacity(0.6),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Ritiro: ${_fmt(pickup)}',
+                        style: tt.bodySmall?.copyWith(
+                          color: cs.onSurface.withOpacity(0.75),
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ],
                 ),
 
+                // ===== CONFIRMED: countdown check-in (sempre verde) =====
+                if (isConfirmed) ...[
+                  const SizedBox(height: 12),
+                  _UpcomingCheckinReminder(
+                    dropoff: dropoff,
+                    createdAt:
+                        booking.createdAt, // o booking.createdAtLocal se esiste
+                  ),
+                ],
+
                 const SizedBox(height: 12),
 
-                // Bags
+                // ===== BAGS =====
                 Text(
                   'Bagagli: ${booking.totalBags}',
-                  style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
+                  style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 6),
                 Wrap(
@@ -1038,18 +1079,72 @@ class _BookingCardModern extends StatelessWidget {
                   ),
                 ],
 
-                // Motivo rifiuto (callout bello)
-                if (showRejectReason) ...[
+                // ===== REJECTED: box motivo (tema rosso ma card bianca) =====
+                if (isRejected) ...[
                   const SizedBox(height: 12),
-                  _Callout(
-                    icon: Icons.info_outline,
-                    text: 'Motivo: ${booking.rejectReason!.trim()}',
-                    tone: _CalloutTone.danger,
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: cs.error.withOpacity(0.06),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: cs.error.withOpacity(0.22)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.info_outline, size: 16, color: cs.error),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Motivazione del rifiuto',
+                              style: tt.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                color: cs.onSurface.withOpacity(0.92),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          (booking.rejectReason ?? '').trim().isEmpty
+                              ? 'Motivazione non specificata.'
+                              : booking.rejectReason!.trim(),
+                          style: tt.bodySmall?.copyWith(
+                            height: 1.25,
+                            color: cs.onSurface.withOpacity(0.82),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.currency_exchange_outlined,
+                              size: 16,
+                              color: cs.error,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Se era stato effettuato un pagamento, verrà avviato il rimborso secondo le tempistiche del metodo di pagamento.',
+                                style: tt.bodySmall?.copyWith(
+                                  height: 1.25,
+                                  color: cs.onSurface.withOpacity(0.70),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ],
 
-                // Note
-                if ((booking.notes ?? '').trim().isNotEmpty) ...[
+                // ===== NOTE =====
+                if (!isRejected && (booking.notes ?? '').trim().isNotEmpty) ...[
                   const SizedBox(height: 12),
                   _Callout(
                     icon: Icons.sticky_note_2_outlined,
@@ -1057,11 +1152,322 @@ class _BookingCardModern extends StatelessWidget {
                     tone: _CalloutTone.neutral,
                   ),
                 ],
+
+                const SizedBox(height: 12),
+                Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: cs.outlineVariant.withOpacity(0.35),
+                ),
+                const SizedBox(height: 12),
+
+                buildCtaButton(),
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+enum _BookingCardAction { detail, reject }
+
+Future<_BookingCardAction?> _openBookingActionsSheet(
+  BuildContext context, {
+  required bool canReject,
+}) {
+  return showModalBottomSheet<_BookingCardAction>(
+    context: context,
+    useRootNavigator: true,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: false,
+    builder: (ctx) {
+      final cs = Theme.of(ctx).colorScheme;
+      final tt = Theme.of(ctx).textTheme;
+
+      Widget actionTile({
+        required IconData icon,
+        required String title,
+        Color? color,
+        required _BookingCardAction value,
+      }) {
+        final c = color ?? cs.onSurface;
+        return InkWell(
+          onTap: () => Navigator.of(ctx).pop(value),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                Icon(icon, color: c),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: tt.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: c,
+                    ),
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: cs.onSurface.withOpacity(0.45),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
+      Widget divider() => Divider(
+        height: 1,
+        thickness: 1,
+        color: cs.outlineVariant.withOpacity(0.35),
+      );
+
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // ===== blocco azioni =====
+              Container(
+                decoration: BoxDecoration(
+                  color: cs.surface,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: cs.outlineVariant.withOpacity(0.35),
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(height: 10),
+                    Container(
+                      width: 44,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: cs.onSurface.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Azioni prenotazione',
+                              style: tt.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 10),
+
+                    divider(),
+
+                    actionTile(
+                      icon: Icons.open_in_new_rounded,
+                      title: 'Apri dettagli',
+                      value: _BookingCardAction.detail,
+                    ),
+
+                    if (canReject) ...[
+                      divider(),
+                      actionTile(
+                        icon: Icons.block,
+                        title: 'Rifiuta prenotazione',
+                        color: cs.error,
+                        value: _BookingCardAction.reject,
+                      ),
+                    ],
+
+                    const SizedBox(height: 6),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 10),
+
+              // ===== blocco annulla separato (stile iOS) =====
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: cs.surface,
+                    foregroundColor: cs.onSurface,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    side: BorderSide(
+                      color: cs.outlineVariant.withOpacity(0.35),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    textStyle: tt.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  child: const Text('Annulla'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+/// Confirmed countdown: SEMPRE verde.
+/// - prima: "Check-in possibile tra ..." + countdown
+/// - dopo (anche in ritardo): "Cliente viene a breve" + pill "A breve"
+class _UpcomingCheckinReminder extends StatelessWidget {
+  final DateTime dropoff;
+  final DateTime createdAt;
+  const _UpcomingCheckinReminder({
+    required this.dropoff,
+    required this.createdAt,
+  });
+
+  String _formatCountdown(Duration diff) {
+    final d = diff.abs();
+    final days = d.inDays;
+    final hours = d.inHours.remainder(24);
+    final mins = d.inMinutes.remainder(60);
+
+    if (days > 0) return '${days}g ${hours}h ${mins}m';
+    if (hours > 0) return '${hours}h ${mins}m';
+    return '${d.inMinutes} min';
+  }
+
+  String _formatDate(DateTime dt) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${two(dt.day)}/${two(dt.month)}/${dt.year} ${two(dt.hour)}:${two(dt.minute)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
+    // ✅ verde fisso (come richiesto)
+    final green = Colors.green.shade600;
+
+    // (facoltativo) tick leggero per aggiornare il countdown
+    return StreamBuilder<int>(
+      stream: Stream.periodic(const Duration(seconds: 30), (i) => i),
+      builder: (context, _) {
+        final now = DateTime.now();
+        final diff = dropoff.difference(now);
+
+        final totalSec = dropoff.difference(createdAt).inSeconds;
+        double? progress;
+        if (totalSec > 0) {
+          final elapsedSec = now.difference(createdAt).inSeconds;
+          progress = (elapsedSec / totalSec).clamp(0.0, 1.0);
+        } else {
+          progress = 1.0;
+        }
+
+        final before = diff > Duration.zero;
+
+        final title = before ? 'Check-in possibile tra' : 'Cliente in arrivo';
+        final pill = before ? _formatCountdown(diff) : 'In arrivo';
+
+        return Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: green.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: green.withOpacity(0.25)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.timer_outlined, size: 18, color: green),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: tt.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: cs.onSurface.withOpacity(0.85),
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: green.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      pill,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                        color: green,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Orario previsto: ${_formatDate(dropoff)}',
+                style: tt.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: cs.onSurface.withOpacity(0.75),
+                ),
+              ),
+
+              if (progress != null) ...[
+                const SizedBox(height: 10),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    minHeight: 7,
+                    value: progress,
+                    backgroundColor: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withOpacity(0.08),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Colors.green.shade600,
+                    ),
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 6),
+              Text(
+                before
+                    ? 'Mostra questa prenotazione al cliente quando arriva per il check-in.'
+                    : 'Tieni la prenotazione pronta: il cliente dovrebbe arrivare a breve.',
+                style: tt.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: cs.onSurface.withOpacity(0.65),
+                  height: 1.25,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -1109,8 +1515,8 @@ class _StatusUI {
       return _StatusUI(
         kind: _StatusKind.completed,
         label: 'Completata',
-        bg: Colors.blue.withOpacity(0.12),
-        fg: Colors.blue.shade800,
+        bg: AppTheme.brandPurple.withOpacity(0.14),
+        fg: AppTheme.brandPurple,
         icon: Icons.check_circle_outline,
       );
     }
@@ -1138,8 +1544,8 @@ class _StatusUI {
     return _StatusUI(
       kind: _StatusKind.confirmed,
       label: 'Confermata',
-      bg: AppTheme.brandPurple.withOpacity(0.14),
-      fg: AppTheme.brandPurple,
+      bg: Colors.green.withOpacity(0.14),
+      fg: Colors.green.shade800,
       icon: Icons.verified_outlined,
     );
   }
@@ -1376,6 +1782,211 @@ class _ChipMini extends StatelessWidget {
   }
 }
 
+class _RejectReasonSheet extends StatefulWidget {
+  const _RejectReasonSheet();
+
+  @override
+  State<_RejectReasonSheet> createState() => _RejectReasonSheetState();
+}
+
+class _RejectReasonSheetState extends State<_RejectReasonSheet> {
+  static const presets = [
+    'Bagaglio non conforme (taglia diversa)',
+    'Cliente non si è presentato',
+    'Capienza insufficiente',
+    'Orario non rispettato',
+    'Altro',
+  ];
+
+  final ctrl = TextEditingController();
+  final focus = FocusNode();
+
+  String? selected;
+
+  @override
+  void dispose() {
+    ctrl.dispose();
+    focus.dispose();
+    super.dispose();
+  }
+
+  void _selectPreset(String p) {
+    setState(() {
+      selected = (selected == p) ? null : p;
+
+      if (selected == null) return;
+
+      if (selected == 'Altro') {
+        ctrl.text = '';
+      } else {
+        ctrl.text = selected!;
+      }
+      ctrl.selection = TextSelection.collapsed(offset: ctrl.text.length);
+    });
+
+    // Focus solo se "Altro"
+    if (p == 'Altro') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        FocusScope.of(context).requestFocus(focus);
+      });
+    } else {
+      FocusScope.of(context).unfocus();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final maxH = MediaQuery.of(context).size.height * 0.82;
+
+    InputDecoration iosInput(String label) => InputDecoration(
+      labelText: label,
+      filled: true,
+      fillColor: cs.surface,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: cs.outlineVariant.withOpacity(0.35)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: cs.outlineVariant.withOpacity(0.35)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: cs.outlineVariant.withOpacity(0.55)),
+      ),
+    );
+
+    return SafeArea(
+      child: AnimatedPadding(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        padding: EdgeInsets.only(bottom: bottomInset),
+        child: Center(
+          child: Container(
+            constraints: BoxConstraints(maxHeight: maxH),
+            margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+            decoration: BoxDecoration(
+              color: cs.surface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
+            ),
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 5,
+                      margin: const EdgeInsets.only(bottom: 10),
+                      decoration: BoxDecoration(
+                        color: cs.onSurface.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Rifiuta prenotazione',
+                          style: tt.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Chiudi'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Scegli una motivazione oppure scrivila. Il campo è obbligatorio.',
+                    style: tt.bodySmall?.copyWith(
+                      color: cs.onSurface.withOpacity(0.7),
+                      height: 1.25,
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: ctrl,
+                    focusNode: focus,
+                    maxLines: 3,
+                    decoration: iosInput('Motivazione *'),
+                  ),
+
+                  const SizedBox(height: 14),
+                  ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: ctrl,
+                    builder: (_, __, ___) {
+                      final canConfirm = ctrl.text
+                          .trim()
+                          .isNotEmpty; // ✅ obbligatorio
+                      return Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.pop(context),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                side: BorderSide(
+                                  color: cs.outlineVariant.withOpacity(0.45),
+                                ),
+                              ),
+                              child: const Text('Annulla'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: !canConfirm
+                                  ? null
+                                  : () => Navigator.pop(
+                                      context,
+                                      ctrl.text.trim(),
+                                    ),
+                              style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                              child: const Text('Conferma rifiuto'),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _InStoreReminder extends StatelessWidget {
   final DateTime dropoff;
   final DateTime pickup;
@@ -1415,24 +2026,24 @@ class _InStoreReminder extends StatelessWidget {
     final bool inTolerance = !beforePickup && diffToDeadline > Duration.zero;
 
     final Color accent = beforePickup
-        ? Colors.blue.shade600
-        : (inTolerance ? Colors.orange.shade700 : Colors.red.shade600);
+        ? cs.primary
+        : (inTolerance ? cs.tertiary : cs.error);
 
     final String title = beforePickup
         ? 'Ritiro previsto'
         : (inTolerance ? 'Ritiro scaduto (tolleranza)' : 'Checkout scaduto');
+
+    final String note = beforePickup
+        ? 'Il cliente dovrebbe effettuare il check-out entro l’orario previsto.'
+        : (inTolerance
+              ? 'Se il cliente fa il check-out entro la tolleranza, non dovrebbe esserci sovrapprezzo.'
+              : '⚠️ Oltre la tolleranza: potrebbe essere richiesto un sovrapprezzo al check-out.');
 
     final String pillText = beforePickup
         ? _formatCountdown(diffToPickup, prefix: 'Manca')
         : (inTolerance
               ? _formatCountdown(diffToDeadline, prefix: 'Tolleranza')
               : _formatCountdown(deadline.difference(now)));
-
-    final String note = beforePickup
-        ? 'Ricorda di fare il check-out entro l’orario previsto.'
-        : (inTolerance
-              ? 'Se il cliente fa il check-out entro la tolleranza, non dovrebbe esserci sovrapprezzo.'
-              : '⚠️ Oltre la tolleranza: potrebbe essere richiesto un sovrapprezzo al check-out.');
 
     final totalSec = pickup.difference(dropoff).inSeconds;
     double? progress;

@@ -5,6 +5,43 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:BagDrop/services/supabase/partner_booking_repo.dart';
 import 'package:BagDrop/theme/app_theme.dart';
 
+/// ---- PAYMENTS (stesso modello lato utente, portato anche lato partner) ----
+class BookingPaymentRow {
+  final String kind; // 'base' | 'late_fee' | altro
+  final int amountCents;
+  final DateTime paidAt;
+  final DateTime? fromCoveredUntil;
+  final DateTime? toCoveredUntil;
+  final String? fromDurationKey;
+  final String? toDurationKey;
+
+  BookingPaymentRow({
+    required this.kind,
+    required this.amountCents,
+    required this.paidAt,
+    this.fromCoveredUntil,
+    this.toCoveredUntil,
+    this.fromDurationKey,
+    this.toDurationKey,
+  });
+
+  factory BookingPaymentRow.fromMap(Map<String, dynamic> m) {
+    DateTime? dt(dynamic v) =>
+        v == null ? null : DateTime.parse(v.toString()).toLocal();
+    int cents(dynamic v) => (v is int) ? v : int.tryParse(v.toString()) ?? 0;
+
+    return BookingPaymentRow(
+      kind: (m['kind'] ?? 'late_fee').toString(),
+      amountCents: cents(m['amount_cents']),
+      paidAt: dt(m['paid_at']) ?? DateTime.now(),
+      fromCoveredUntil: dt(m['from_covered_until']),
+      toCoveredUntil: dt(m['to_covered_until']),
+      fromDurationKey: m['from_duration_key']?.toString(),
+      toDurationKey: m['to_duration_key']?.toString(),
+    );
+  }
+}
+
 class PartnerBookingDetailScreen extends StatefulWidget {
   final PartnerBooking booking;
 
@@ -20,12 +57,84 @@ class _PartnerBookingDetailScreenState
   PartnerBooking get booking => widget.booking;
   bool _rejecting = false;
 
+  // ---- NEW: pagamenti ----
+  bool _loadingPayments = true;
+  String? _paymentsError;
+  List<BookingPaymentRow> _payments = const [];
+
+  int get _totalPaidCents => _payments.fold(0, (sum, p) => sum + p.amountCents);
+  int get _supplementsPaidCents => _payments
+      .where((p) => p.kind != 'base')
+      .fold(0, (sum, p) => sum + p.amountCents);
+
+  DateTime? get _coveredUntil {
+    // se hai to_covered_until nei pagamenti, prendo l’ultimo disponibile (massimo)
+    DateTime? best;
+    for (final p in _payments) {
+      final t = p.toCoveredUntil;
+      if (t == null) continue;
+      if (best == null || t.isAfter(best)) best = t;
+    }
+    return best;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPayments();
+  }
+
+  Future<void> _loadPayments() async {
+    setState(() {
+      _loadingPayments = true;
+      _paymentsError = null;
+    });
+
+    try {
+      final sb = Supabase.instance.client;
+      final rows = await sb
+          .from('booking_payments')
+          .select()
+          .eq('booking_id', booking.id)
+          .order('paid_at', ascending: true);
+
+      final list = (rows as List)
+          .cast<Map<String, dynamic>>()
+          .map(BookingPaymentRow.fromMap)
+          .toList();
+
+      if (!mounted) return;
+      setState(() {
+        _payments = list;
+        _loadingPayments = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _paymentsError = e.toString();
+        _loadingPayments = false;
+      });
+    }
+  }
+
   String _formatDateTime(DateTime dt) {
     final dd = dt.day.toString().padLeft(2, '0');
     final mm = dt.month.toString().padLeft(2, '0');
     final hh = dt.hour.toString().padLeft(2, '0');
     final min = dt.minute.toString().padLeft(2, '0');
     return '$dd/$mm  $hh:$min';
+  }
+
+  String _formatDateTimeFull(DateTime? dt) {
+    if (dt == null) return '—';
+    final local = dt.toLocal();
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${two(local.day)}/${two(local.month)}/${local.year} ${two(local.hour)}:${two(local.minute)}';
+  }
+
+  String _euroCents(int cents) {
+    final s = (cents / 100).toStringAsFixed(2).replaceAll('.', ',');
+    return '€ $s';
   }
 
   bool get _canReject {
@@ -224,13 +333,158 @@ class _PartnerBookingDetailScreenState
 
     final totalBags = (booking.bagsS) + (booking.bagsM) + (booking.bagsL);
 
-    final dropoff = booking.plannedDropoffAtLocal;
-    final pickup = booking.plannedPickupAtLocal;
+    final plannedDropoff = booking.plannedDropoffAtLocal;
+    final plannedPickup = booking.plannedPickupAtLocal;
 
-    final dropoffStr = _formatDateTime(dropoff);
-    final pickupStr = _formatDateTime(pickup);
+    final effectiveDropoff = booking.effectiveDropoffAtLocal;
+    final effectivePickup = booking.effectivePickupAtLocal;
+
+    final dropoffStr = _formatDateTime(plannedDropoff);
+    final pickupStr = _formatDateTime(plannedPickup);
 
     final statusUi = _StatusUI.from(booking.uiStatus);
+
+    // ---- NEW: logica riepilogo (in corso vs finale) ----
+    final isFinalRecap =
+        statusUi.kind == _StatusKind.completed ||
+        statusUi.kind == _StatusKind.cancelled ||
+        statusUi.kind == _StatusKind.rejected;
+
+    final now = DateTime.now();
+    final tolerance = const Duration(minutes: 15);
+
+    DateTime priceEnd;
+    if (effectivePickup != null) {
+      priceEnd = effectivePickup;
+    } else if (statusUi.kind == _StatusKind.inStore) {
+      // in corso: stima “se checkout ora”, ma mai prima della fascia pagata base
+      priceEnd = now.isAfter(plannedPickup) ? now : plannedPickup;
+    } else {
+      // non ancora in store: non ha senso stimare oltre il planned
+      priceEnd = plannedPickup;
+    }
+
+    final plannedDuration = BagDropPricing.inferDuration(
+      start: plannedDropoff,
+      end: plannedPickup,
+    );
+    final dueDuration = BagDropPricing.inferDuration(
+      start: plannedDropoff,
+      end: priceEnd,
+    );
+
+    final plannedTotal = BagDropPricing.totalFor(
+      duration: plannedDuration,
+      bagsS: booking.bagsS,
+      bagsM: booking.bagsM,
+      bagsL: booking.bagsL,
+    );
+    final dueTotal = BagDropPricing.totalFor(
+      duration: dueDuration,
+      bagsS: booking.bagsS,
+      bagsM: booking.bagsM,
+      bagsL: booking.bagsL,
+    );
+
+    int euroToCents(double v) => (v * 100).round();
+    final plannedCents = euroToCents(plannedTotal);
+    final dueCents = euroToCents(dueTotal);
+
+    final extraCents = (dueCents - plannedCents) > 0
+        ? (dueCents - plannedCents)
+        : 0;
+    final balanceCents = dueCents - _totalPaidCents;
+
+    final isLateCheckout =
+        effectivePickup != null &&
+        effectivePickup.isAfter(plannedPickup.add(tolerance));
+
+    final mustPaySupplementNow =
+        statusUi.kind == _StatusKind.inStore &&
+        balanceCents > 0 &&
+        now.isAfter(plannedPickup.add(tolerance));
+
+    final canDoCheckIn =
+        statusUi.kind == _StatusKind.pending ||
+        statusUi.kind == _StatusKind.confirmed;
+    final canDoCheckOut = statusUi.kind == _StatusKind.inStore;
+
+    Widget kvRow({
+      required IconData icon,
+      required String k,
+      required String v,
+      Color? vColor,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: cs.onSurface.withOpacity(0.65)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                k,
+                style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              v,
+              style: tt.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w900,
+                color: vColor ?? cs.onSurface.withOpacity(0.75),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    Widget paymentChip({
+      required String title,
+      required String subtitle,
+      required String amount,
+      required bool isBase,
+    }) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: cs.surfaceVariant.withOpacity(0.18),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: cs.outlineVariant.withOpacity(0.28)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w900),
+                  ),
+                ),
+                Text(
+                  amount,
+                  style: tt.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: isBase ? cs.primary : Colors.orange.shade800,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: tt.bodySmall?.copyWith(
+                color: cs.onSurface.withOpacity(0.75),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -243,7 +497,6 @@ class _PartnerBookingDetailScreenState
           style: TextStyle(fontWeight: FontWeight.w900),
         ),
       ),
-
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
         children: [
@@ -311,6 +564,14 @@ class _PartnerBookingDetailScreenState
                     ),
                   ],
                 ),
+                const SizedBox(height: 10),
+                Text(
+                  isFinalRecap ? 'Riepilogo finale' : 'Riepilogo in corso',
+                  style: tt.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(0.7),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ],
             ),
           ),
@@ -327,7 +588,70 @@ class _PartnerBookingDetailScreenState
             ),
           ],
 
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
+
+          // ✅ NEW: ORARI (previsti vs effettivi) + stato check-in/out
+          _SectionCard(
+            title: 'Check-in / Check-out',
+            icon: Icons.verified_outlined,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                kvRow(
+                  icon: Icons.login,
+                  k: 'Check-in previsto',
+                  v: _formatDateTimeFull(plannedDropoff),
+                ),
+                kvRow(
+                  icon: Icons.login,
+                  k: 'Check-in effettivo',
+                  v: _formatDateTimeFull(effectiveDropoff),
+                ),
+                const SizedBox(height: 6),
+                kvRow(
+                  icon: Icons.logout,
+                  k: 'Check-out previsto',
+                  v: _formatDateTimeFull(plannedPickup),
+                ),
+                kvRow(
+                  icon: Icons.logout,
+                  k: 'Check-out effettivo',
+                  v: _formatDateTimeFull(effectivePickup),
+                ),
+                if (!isFinalRecap) ...[
+                  const SizedBox(height: 10),
+                  _Callout(
+                    icon: canDoCheckIn
+                        ? Icons.login
+                        : (canDoCheckOut ? Icons.logout : Icons.info_outline),
+                    title: 'Operazione richiesta',
+                    text: canDoCheckIn
+                        ? 'Da fare: check-in (scansiona il QR dell’utente).'
+                        : canDoCheckOut
+                        ? (mustPaySupplementNow
+                              ? 'Check-out in attesa: supplemento non pagato. Attendi il pagamento in app prima di completare.'
+                              : 'Da fare: check-out (scansiona il QR dell’utente).')
+                        : 'Nessuna operazione richiesta.',
+                    tone: mustPaySupplementNow
+                        ? _CalloutTone.danger
+                        : _CalloutTone.neutral,
+                  ),
+                ],
+                if (isLateCheckout) ...[
+                  const SizedBox(height: 10),
+                  _Callout(
+                    icon: Icons.warning_amber_rounded,
+                    title: 'Ritardo check-out',
+                    text:
+                        'Check-out oltre la tolleranza di 15 min: applicato sovrapprezzo.',
+                    tone: _CalloutTone.danger,
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 12),
 
           // Contatto
           _SectionCard(
@@ -340,11 +664,11 @@ class _PartnerBookingDetailScreenState
                   '${booking.firstName} ${booking.lastName}'.trim(),
                   style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
                 ),
-                if (booking.phone.trim().isNotEmpty) ...[
+                if ((booking.phone ?? '').trim().isNotEmpty) ...[
                   const SizedBox(height: 6),
                   _InfoLine(icon: Icons.phone_outlined, text: booking.phone!),
                 ],
-                if (booking.email.trim().isNotEmpty) ...[
+                if ((booking.email ?? '').trim().isNotEmpty) ...[
                   const SizedBox(height: 6),
                   _InfoLine(icon: Icons.email_outlined, text: booking.email!),
                 ],
@@ -395,105 +719,136 @@ class _PartnerBookingDetailScreenState
             const SizedBox(height: 12),
           ],
 
-          // Prezzo totale
+          // ✅ NEW: PAGAMENTI + TOTALI + SUPPLEMENTI (allineato all’utente)
           _SectionCard(
-            title: 'Prezzo totale',
-            icon: Icons.euro,
-            child: Builder(
-              builder: (context) {
-                final start = dropoff;
-                final end = booking.plannedPickupLocal;
+            title: 'Pagamenti e importi',
+            icon: Icons.payments_outlined,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                kvRow(
+                  icon: Icons.receipt_long_outlined,
+                  k: 'Pagamenti effettuati',
+                  v: _loadingPayments ? '…' : '${_payments.length}',
+                ),
+                kvRow(
+                  icon: Icons.check_circle_outline,
+                  k: 'Totale pagato',
+                  v: _loadingPayments ? '…' : _euroCents(_totalPaidCents),
+                ),
 
-                if (!end.isAfter(start)) {
-                  return Text(
-                    'Durata non disponibile: controlla che data/ora di ritiro siano impostate.',
+                const SizedBox(height: 10),
+                if (_coveredUntil != null) ...[
+                  _Callout(
+                    icon: Icons.verified_outlined,
+                    title: 'Coperto fino',
+                    text: _formatDateTimeFull(_coveredUntil),
+                    tone: _CalloutTone.neutral,
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                if (!_loadingPayments && _paymentsError != null) ...[
+                  Text(
+                    'Impossibile caricare pagamenti: $_paymentsError',
                     style: tt.bodySmall?.copyWith(
-                      color: cs.onSurface.withOpacity(0.7),
+                      color: cs.error,
+                      fontWeight: FontWeight.w800,
                     ),
-                  );
-                }
-
-                final duration = BagDropPricing.inferDuration(
-                  start: start,
-                  end: end,
-                );
-                final total = BagDropPricing.totalFor(
-                  duration: duration,
-                  bagsS: booking.bagsS,
-                  bagsM: booking.bagsM,
-                  bagsL: booking.bagsL,
-                );
-
-                String durationLabel;
-                switch (duration) {
-                  case BagDropDuration.threeHours:
-                    durationLabel = '3 ore';
-                    break;
-                  case BagDropDuration.oneDay:
-                    durationLabel = '1 giorno';
-                    break;
-                  case BagDropDuration.oneAndHalfDay:
-                    durationLabel = '1,5 giorni';
-                    break;
-                  case BagDropDuration.twoDays:
-                    durationLabel = '2 giorni';
-                    break;
-                  case BagDropDuration.threeDays:
-                    durationLabel = '3 giorni';
-                    break;
-                }
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                if (!_loadingPayments && _paymentsError == null) ...[
+                  if (_payments.isEmpty)
                     Text(
-                      BagDropPricing.formatEuro(total),
-                      style: tt.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Durata tariffaria: $durationLabel',
+                      'Nessun pagamento registrato.',
                       style: tt.bodySmall?.copyWith(
                         color: cs.onSurface.withOpacity(0.7),
                       ),
+                    )
+                  else
+                    Column(
+                      children: [
+                        const SizedBox(height: 6),
+                        ..._payments.map((p) {
+                          final isBase = p.kind == 'base';
+                          final title = isBase
+                              ? 'Pagamento base'
+                              : 'Supplemento';
+                          final range =
+                              (!isBase &&
+                                  (p.fromCoveredUntil != null ||
+                                      p.toCoveredUntil != null))
+                              ? 'Estensione: ${_formatDateTimeFull(p.fromCoveredUntil)} → ${_formatDateTimeFull(p.toCoveredUntil)}'
+                              : null;
+
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: paymentChip(
+                              title: title,
+                              subtitle:
+                                  range ??
+                                  'Pagato il ${_formatDateTimeFull(p.paidAt)}',
+                              amount: _euroCents(p.amountCents),
+                              isBase: isBase,
+                            ),
+                          );
+                        }),
+                        const SizedBox(height: 2),
+                        if (_supplementsPaidCents > 0)
+                          Text(
+                            'Supplementi pagati: ${_euroCents(_supplementsPaidCents)}',
+                            style: tt.bodySmall?.copyWith(
+                              color: cs.onSurface.withOpacity(0.7),
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                      ],
                     ),
-                  ],
-                );
-              },
+                ],
+              ],
             ),
           ),
         ],
       ),
-      bottomNavigationBar: _canReject
+
+      // ✅ NEW: bottom bar con azioni (check-in/out + rifiuto) senza dipendenze da scanner route
+      bottomNavigationBar: (canDoCheckIn || canDoCheckOut || _canReject)
           ? SafeArea(
               top: false,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                child: SizedBox(
-                  height: 52,
-                  child: ElevatedButton.icon(
-                    onPressed: _rejecting ? null : _rejectBooking,
-                    icon: _rejecting
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.block),
-                    label: Text(
-                      _rejecting ? 'Rifiuto…' : 'Rifiuta prenotazione',
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.brandYellow,
-                      foregroundColor: Colors.black,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_canReject)
+                      SizedBox(
+                        height: 52,
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _rejecting ? null : _rejectBooking,
+                          icon: _rejecting
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.block),
+                          label: Text(
+                            _rejecting ? 'Rifiuto…' : 'Rifiuta prenotazione',
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.brandYellow,
+                            foregroundColor: Colors.black,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
+                  ],
                 ),
               ),
             )

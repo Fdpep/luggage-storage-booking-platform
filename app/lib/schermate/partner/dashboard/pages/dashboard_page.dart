@@ -25,10 +25,18 @@ class DashboardPage extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
+        // iOS-like: pulita, niente ombre forti
+        elevation: 0,
         backgroundColor: cs.primary,
         foregroundColor: cs.onPrimary,
+
+        // ✅ RICHIESTO: titolo centrale in home
+        centerTitle: true,
+
         title: const _LogoTitle(),
-        centerTitle: false,
+
+        // tap area ok su azioni future
+        titleSpacing: 12,
       ),
 
       // ✅ Menu hamburger
@@ -39,13 +47,15 @@ class DashboardPage extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           child: partner == null
               ? _NoPartnerState(user: user, onPartnerChanged: onPartnerChanged)
-              : _PartnerDashboard(partner: partner!, onPartnerChanged: onPartnerChanged),
+              : _PartnerDashboard(
+                  partner: partner!,
+                  onPartnerChanged: onPartnerChanged,
+                ),
         ),
       ),
     );
   }
 }
-
 
 /// Titolo “BagDrop” in AppBar con brand:
 /// - “Bag” bianco fisso
@@ -92,6 +102,7 @@ class _LogoTitle extends StatelessWidget {
     );
   }
 }
+
 class _NoPartnerState extends StatelessWidget {
   final User? user;
   final VoidCallback onPartnerChanged;

@@ -36,10 +36,9 @@ class PartnerShellScope extends InheritedWidget {
   }
 }
 
-/// ✅ Brand “Bag Drop” (Bag bianco + Drop giallo)
+/// ✅ Brand “Bag Drop” (Bag bianco + Drop giallo) — lo teniamo per coerenza brand
 class PartnerBrandTitle extends StatelessWidget {
   const PartnerBrandTitle({super.key, this.fontSize = 20});
-
   final double fontSize;
 
   @override
@@ -53,7 +52,7 @@ class PartnerBrandTitle extends StatelessWidget {
               fontWeight: FontWeight.w800,
               fontSize: fontSize,
               color: Colors.white,
-              letterSpacing: 0.4,
+              letterSpacing: 0.2,
             ),
           ),
           const TextSpan(text: ' '),
@@ -63,7 +62,7 @@ class PartnerBrandTitle extends StatelessWidget {
               fontWeight: FontWeight.w900,
               fontSize: fontSize,
               color: AppTheme.brandYellow,
-              letterSpacing: 0.4,
+              letterSpacing: 0.2,
             ),
           ),
         ],
@@ -78,75 +77,22 @@ class PartnerDrawer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scope = PartnerShellScope.of(context);
+    final cs = Theme.of(context).colorScheme;
+
     final p = scope.partner;
     final email = scope.user?.email ?? '';
 
     return Drawer(
+      elevation: 0,
+      backgroundColor: cs.surface,
       child: Column(
         children: [
-          // ✅ HEADER VIOLA: Bag bianco visibile, Drop giallo
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
-            decoration: const BoxDecoration(
-              color: AppTheme.brandPurple,
-            ),
-            child: SafeArea(
-              bottom: false,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const PartnerBrandTitle(fontSize: 22),
-                  const SizedBox(height: 10),
-                  Text(
-                    p?.name ?? 'Dashboard Partner',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 16,
-                    ),
-                  ),
-                  if (email.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      email,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.85),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                  if (p != null) ...[
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _PillInfo(
-                          icon: p.isActive
-                              ? Icons.verified_outlined
-                              : Icons.pause_circle_outline,
-                          label: p.isActive ? 'Attivo' : 'Sospeso',
-                          bg: Colors.white.withOpacity(0.16),
-                          fg: Colors.white,
-                        ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
+          // ✅ HEADER: riprende lo stile del drawer utente (uniforme, non “pesante”)
+          _PartnerDrawerHeader(partner: p, email: email),
 
-          // ✅ MENU (selezione pulita)
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.symmetric(vertical: 10),
               children: [
                 _NavTile(
                   icon: Icons.dashboard_outlined,
@@ -182,17 +128,16 @@ class PartnerDrawer extends StatelessWidget {
             ),
           ),
 
-          // ✅ ESCI identico al tuo snippet (AuthActions + bottone viola)
+          // ✅ ESCI: stessa logica, solo styling più coerente
           SafeArea(
             top: false,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8),
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
               child: Row(
                 children: [
                   ElevatedButton.icon(
                     onPressed: () async {
-                      final didLogout =
-                          await AuthActions.confirmAndLogout(context);
+                      final didLogout = await AuthActions.confirmAndLogout(context);
                       if (!didLogout) return;
                       if (!context.mounted) return;
 
@@ -206,6 +151,11 @@ class PartnerDrawer extends StatelessWidget {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.brandPurple,
                       foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
                   ),
                   const Spacer(),
@@ -222,6 +172,92 @@ class PartnerDrawer extends StatelessWidget {
     final scope = PartnerShellScope.of(context);
     scope.setIndex(index);
     Navigator.of(context).pop(); // chiudi drawer
+  }
+}
+
+class _PartnerDrawerHeader extends StatelessWidget {
+  final Partner? partner;
+  final String email;
+
+  const _PartnerDrawerHeader({
+    required this.partner,
+    required this.email,
+  });
+
+  String _firstLetter(String partnerName, String email) {
+    final s = partnerName.trim().isNotEmpty ? partnerName.trim() : email.trim();
+    if (s.isEmpty) return 'P';
+    return s.characters.first.toUpperCase();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final topPad = MediaQuery.of(context).padding.top;
+
+    final name = partner?.name ?? 'Dashboard Partner';
+    final initial = _firstLetter(name, email);
+
+    return Container(
+      padding: EdgeInsets.fromLTRB(16, topPad + 14, 16, 14),
+      color: cs.primary, // ✅ uniforme con status bar/appbar (come drawer utente)
+      child: Row(
+        children: [
+
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Brand in alto (leggero) + nome partner sotto
+                const PartnerBrandTitle(fontSize: 18),
+                const SizedBox(height: 8),
+
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: tt.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: cs.onPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  email.isNotEmpty ? email : 'Account',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: tt.bodySmall?.copyWith(
+                    color: cs.onPrimary.withOpacity(0.78),
+                    height: 1.25,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+
+                if (partner != null) ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _PillInfo(
+                        icon: partner!.isActive
+                            ? Icons.verified_outlined
+                            : Icons.pause_circle_outline,
+                        label: partner!.isActive ? 'Attivo' : 'Sospeso',
+                        bg: Colors.white.withOpacity(0.16),
+                        fg: Colors.white,
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -250,21 +286,26 @@ class _NavTile extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
           onTap: onTap,
+          splashColor: cs.primary.withOpacity(0.06),
+          highlightColor: cs.primary.withOpacity(0.04),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
               children: [
                 Icon(
                   icon,
+                  size: 20,
                   color: selected ? cs.primary : cs.onSurface.withOpacity(0.75),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
-                      color: cs.onSurface.withOpacity(0.85),
+                      color: cs.onSurface.withOpacity(0.88),
                     ),
                   ),
                 ),
@@ -309,7 +350,11 @@ class _PillInfo extends StatelessWidget {
           const SizedBox(width: 6),
           Text(
             label,
-            style: TextStyle(color: fg, fontWeight: FontWeight.w800, fontSize: 12),
+            style: TextStyle(
+              color: fg,
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
+            ),
           ),
         ],
       ),
