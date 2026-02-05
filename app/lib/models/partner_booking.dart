@@ -63,6 +63,12 @@ class PartnerBooking {
   final DateTime? coveredUntil;
   final int totalPaidCents;
 
+  // Foto check-in
+  final String? checkinPhotoBucket;
+  final String? checkinPhotoPath;
+  final DateTime? checkinPhotoUploadedAt;
+  final DateTime? checkinPhotoExpiresAt;
+
   const PartnerBooking({
     required this.id,
     required this.partnerId,
@@ -98,6 +104,11 @@ class PartnerBooking {
 
     this.coveredUntil,
     this.totalPaidCents = 0,
+
+    this.checkinPhotoBucket,
+    this.checkinPhotoPath,
+    this.checkinPhotoUploadedAt,
+    this.checkinPhotoExpiresAt,
   });
 
   /// Numero totale di bagagli (S+M+L)
@@ -256,6 +267,10 @@ class PartnerBooking {
       lateFeePaidAt: parseDateTime(map['late_fee_paid_at']),
       coveredUntil: parseDateTime(map['covered_until']),
       totalPaidCents: (map['total_paid_cents'] as int?) ?? 0,
+      checkinPhotoBucket: map['checkin_photo_bucket'] as String?,
+      checkinPhotoPath: map['checkin_photo_path'] as String?,
+      checkinPhotoUploadedAt: parseDateTime(map['checkin_photo_uploaded_at']),
+      checkinPhotoExpiresAt: parseDateTime(map['checkin_photo_expires_at']),
     );
   }
 
@@ -309,6 +324,14 @@ class PartnerBooking {
       'late_fee_paid_at': lateFeePaidAt?.toUtc().toIso8601String(),
       'covered_until': coveredUntil?.toUtc().toIso8601String(),
       'total_paid_cents': totalPaidCents,
+      'checkin_photo_bucket': checkinPhotoBucket,
+      'checkin_photo_path': checkinPhotoPath,
+      'checkin_photo_uploaded_at': checkinPhotoUploadedAt
+          ?.toUtc()
+          .toIso8601String(),
+      'checkin_photo_expires_at': checkinPhotoExpiresAt
+          ?.toUtc()
+          .toIso8601String(),
     };
   }
 }

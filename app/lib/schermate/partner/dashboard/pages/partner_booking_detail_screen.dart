@@ -491,12 +491,24 @@ class _PartnerBookingDetailScreenState
         backgroundColor: AppTheme.brandPurple,
         foregroundColor: Colors.white,
         elevation: 0,
-        centerTitle: false,
-        title: const Text(
+        centerTitle: true,
+        title: Text(
           'Dettaglio prenotazione',
-          style: TextStyle(fontWeight: FontWeight.w900),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: (Theme.of(context).textTheme.titleMedium ?? const TextStyle())
+              .copyWith(
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.2,
+                color: Colors.white,
+              ),
+        ),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(height: 1, color: Colors.white.withOpacity(0.12)),
         ),
       ),
+
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
         children: [

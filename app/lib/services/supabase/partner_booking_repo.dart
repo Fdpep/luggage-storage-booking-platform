@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:BagDrop/models/partner_booking.dart';
+import 'dart:io';
 
 int _clamp0(int v) => v < 0 ? 0 : v;
 
@@ -634,5 +635,81 @@ class PartnerBookingRepo {
     }
 
     return map;
+  }
+
+  // Bucket per le foto di check-in.
+
+  static const String bookingCheckinBucket = 'booking-checkin-photos';
+
+  String buildCheckinPhotoPath({
+    required String partnerId,
+    required String bookingId,
+  }) {
+    return '$partnerId/$bookingId/checkin.jpg';
+  }
+
+  Future<Map<String, dynamic>> previewBookingCode({
+    required String code,
+  }) async {
+    final res = await client.rpc(
+      'process_booking_code',
+      params: {
+        'p_code': code,
+        'p_force': false,
+        'p_action': 'preview',
+        'p_checkin_photo_path': null,
+        'p_ack_photo': false,
+      },
+    );
+    return Map<String, dynamic>.from(res as Map);
+  }
+
+  Future<Map<String, dynamic>> processBookingCodeV2({
+    required String code,
+    required String action, // 'check_in' | 'check_out'
+    bool force = false,
+    String? checkinPhotoPath,
+    bool ackPhoto = false,
+  }) async {
+    final res = await client.rpc(
+      'process_booking_code',
+      params: {
+        'p_code': code,
+        'p_force': force,
+        'p_action': action,
+        'p_checkin_photo_path': checkinPhotoPath,
+        'p_ack_photo': ackPhoto,
+      },
+    );
+    return Map<String, dynamic>.from(res as Map);
+  }
+
+  Future<void> uploadCheckinPhoto({
+    required File file,
+    required String path,
+    String bucket = bookingCheckinBucket,
+  }) async {
+    final bytes = await file.readAsBytes();
+    await client.storage
+        .from(bucket)
+        .uploadBinary(
+          path,
+          bytes,
+          fileOptions: const FileOptions(
+            upsert: true,
+            cacheControl: '3600',
+            contentType: 'image/jpeg',
+          ),
+        );
+  }
+
+  Future<String> createSignedCheckinPhotoUrl({
+    required String path,
+    String bucket = bookingCheckinBucket,
+    int expiresInSeconds = 300,
+  }) async {
+    return await client.storage
+        .from(bucket)
+        .createSignedUrl(path, expiresInSeconds);
   }
 }

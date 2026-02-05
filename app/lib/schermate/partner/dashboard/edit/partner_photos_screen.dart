@@ -196,6 +196,72 @@ class _PartnerPhotosScreenState extends State<PartnerPhotosScreen> {
     }
   }
 
+  Future<void> _deleteAllPhotos() async {
+    if (_deletingId != null) return;
+    if (_photos.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          title: const Text('Elimina tutte le foto'),
+          content: Text(
+            'Vuoi davvero eliminare tutte le foto caricate? Questa azione non può essere annullata.',
+            style: TextStyle(color: cs.onSurface.withOpacity(0.8)),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(
+                'Annulla',
+                style: TextStyle(color: cs.onSurface.withOpacity(0.75)),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(
+                'Elimina',
+                style: TextStyle(color: cs.error, fontWeight: FontWeight.w900),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    setState(() => _deletingId = '__ALL__');
+
+    try {
+      // ✅ Elimina tutte (stessa logica della singola, ripetuta)
+      for (final p in List<PartnerPhoto>.from(_photos)) {
+        await _photoRepo.deletePhoto(p.id);
+      }
+
+      await _loadPhotos();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tutte le foto sono state eliminate.')),
+      );
+    } catch (e, st) {
+      debugPrint('Errore _deleteAllPhotos: $e\n$st');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Errore durante l’eliminazione delle foto.'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _deletingId = null);
+    }
+  }
+
   Future<void> _deletePhoto(PartnerPhoto photo) async {
     if (_deletingId != null) return;
 
@@ -479,6 +545,12 @@ class _PartnerPhotosScreenState extends State<PartnerPhotosScreen> {
         ),
 
         actions: [
+          if (!_loading && _error == null && _photos.isNotEmpty)
+            IconButton(
+              tooltip: 'Elimina tutte',
+              onPressed: busyGlobal ? null : _deleteAllPhotos,
+              icon: const Icon(Icons.delete_outline),
+            ),
           if (!_loading && _error == null && _photos.length > 1)
             IconButton(
               tooltip: 'Riordina',

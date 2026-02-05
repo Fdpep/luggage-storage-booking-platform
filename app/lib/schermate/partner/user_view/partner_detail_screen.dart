@@ -25,7 +25,14 @@ import 'package:flutter/foundation.dart';
 class PartnerDetailScreen extends StatefulWidget {
   final Partner partner;
 
-  const PartnerDetailScreen({super.key, required this.partner});
+  /// Se false, nasconde la CTA "Prenota ora" (utile per anteprima lato partner).
+  final bool showBookingCta;
+
+  const PartnerDetailScreen({
+    super.key,
+    required this.partner,
+    this.showBookingCta = true,
+  });
 
   @override
   State<PartnerDetailScreen> createState() => _PartnerDetailScreenState();
@@ -870,46 +877,52 @@ class _PartnerDetailScreenState extends State<PartnerDetailScreen> {
           ),
         ),
       ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: SizedBox(
-            height: 52,
-            child: ElevatedButton(
-              onPressed: partner.acceptingBookings
-                  ? () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => BookingFlowScreen(partner: partner),
-                        ),
-                      );
-                    }
-                  : null,
-              style: ElevatedButton.styleFrom(
-                elevation: 0,
-                backgroundColor: cs.primary, // viola tema
-                foregroundColor: Colors.white, // testo sempre bianco
-                textStyle: tt.titleSmall?.copyWith(
-                  // font coerente ma senza forzare colore nel Text
-                  fontWeight: FontWeight.w900,
+      bottomNavigationBar: widget.showBookingCta
+          ? SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
                 ),
-                disabledBackgroundColor: cs.surfaceVariant.withOpacity(0.35),
-                disabledForegroundColor: cs.onSurface.withOpacity(0.55),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+                child: SizedBox(
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: partner.acceptingBookings
+                        ? () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    BookingFlowScreen(partner: partner),
+                              ),
+                            );
+                          }
+                        : null,
+                    style: ElevatedButton.styleFrom(
+                      elevation: 0,
+                      backgroundColor: cs.primary,
+                      foregroundColor: Colors.white,
+                      textStyle: tt.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                      disabledBackgroundColor: cs.surfaceVariant.withOpacity(
+                        0.35,
+                      ),
+                      disabledForegroundColor: cs.onSurface.withOpacity(0.55),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    child: Text(
+                      partner.acceptingBookings
+                          ? 'Prenota ora'
+                          : 'Prenotazioni sospese',
+                    ),
+                  ),
                 ),
               ),
-              // 👇 niente style qui, così non override il colore
-              child: Text(
-                partner.acceptingBookings
-                    ? 'Prenota ora'
-                    : 'Prenotazioni sospese',
-              ),
-            ),
-          ),
-        ),
-      ),
+            )
+          : null,
     );
   }
 }
