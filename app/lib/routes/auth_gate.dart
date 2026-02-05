@@ -15,7 +15,6 @@ import '../schermate/partner/auth_partner/partner_onboarding_start_screen.dart';
 import '../schermate/partner/auth_partner/partner_payment_required_screen.dart';
 import '../schermate/partner/auth_partner/partner_rejected_screen.dart';
 
-
 class AuthGate extends StatefulWidget {
   final WidgetBuilder ingressoBuilder; // splash/ingresso
   final WidgetBuilder signedInBuilder; // app privata (utente)
@@ -98,39 +97,46 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   }
 
   @override
-void didChangeAppLifecycleState(AppLifecycleState state) {
-  if (state == AppLifecycleState.resumed) {
-    // quando torni dal browser/pagamento:
-    _reloadAuthState();
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+
+    // ✅ Non refreshare su ogni resume (camera/gallery compresi),
+    // altrimenti smonti PartnerShell e torni alla dashboard.
+    final shouldRefresh =
+        _role == 'partner_candidate' && _candidateStatus == 'awaiting_payment';
+
+    if (shouldRefresh) {
+      _reloadAuthState(showLoader: false); // ✅ non mostra splash
+    }
   }
-}
 
-Future<void> _reloadAuthState() async {
-  try {
-    await _supabase.auth.refreshSession();
-  } catch (_) {}
+  Future<void> _reloadAuthState({bool showLoader = false}) async {
+    try {
+      await _supabase.auth.refreshSession();
+    } catch (_) {}
 
-  final s = _supabase.auth.currentSession;
-  if (!mounted) return;
+    final s = _supabase.auth.currentSession;
+    if (!mounted) return;
 
-  setState(() {
-    _session = s;
-    _caricandoRuolo = true;
-    _caricandoCandidate = false;
-  });
+    setState(() {
+      _session = s;
+      _caricandoRuolo = showLoader; // ✅ non smonta UI
+      _caricandoCandidate = false;
+    });
 
-  _candidatePoll?.cancel();
-  _candidatePoll = null;
-  if (s != null) {
-    await _loadRoleAndMaybeCandidate();
+    _candidatePoll?.cancel();
+    _candidatePoll = null;
+
+    if (s != null) {
+      await _loadRoleAndMaybeCandidate();
+    }
   }
-}
-
 
   @override
   Widget build(BuildContext context) {
     // 1) Splash / loading
-    if (_mostraIngresso || (_session != null && (_caricandoRuolo || _caricandoCandidate))) {
+    if (_mostraIngresso ||
+        (_session != null && (_caricandoRuolo || _caricandoCandidate))) {
       return widget.ingressoBuilder(context);
     }
 
@@ -146,7 +152,8 @@ Future<void> _reloadAuthState() async {
 
     if (!otpVerified) {
       final email = user.email;
-      if (email == null || email.isEmpty) return widget.signedOutBuilder(context);
+      if (email == null || email.isEmpty)
+        return widget.signedOutBuilder(context);
 
       return SchermataVerifyOtp(
         email: email,
@@ -202,7 +209,8 @@ Future<void> _reloadAuthState() async {
 
         case 'paid':
           // se mai rimanesse partner_candidate ma paid, lo tratto come “attivo”
-          if (widget.partnerBuilder != null) return widget.partnerBuilder!(context);
+          if (widget.partnerBuilder != null)
+            return widget.partnerBuilder!(context);
           return widget.signedInBuilder(context);
 
         case 'rejected':
@@ -249,12 +257,12 @@ Future<void> _reloadAuthState() async {
       });
 
       _candidatePoll?.cancel();
-if (role == 'partner_candidate') {
-  _candidatePoll = Timer.periodic(const Duration(seconds: 20), (_) async {
-    final uid = _session?.user.id;
-    if (uid != null) await _loadCandidateStatus(uid, showLoader: false);
-  });
-}
+      if (role == 'partner_candidate') {
+        _candidatePoll = Timer.periodic(const Duration(seconds: 20), (_) async {
+          final uid = _session?.user.id;
+          if (uid != null) await _loadCandidateStatus(uid, showLoader: false);
+        });
+      }
 
       // Se è partner_candidate carico anche lo stato della richiesta
       if (role == 'partner_candidate') {
@@ -270,8 +278,11 @@ if (role == 'partner_candidate') {
     }
   }
 
-Future<void> _loadCandidateStatus(String uid, {bool showLoader = true}) async {
-  if (mounted && showLoader) setState(() => _caricandoCandidate = true);
+  Future<void> _loadCandidateStatus(
+    String uid, {
+    bool showLoader = true,
+  }) async {
+    if (mounted && showLoader) setState(() => _caricandoCandidate = true);
 
     try {
       final req = await _supabase

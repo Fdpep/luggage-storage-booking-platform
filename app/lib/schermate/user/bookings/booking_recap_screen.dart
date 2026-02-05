@@ -101,6 +101,9 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
     return '$d/$m/$y • $hh:$mm';
   }
 
+    String _formatDateTimeOrDash(DateTime? dt) => dt == null ? '—' : _formatDateTime(dt);
+
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -167,7 +170,9 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
         statusColor = Colors.green;
     }
 
-    final plannedCents = plannedTotalEuro == null ? 0 : _toCents(plannedTotalEuro!);
+    final plannedCents = plannedTotalEuro == null
+        ? 0
+        : _toCents(plannedTotalEuro!);
     // saldo calcolato ma NON mostrato (come richiesto)
     final _ = plannedCents - _totalPaidCents;
 
@@ -210,9 +215,12 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
                             partner.name,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+                            style: tt.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
-                          if (partner.address != null && partner.address!.trim().isNotEmpty) ...[
+                          if (partner.address != null &&
+                              partner.address!.trim().isNotEmpty) ...[
                             const SizedBox(height: 6),
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -239,11 +247,16 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
                     ),
                     const SizedBox(width: 10),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: statusColor.withOpacity(0.10),
                         borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: statusColor.withOpacity(0.25)),
+                        border: Border.all(
+                          color: statusColor.withOpacity(0.25),
+                        ),
                       ),
                       child: Text(
                         statusText,
@@ -299,7 +312,10 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
                         ),
                       );
                     },
-                    icon: const Icon(Icons.store_mall_directory_outlined, size: 18),
+                    icon: const Icon(
+                      Icons.store_mall_directory_outlined,
+                      size: 18,
+                    ),
                     label: const Text('Dettagli locale'),
                   ),
                 ),
@@ -315,7 +331,11 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
           _iosSection(
             context,
             children: [
-              _rowKV(context, 'Nome', '${booking.firstName} ${booking.lastName}'),
+              _rowKV(
+                context,
+                'Nome',
+                '${booking.firstName} ${booking.lastName}',
+              ),
               _thinDivider(context),
               _rowKV(context, 'Email', booking.email),
               if (booking.phone.isNotEmpty) ...[
@@ -345,50 +365,57 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
 
           const SizedBox(height: 16),
 
-          // SECTION: Prezzo e pagamenti
-          _sectionHeader(context, 'Prezzo e pagamenti'),
+          // SECTION: Pagamenti e importi (stile come lato partner)
+          _sectionHeader(context, 'Pagamenti e importi'),
           const SizedBox(height: 8),
           _iosSection(
             context,
             children: [
+              // ✅ Mini recap bagagli + importi (coerente con sezione che ti piace)
               Padding(
                 padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (plannedTotalEuro == null)
+                    Text(
+                      'Bagagli',
+                      style: tt.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: cs.onSurface.withOpacity(0.7),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${booking.totalBags} (S:${booking.bagsS} M:${booking.bagsM} L:${booking.bagsL})',
+                      style: tt.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+/*
+                    // Importi previsti (manteniamo anche questa info)
+                    const SizedBox(height: 12),
+                    if (plannedTotalEuro == null) ...[
                       Text(
                         'Durata non valida: controlla che data e orario di ritiro siano successivi alla consegna.',
-                        style: tt.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.7)),
-                      )
-                    else ...[
-                      if (paymentsOk) ...[
-                        Text(
-                          'Pagato',
-                          style: tt.labelLarge?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            color: cs.onSurface.withOpacity(0.7),
-                          ),
+                        style: tt.bodySmall?.copyWith(
+                          color: cs.onSurface.withOpacity(0.7),
                         ),
-                        const SizedBox(height: 6),
-                        Text(
-                          _euroCents(_totalPaidCents),
-                          style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
+                      ),
+                    ] else ...[
+                      Text(
+                        'Totale previsto',
+                        style: tt.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: cs.onSurface.withOpacity(0.7),
                         ),
-                      ] else ...[
-                        Text(
-                          'Totale previsto',
-                          style: tt.labelLarge?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            color: cs.onSurface.withOpacity(0.7),
-                          ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        BagDropPricing.formatEuro(plannedTotalEuro),
+                        style: tt.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w900,
                         ),
-                        const SizedBox(height: 6),
-                        Text(
-                          BagDropPricing.formatEuro(plannedTotalEuro),
-                          style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
-                        ),
-                      ],
+                      ),
                       const SizedBox(height: 8),
                       Text(
                         extraDays > 0
@@ -403,15 +430,18 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
                         const SizedBox(height: 6),
                         Text(
                           'Extra: +€2 per bagaglio per ogni giorno oltre i 3 giorni.',
-                          style: tt.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.7)),
+                          style: tt.bodySmall?.copyWith(
+                            color: cs.onSurface.withOpacity(0.7),
+                          ),
                         ),
                       ],
-                    ],
+                    ],  */
                   ],
                 ),
               ),
               _thinDivider(context),
 
+              // ✅ Storico pagamenti (base + supplementi)
               if (_loadingPayments) ...[
                 Padding(
                   padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -421,8 +451,10 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
                       const LinearProgressIndicator(minHeight: 3),
                       const SizedBox(height: 10),
                       Text(
-                        'Caricamento pagamenti…',
-                        style: tt.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.7)),
+                        'Caricamento storico pagamenti…',
+                        style: tt.bodySmall?.copyWith(
+                          color: cs.onSurface.withOpacity(0.7),
+                        ),
                       ),
                     ],
                   ),
@@ -432,44 +464,132 @@ class _BookingRecapScreenState extends State<BookingRecapScreen> {
                   padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
                   child: Text(
                     'Impossibile caricare pagamenti: $_paymentsError',
-                    style: tt.bodySmall?.copyWith(color: cs.error, fontWeight: FontWeight.w700),
+                    style: tt.bodySmall?.copyWith(
+                      color: cs.error,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-              ] else if (plannedTotalEuro != null) ...[
-                //_rowKV(context, 'Totale previsto', _euroCents(plannedCents)),
-                //_thinDivider(context),
-                // ✅ saldo rimosso (come richiesto)
-                _rowKV(context, 'Numero pagamenti', '${_payments.length}'),
-              ] else ...[
+              ] else if (_payments.isEmpty) ...[
                 Padding(
                   padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
                   child: Text(
-                    'Pagamenti non disponibili.',
-                    style: tt.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.7)),
+                    'Nessun pagamento registrato (in test / mock).',
+                    style: tt.bodySmall?.copyWith(
+                      color: cs.onSurface.withOpacity(0.7),
+                    ),
+                  ),
+                ),
+              ] else ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+                  child: Column(
+                    children: _payments.map((p) {
+                      final kind = p.kind.toLowerCase();
+                      final isBase = kind == 'base';
+                      final title = isBase
+                          ? 'Pagamento base'
+                          : 'Supplemento (ritardo)';
+
+                      final range =
+                          (!isBase &&
+                              (p.fromCoveredUntil != null ||
+                                  p.toCoveredUntil != null))
+                          ? 'Estensione: ${_formatDateTimeOrDash(p.fromCoveredUntil)} → ${_formatDateTimeOrDash(p.toCoveredUntil)}'
+                          : null;
+
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: cs.surfaceVariant.withOpacity(0.18),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: cs.outlineVariant.withOpacity(0.28),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      title,
+                                      style: tt.bodyMedium?.copyWith(
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    _euroCents(p.amountCents),
+                                    style: tt.bodyMedium?.copyWith(
+                                      fontWeight: FontWeight.w900,
+                                      color: isBase
+                                          ? cs.primary
+                                          : Colors.orange.shade800,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Pagato il ${_formatDateTime(p.paidAt)}',
+                                style: tt.bodySmall?.copyWith(
+                                  color: cs.onSurface.withOpacity(0.75),
+                                ),
+                              ),
+                              if (range != null) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  range,
+                                  style: tt.bodySmall?.copyWith(
+                                    color: cs.onSurface.withOpacity(0.75),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                _thinDivider(context),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                  child: Row(
+                    children: [
+                      Text(
+                        'Totale pagato',
+                        style: tt.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        _euroCents(_totalPaidCents),
+                        style: tt.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ],
           ),
 
-          const SizedBox(height: 16),
-
-          if (booking.notes != null && booking.notes!.trim().isNotEmpty) ...[
-            _sectionHeader(context, 'Note'),
-            const SizedBox(height: 8),
-            _iosSection(
-              context,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-                  child: Text(
-                    booking.notes!.trim(),
-                    style: tt.bodyMedium?.copyWith(color: cs.onSurface.withOpacity(0.9)),
-                  ),
-                ),
-              ],
+          const SizedBox(height: 10),
+          Text(
+            'Nota: lo storico pagamenti mostra base + eventuali supplementi (anche multipli). Il ritardo si calcola dalla “scadenza fascia” + 15 min.',
+            style: tt.bodySmall?.copyWith(
+              fontSize: 11,
+              color: cs.onSurface.withOpacity(0.6),
             ),
-          ],
+          ),
         ],
       ),
     );
@@ -605,8 +725,12 @@ Widget _rowIconKV(
 }) {
   final cs = Theme.of(context).colorScheme;
   final tt = Theme.of(context).textTheme;
-  final labelColor = subtle ? cs.onSurface.withOpacity(0.6) : cs.onSurface.withOpacity(0.8);
-  final valueColor = subtle ? cs.onSurface.withOpacity(0.6) : cs.onSurface.withOpacity(0.75);
+  final labelColor = subtle
+      ? cs.onSurface.withOpacity(0.6)
+      : cs.onSurface.withOpacity(0.8);
+  final valueColor = subtle
+      ? cs.onSurface.withOpacity(0.6)
+      : cs.onSurface.withOpacity(0.75);
 
   return Padding(
     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -717,28 +841,51 @@ class _IconLabelRow extends StatelessWidget {
 }
 
 class _BookingPaymentRow {
-  final String kind; // 'base' | 'late_fee'
+  final String kind; // 'base' | 'late_fee' (o simili)
   final int amountCents;
   final DateTime paidAt;
+
+  // ✅ opzionali: per mostrare l’estensione coperta dal supplemento
+  final DateTime? fromCoveredUntil;
+  final DateTime? toCoveredUntil;
 
   _BookingPaymentRow({
     required this.kind,
     required this.amountCents,
     required this.paidAt,
+    this.fromCoveredUntil,
+    this.toCoveredUntil,
   });
 
   factory _BookingPaymentRow.fromMap(Map<String, dynamic> m) {
     int cents(dynamic v) => (v is int) ? v : int.tryParse(v.toString()) ?? 0;
 
-    DateTime dt(dynamic v) {
-      if (v == null) return DateTime.now();
-      return DateTime.parse(v.toString()).toLocal();
-    }
+   DateTime? dtN(dynamic v) {
+  if (v == null) return null;
+  final s = v.toString().trim();
+  if (s.isEmpty) return null;
+
+  // rende ISO: "YYYY-MM-DD HH:mm:ss+00" -> "YYYY-MM-DDTHH:mm:ss+00"
+  final iso = s.contains('T') ? s : s.replaceFirst(' ', 'T');
+
+  try {
+    return DateTime.parse(iso).toLocal();
+  } catch (_) {
+    return null;
+  }
+}
+
+
+    DateTime dt(dynamic v) => dtN(v) ?? DateTime.now();
 
     return _BookingPaymentRow(
       kind: (m['kind'] ?? 'base').toString(),
       amountCents: cents(m['amount_cents']),
       paidAt: dt(m['paid_at']),
+      // NB: se nel DB i campi hanno nomi diversi, cambia qui le chiavi
+      fromCoveredUntil: dtN(m['from_covered_until'] ?? m['fromCoveredUntil']),
+      toCoveredUntil: dtN(m['to_covered_until'] ?? m['toCoveredUntil']),
     );
   }
 }
+

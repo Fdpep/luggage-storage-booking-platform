@@ -18,8 +18,6 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 /// In PROD lascialo false: verrà mostrato solo la prima volta.
 //const bool kShowOnboardingEveryLaunch = true;
 
-
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -27,7 +25,9 @@ Future<void> main() async {
   //    (che hai dichiarato nel pubspec.yaml come asset)
   if (!kIsWeb) {
     try {
-      await dotenv.load(fileName: 'assets/.env.android'); // <-- NOTA: niente "assets/"
+      await dotenv.load(
+        fileName: 'assets/.env.android',
+      ); // <-- NOTA: niente "assets/"
       debugPrint('Caricato .env.android');
     } catch (e) {
       debugPrint('Impossibile caricare assets/.env.android: $e');
@@ -39,20 +39,20 @@ Future<void> main() async {
   const keyFromDefine = String.fromEnvironment('SUPABASE_ANON_KEY');
 
   // 3) Se i dart-define non sono impostati, prendiamo i valori da dotenv
-  final supabaseUrl =
-      urlFromDefine.isNotEmpty ? urlFromDefine : (dotenv.maybeGet('SUPABASE_URL') ?? '');
+  final supabaseUrl = urlFromDefine.isNotEmpty
+      ? urlFromDefine
+      : (dotenv.maybeGet('SUPABASE_URL') ?? '');
   final supabaseAnonKey = keyFromDefine.isNotEmpty
       ? keyFromDefine
       : (dotenv.maybeGet('SUPABASE_ANON_KEY') ?? '');
 
   if (supabaseUrl.isEmpty || supabaseAnonKey.isEmpty) {
-    debugPrint('SUPABASE_URL o SUPABASE_ANON_KEY non impostate (né via dart-define né via .env.android)!');
+    debugPrint(
+      'SUPABASE_URL o SUPABASE_ANON_KEY non impostate (né via dart-define né via .env.android)!',
+    );
   }
 
-  await Supabase.initialize(
-    url: supabaseUrl,
-    anonKey: supabaseAnonKey,
-  );
+  await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey);
 
   runApp(const BagDropApp());
 }
@@ -63,6 +63,7 @@ class BagDropApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      restorationScopeId: 'bagdrop_app',
       title: 'BagDrop',
       theme: AppTheme.light(),
       routes: {

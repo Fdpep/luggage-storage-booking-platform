@@ -170,7 +170,7 @@ class PartnerDrawer extends StatelessWidget {
 
   void _go(BuildContext context, int index) {
     final scope = PartnerShellScope.of(context);
-    scope.setIndex(index);
+      scope.setIndex(index);
     Navigator.of(context).pop(); // chiudi drawer
   }
 }

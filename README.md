@@ -367,6 +367,88 @@ Questo codice:
 * può essere contenuto in un **QR Code** mostrato dall’utente
 * può essere inserito **manualmente** dal partner (fallback se scanner non funziona)
 
+
+## 📸 Foto bagaglio – Check-in & Check-out (Partner)
+
+Per aumentare sicurezza e tracciabilità, il flusso scanner partner include la **gestione foto del bagaglio**.
+
+### Check-in
+Durante il check-in:
+
+* dopo scan QR / inserimento codice
+* **prima della conferma finale**
+* il partner deve:
+  * **scattare una foto** del bagaglio **oppure**
+  * **caricare una foto dalla galleria**
+
+Flusso UX:
+1. scan / codice manuale
+2. verifica server-side (orario, stato prenotazione)
+3. **foto bagaglio (preview + possibilità di rifare / ricaricare)**
+4. “Conferma check-in”
+
+Se l’orario non è valido:
+* il flusso **si interrompe prima**
+* non viene aperta la sheet di conferma
+* viene mostrato il messaggio:
+  > “Check-in disponibile dalle HH:MM”
+
+### Check-out
+Durante il check-out:
+
+* prima della conferma finale
+* la UI **mostra la foto scattata al check-in**
+* il partner deve confermare esplicitamente:
+
+> “Confermo che il bagaglio è ok e procedo col check-out”
+
+In caso di anomalie:
+* viene mostrato un invito a:
+  * fare screenshot
+  * fotografare il bagaglio
+  * contattare il supporto (email / social)
+* solo dopo è possibile concludere il check-out.
+
+## 🗄 Persistenza foto & tracciabilità
+
+### Storage
+Le foto del check-in sono salvate su Supabase Storage:
+
+* bucket dedicato: `booking-checkin-photos`
+* path:  booking-checkin-photos/{partner_id}/{booking_id}.jpg
+
+
+* upload consentito **solo al partner owner o admin**
+* accesso in lettura limitato via policy (no public access)
+
+### Database
+La prenotazione (`partner_bookings`) contiene:
+
+* `checkin_photo_path` → path della foto su Storage
+* `checkin_photo_uploaded_at` → timestamp upload
+
+Questo permette:
+* audit/debug futuri
+* recupero foto in caso di contestazioni
+* correlazione certa **1 foto ↔ 1 booking**
+
+### Cleanup automatico (TTL)
+Le foto **non sono permanenti**.
+
+Un’**Edge Function schedulata (cron)**:
+* scansiona le prenotazioni concluse
+* elimina le foto dopo un TTL configurato (es. 30 giorni)
+* pulisce:
+* file su Storage
+* riferimento DB (`checkin_photo_path = NULL`)
+
+Obiettivo:
+* evitare accumulo Storage
+* rispettare minimizzazione dati
+* mantenere tracciabilità temporanea.
+
+
+
 ### Scanner partner: HUB (non apre camera subito)
 
 Lo scanner partner **non apre più subito la fotocamera**.  
@@ -379,6 +461,7 @@ Mostra invece una pagina “hub” con:
 
 > Nota emulatore: se scansionando ti appare una “stanza 3D con gatto” e ti chiede **ALT** per muoverti, è la **Virtual Scene** della camera dell’Android Emulator. Su telefono reale vedrai la fotocamera vera.
 
+
 ### RPC server-side: `process_booking_code(p_code, p_force)`
 
 Per registrare check-in / check-out in modo robusto (e bypassare limitazioni RLS lato client) usiamo una RPC:
@@ -389,12 +472,20 @@ Comportamento (alto livello):
 
 * verifica che l’utente sia **owner del partner** (o admin)
 * trova la prenotazione tramite `booking_code`
+* **blocco check-in anticipato (server-side)**:
+  * se `now() < dropoff_planned_at`
+  * la funzione **fallisce** con errore leggibile:
+    * “Check-in disponibile dalle HH:MM”
 * se `dropoff_effective_at` è `NULL` → **check-in**
 * altrimenti → **check-out**
 * se il check-out supera `pickup_planned_at + 15 minuti`:
   * risponde `require_payment = true`
   * la UI mostra “**Paga ora**”
   * premendo “Paga ora (mock)” richiama la stessa RPC con `p_force = true`
+
+La validazione dell’orario è **enforced esclusivamente lato DB**, così:
+* non è bypassabile dal client
+* la UI può mostrare messaggi chiari senza duplicare logica.
 
 
 ### Tolleranza e supplemento (checkout)
@@ -407,10 +498,21 @@ Comportamento (alto livello):
   * UI mostra “Paga ora” (mock)
 
 
-### Stato `rejected` nello scanner
+### Stato non processabile nello scanner
 
-Nel flusso check-in/out (scanner) lo stato `rejected` viene trattato come `cancelled`: **non è processabile**.
-> N.B.: la parte “rejected irreversibile” lato prenotazioni partner rimane invariata come già descritta.
+Nel flusso check-in/out (scanner), le prenotazioni con stato:
+
+* `cancelled`
+* `cancelled_by_user`
+* `rejected`
+
+sono **non processabili**.
+
+Il server risponde con errore leggibile e la UI:
+* mostra il messaggio
+* non apre la conferma check-in / check-out
+* non consente forzature.
+
 
 
 * **Blocco modifiche orari/capacità con prenotazioni future**:

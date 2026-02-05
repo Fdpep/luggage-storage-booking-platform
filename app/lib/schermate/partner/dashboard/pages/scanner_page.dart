@@ -8,6 +8,31 @@ import '../../../../models/partner_booking.dart';
 import 'partner_scan_camera_screen.dart';
 import 'package:flutter/services.dart';
 
+/// iOS-like helpers (locali al file)
+Widget _iosSection(BuildContext context, {required List<Widget> children}) {
+  final cs = Theme.of(context).colorScheme;
+  return Container(
+    decoration: BoxDecoration(
+      color: cs.surfaceVariant.withOpacity(0.25),
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
+    ),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: Column(mainAxisSize: MainAxisSize.min, children: children),
+    ),
+  );
+}
+
+Widget _thinDivider(BuildContext context) {
+  final cs = Theme.of(context).colorScheme;
+  return Divider(
+    height: 1,
+    thickness: 1,
+    color: cs.outlineVariant.withOpacity(0.7),
+  );
+}
+
 class ScannerPage extends StatefulWidget {
   const ScannerPage({super.key});
 
@@ -18,26 +43,105 @@ class ScannerPage extends StatefulWidget {
 class _ScannerPageState extends State<ScannerPage> {
   bool _busy = false;
   final _picker = ImagePicker();
-  String? _lastAction; // 'check_in' | 'check_out' | ...
 
-  // area esito
+  // Esito
   String? _message;
   bool _isError = false;
-  bool _isWarning = false; // serve supplemento, ma non è errore
+  bool _isWarning = false;
   PartnerBooking? _lastBooking;
+  String? _lastAction;
+
+  // Pending flow (inline)
+  String? _pendingCode;
+  Map<String, dynamic>? _pendingPreview;
+  PartnerBooking? _pendingBooking;
+  String? _pendingAction;
+  File? _pendingPhotoFile; // check-in
+  bool _pendingAck = false; // check-out
+  bool _pendingNeedsPayStep = false; // supplemento
+  String? _pendingLocalError;
+
+  // Lost-data recovery (Android image_picker)
+  File? _recoveredPhotoFile;
+  String? _lostDataError;
 
   PartnerBookingRepo get _repo => PartnerBookingRepo(Supabase.instance.client);
+
+  static const String kSupportEmail = 'bagdrop.milano@gmail.com';
+  static const String kSupportSocial = '@bagdrop.ita';
+
+  @override
+  void initState() {
+    super.initState();
+    _recoverLostImageIfAny();
+  }
+
+  Future<void> _recoverLostImageIfAny() async {
+    try {
+      final res = await _picker.retrieveLostData();
+      if (res.isEmpty) return;
+
+      if (res.file != null) {
+        final f = File(res.file!.path);
+        if (!mounted) return;
+        setState(() {
+          _recoveredPhotoFile = f;
+          _lostDataError = null;
+        });
+      } else if (res.exception != null) {
+        if (!mounted) return;
+        setState(() {
+          _lostDataError = res.exception!.code;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _lostDataError = e.toString();
+      });
+    }
+  }
 
   String _fmt(DateTime dt) {
     final d = dt.day.toString().padLeft(2, '0');
     final m = dt.month.toString().padLeft(2, '0');
     final h = dt.hour.toString().padLeft(2, '0');
     final min = dt.minute.toString().padLeft(2, '0');
-    return '$d/${m} $h:$min';
+    return '$d/$m $h:$min';
   }
 
   bool _isValidCode(String s) {
-    return RegExp(r'^BD[0-9A-F]{10}$', caseSensitive: false).hasMatch(s.trim());
+    return RegExp(r'^BD[0-9A-F]{10}$', caseSensitive: false)
+        .hasMatch(s.trim());
+  }
+
+  void _clearPending() {
+    setState(() {
+      _pendingCode = null;
+      _pendingPreview = null;
+      _pendingBooking = null;
+      _pendingAction = null;
+      _pendingPhotoFile = null;
+      _pendingAck = false;
+      _pendingNeedsPayStep = false;
+      _pendingLocalError = null;
+    });
+  }
+
+  bool _looksLikeSupplementBlock(String? msg) {
+    final m = (msg ?? '').toLowerCase();
+    return m.contains('non autorizzato') ||
+        m.contains('non autorizzata') ||
+        m.contains('not authorized') ||
+        m.contains('not authorised');
+  }
+
+  String _supplementHelpText({required String bookingCode}) {
+    return 'Il cliente deve pagare il supplemento per completare il check-out.\n\n'
+        
+        'Se hai problemi, contatta l’assistenza e indica il codice: $bookingCode\n'
+        'Social: $kSupportSocial\n'
+        'Email: $kSupportEmail';
   }
 
   Future<void> _handleCode(String code, {required bool force}) async {
@@ -51,19 +155,29 @@ class _ScannerPageState extends State<ScannerPage> {
         _isWarning = false;
         _lastBooking = null;
         _lastAction = null;
+        _pendingLocalError = null;
+        _pendingNeedsPayStep = false;
+        _pendingBooking = null;
+        _pendingAction = null;
+        _pendingPreview = null;
+        _pendingCode = null;
       });
       return;
     }
 
     setState(() {
       _busy = true;
-      _message = null;
-      _isError = false;
-      _isWarning = false;
+      _pendingLocalError = null;
+      _pendingNeedsPayStep = false;
+      _pendingCode = null;
+      _pendingPreview = null;
+      _pendingBooking = null;
+      _pendingAction = null;
+      _pendingPhotoFile = null;
+      _pendingAck = false;
     });
 
     try {
-      // 1) PREVIEW (no side effects)
       final preview = await _repo.previewBookingCode(code: c);
       final okPreview = preview['ok'] == true;
 
@@ -76,11 +190,15 @@ class _ScannerPageState extends State<ScannerPage> {
       }
 
       if (!okPreview) {
+        final msg = (preview['message'] as String?) ?? 'Operazione non consentita.';
+        final looksSupp = action == 'check_out' && _looksLikeSupplementBlock(msg);
+
         setState(() {
-          _message =
-              (preview['message'] as String?) ?? 'Operazione non consentita.';
-          _isError = true;
-          _isWarning = false;
+          _message = looksSupp && booking != null
+              ? _supplementHelpText(bookingCode: booking.bookingCode)
+              : msg;
+          _isWarning = looksSupp;
+          _isError = !looksSupp;
           _lastBooking = booking;
           _lastAction = action;
         });
@@ -109,12 +227,10 @@ class _ScannerPageState extends State<ScannerPage> {
         return;
       }
 
-      //  se è check-in e NON è ancora l’ora → messaggio subito, niente sheet
       final bool checkinAllowed = (preview['checkin_allowed'] as bool?) ?? true;
       if (action == 'check_in' && checkinAllowed == false) {
         setState(() {
-          _message =
-              (preview['message'] as String?) ??
+          _message = (preview['message'] as String?) ??
               'Check-in non consentito: non è ancora l’orario previsto.';
           _isError = true;
           _isWarning = false;
@@ -124,42 +240,15 @@ class _ScannerPageState extends State<ScannerPage> {
         return;
       }
 
-      // 2) SHEET di conferma
-      final res = await showModalBottomSheet<Map<String, dynamic>>(
-        context: context,
-        useRootNavigator: false,
-        isScrollControlled: true,
-        showDragHandle: true,
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-        ),
-        builder: (_) => _ScanConfirmSheet(
-          repo: _repo,
-          picker: _picker,
-          code: c,
-          booking: booking!,
-          preview: preview,
-          fmt: _fmt,
-        ),
-      );
-
-      if (res == null) return;
-
-      final ok = (res['ok'] == true);
-      final requirePay = (res['require_payment'] == true);
-      final msg = (res['message'] as String?) ?? 'Operazione completata.';
-      final act = (res['action'] as String?) ?? action;
-
-      final bid = res['booking_id']?.toString() ?? booking.id;
-      final updated = await _repo.getBookingById(bid);
-
       setState(() {
-        _message = msg;
-        _isWarning = requirePay == true;
-        _isError = !ok && !_isWarning;
-        _lastBooking = updated ?? booking;
-        _lastAction = act;
+        _pendingCode = c;
+        _pendingPreview = preview;
+        _pendingBooking = booking;
+        _pendingAction = action;
+        _pendingPhotoFile = null;
+        _pendingAck = false;
+        _pendingNeedsPayStep = false;
+        _pendingLocalError = null;
       });
     } catch (e) {
       setState(() {
@@ -180,8 +269,8 @@ class _ScannerPageState extends State<ScannerPage> {
 
     final bucket =
         (b.checkinPhotoBucket == null || b.checkinPhotoBucket!.isEmpty)
-        ? PartnerBookingRepo.bookingCheckinBucket
-        : b.checkinPhotoBucket!;
+            ? PartnerBookingRepo.bookingCheckinBucket
+            : b.checkinPhotoBucket!;
 
     return _repo.createSignedCheckinPhotoUrl(
       path: path,
@@ -263,518 +352,260 @@ class _ScannerPageState extends State<ScannerPage> {
     );
   }
 
-  // Apri il bottom sheet di conferma check-in/check-out
+  Future<void> _pickPendingPhoto(ImageSource source) async {
+    if (_busy) return;
 
-  Future<Map<String, dynamic>?> _openConfirmSheet({
+    // ↓↓↓ più leggero: riduce rischio kill/recreate mentre camera è aperta
+    final x = await _picker.pickImage(
+      source: source,
+      imageQuality: 72,
+      maxWidth: 1280,
+    );
+    if (x == null) return;
+    if (!mounted) return;
+
+    setState(() {
+      _pendingPhotoFile = File(x.path);
+      _pendingLocalError = null;
+      // se avevamo una foto recuperata, la consideriamo “superata”
+      _recoveredPhotoFile = null;
+      _lostDataError = null;
+    });
+  }
+
+  Future<Map<String, dynamic>> _doCheckInInline({
     required String code,
     required PartnerBooking booking,
-    required Map<String, dynamic> preview,
+    required File photoFile,
   }) async {
-    final cs = Theme.of(context).colorScheme;
+    final photoPath = _repo.buildCheckinPhotoPath(
+      partnerId: booking.partnerId,
+      bookingId: booking.id,
+    );
 
-    final action = (preview['action'] as String?) ?? '';
-    final isCheckIn = action == 'check_in';
-    final isCheckOut = action == 'check_out';
+    await _repo.uploadCheckinPhoto(file: photoFile, path: photoPath);
+
+    final res = await _repo.processBookingCodeV2(
+      code: code,
+      action: 'check_in',
+      force: false,
+      checkinPhotoPath: photoPath,
+      ackPhoto: false,
+    );
+    return res;
+  }
+
+  Future<Map<String, dynamic>> _doCheckOutInline({
+    required String code,
+    required bool force,
+  }) async {
+    final res = await _repo.processBookingCodeV2(
+      code: code,
+      action: 'check_out',
+      force: force,
+      checkinPhotoPath: null,
+      ackPhoto: true,
+    );
+    return res;
+  }
+
+  Future<void> _confirmPending() async {
+    if (_busy) return;
+    final booking = _pendingBooking;
+    final action = _pendingAction;
+    final code = _pendingCode;
+    final preview = _pendingPreview;
+
+    if (booking == null || action == null || code == null || preview == null) {
+      return;
+    }
+
+    final isIn = action == 'check_in';
+    final isOut = action == 'check_out';
 
     final bool checkinAllowed = (preview['checkin_allowed'] as bool?) ?? true;
-    final DateTime? notBefore = preview['not_before'] != null
-        ? DateTime.parse(preview['not_before'].toString()).toLocal()
-        : null;
 
-    return await showModalBottomSheet<Map<String, dynamic>>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: cs.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      builder: (ctx) {
-        File? photoFile;
-        bool ack = false;
-        bool loading = false;
-        bool needsPayStep = false;
-        String? localError;
+    setState(() {
+      _busy = true;
+      _pendingLocalError = null;
+      _pendingNeedsPayStep = false;
+    });
 
-        final String bucket =
-            (booking.checkinPhotoBucket ??
-            PartnerBookingRepo.bookingCheckinBucket);
-        final String? path = booking.checkinPhotoPath;
-
-        Future<String?> signedUrlFuture() async {
-          if (path == null || path.isEmpty) return null;
-          return _repo.createSignedCheckinPhotoUrl(path: path, bucket: bucket);
+    try {
+      if (isIn) {
+        if (!checkinAllowed) {
+          setState(() {
+            _pendingLocalError =
+                (preview['message'] as String?) ??
+                'Check-in non consentito: non è ancora l’orario previsto.';
+          });
+          return;
         }
 
-        String fmt(DateTime dt) => _fmt(dt);
+        // Se c’è una foto recuperata e non ne hai scelta una nuova, proponila
+        if (_pendingPhotoFile == null && _recoveredPhotoFile != null) {
+          setState(() {
+            _pendingPhotoFile = _recoveredPhotoFile;
+            _recoveredPhotoFile = null;
+          });
+        }
 
-        return StatefulBuilder(
-          builder: (ctx, setModal) {
-            Future<void> pickPhoto() async {
-              final x = await _picker.pickImage(
-                source: ImageSource.camera,
-                imageQuality: 82,
-                maxWidth: 1600,
-              );
-              if (x == null) return;
-              setModal(() {
-                photoFile = File(x.path);
-                localError = null;
-              });
-            }
+        if (_pendingPhotoFile == null) {
+          setState(() {
+            _pendingLocalError = 'Scatta o carica una foto del bagaglio per continuare.';
+          });
+          return;
+        }
 
-            Future<Map<String, dynamic>> doCheckIn() async {
-              setModal(() {
-                loading = true;
-                localError = null;
-              });
-              try {
-                final photoPath = _repo.buildCheckinPhotoPath(
-                  partnerId: booking.partnerId,
-                  bookingId: booking.id,
-                );
-
-                await _repo.uploadCheckinPhoto(
-                  file: photoFile!,
-                  path: photoPath,
-                );
-
-                final res = await _repo.processBookingCodeV2(
-                  code: code,
-                  action: 'check_in',
-                  force: false,
-                  checkinPhotoPath: photoPath,
-                  ackPhoto: false,
-                );
-                return res;
-              } finally {
-                setModal(() => loading = false);
-              }
-            }
-
-            Future<Map<String, dynamic>> doCheckOut({
-              required bool force,
-            }) async {
-              setModal(() {
-                loading = true;
-                localError = null;
-              });
-              try {
-                final res = await _repo.processBookingCodeV2(
-                  code: code,
-                  action: 'check_out',
-                  force: force,
-                  checkinPhotoPath: null,
-                  ackPhoto: true,
-                );
-                return res;
-              } finally {
-                setModal(() => loading = false);
-              }
-            }
-
-            final title = isCheckIn
-                ? 'Conferma check-in'
-                : isCheckOut
-                ? 'Conferma check-out'
-                : 'Conferma';
-
-            final canConfirmCheckIn =
-                isCheckIn && checkinAllowed && photoFile != null && !loading;
-            final canConfirmCheckOut =
-                isCheckOut && (path == null || path.isEmpty || ack) && !loading;
-
-            Widget bookingBox() {
-              return Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: cs.surfaceContainerHighest.withOpacity(0.35),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: cs.outlineVariant.withOpacity(0.35),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Codice: ${booking.bookingCode}',
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                    const SizedBox(height: 6),
-                    Text('Cliente: ${booking.firstName} ${booking.lastName}'),
-                    Text(
-                      'Bagagli: ${booking.bagsS}S  ${booking.bagsM}M  ${booking.bagsL}L',
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Dropoff previsto: ${fmt(booking.plannedDropoffAtLocal)}',
-                    ),
-                    Text(
-                      'Pickup previsto:  ${fmt(booking.plannedPickupAtLocal)}',
-                    ),
-                  ],
-                ),
-              );
-            }
-
-            Widget bannerEarly() {
-              if (!isCheckIn || checkinAllowed) return const SizedBox.shrink();
-              final when = notBefore != null ? fmt(notBefore!) : 'più tardi';
-              return Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: cs.tertiaryContainer.withOpacity(0.55),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: cs.outlineVariant.withOpacity(0.35),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.lock_clock_rounded),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Check-in disponibile dalle $when',
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-
-            Widget photoPickerBox() {
-              if (!isCheckIn) return const SizedBox.shrink();
-
-              return Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: cs.outlineVariant.withOpacity(0.35),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Foto bagaglio',
-                      style: TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                    const SizedBox(height: 10),
-                    if (photoFile == null) ...[
-                      Text(
-                        'Scatta una foto del bagaglio prima di confermare.',
-                        style: TextStyle(color: cs.onSurface.withOpacity(0.75)),
-                      ),
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: loading ? null : pickPhoto,
-                          icon: const Icon(Icons.photo_camera),
-                          label: const Text('Scatta foto'),
-                        ),
-                      ),
-                    ] else ...[
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.file(
-                          photoFile!,
-                          height: 190,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: loading ? null : pickPhoto,
-                              icon: const Icon(Icons.refresh),
-                              label: const Text('Riprova'),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              );
-            }
-
-            Widget checkoutPhotoBox() {
-              if (!isCheckOut) return const SizedBox.shrink();
-
-              if (path == null || path.isEmpty) {
-                return Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: cs.outlineVariant.withOpacity(0.35),
-                    ),
-                  ),
-                  child: Text(
-                    'Nessuna foto check-in associata.',
-                    style: TextStyle(color: cs.onSurface.withOpacity(0.75)),
-                  ),
-                );
-              }
-
-              return Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: cs.outlineVariant.withOpacity(0.35),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Foto al check-in',
-                      style: TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                    const SizedBox(height: 10),
-                    FutureBuilder<String?>(
-                      future: signedUrlFuture(),
-                      builder: (ctx, snap) {
-                        final url = snap.data;
-                        if (snap.connectionState == ConnectionState.waiting) {
-                          return const SizedBox(
-                            height: 190,
-                            child: Center(child: CircularProgressIndicator()),
-                          );
-                        }
-                        if (url == null) {
-                          return Text(
-                            'Impossibile caricare la foto.',
-                            style: TextStyle(
-                              color: cs.onSurface.withOpacity(0.75),
-                            ),
-                          );
-                        }
-                        return ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: Image.network(
-                            url,
-                            height: 190,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    CheckboxListTile(
-                      contentPadding: EdgeInsets.zero,
-                      value: ack,
-                      onChanged: loading
-                          ? null
-                          : (v) => setModal(() => ack = v == true),
-                      title: const Text(
-                        'Confermo che il bagaglio è ok e procedo col check-out',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-
-            Future<void> onPrimary() async {
-              if (loading) return;
-
-              // Check-in
-              if (isCheckIn) {
-                if (!checkinAllowed) return;
-                if (photoFile == null) {
-                  setModal(
-                    () => localError = 'Scatta una foto per continuare.',
-                  );
-                  return;
-                }
-
-                final res = await doCheckIn();
-                if (res['ok'] == true) {
-                  if (ctx.mounted) Navigator.of(ctx).pop(res);
-                  return;
-                }
-
-                // errori “leggibili” dal server
-                final codeErr = res['code']?.toString();
-                if (codeErr == 'BD_CHECKIN_TOO_EARLY') {
-                  setModal(() => localError = res['message']?.toString());
-                  return;
-                }
-                setModal(
-                  () => localError =
-                      res['message']?.toString() ?? 'Operazione non riuscita.',
-                );
-                return;
-              }
-
-              // Check-out
-              if (isCheckOut) {
-                if (path != null && path.isNotEmpty && !ack) {
-                  setModal(
-                    () => localError = 'Seleziona la conferma per continuare.',
-                  );
-                  return;
-                }
-
-                // step 1: prova senza force
-                final res = await doCheckOut(force: false);
-                if (res['ok'] == true) {
-                  if (ctx.mounted) Navigator.of(ctx).pop(res);
-                  return;
-                }
-
-                if (res['require_payment'] == true) {
-                  setModal(() {
-                    needsPayStep = true;
-                    localError = res['message']?.toString();
-                  });
-                  return;
-                }
-
-                setModal(
-                  () => localError =
-                      res['message']?.toString() ?? 'Operazione non riuscita.',
-                );
-              }
-            }
-
-            Future<void> onPayNow() async {
-              final res = await doCheckOut(force: true);
-              if (res['ok'] == true) {
-                if (ctx.mounted) Navigator.of(ctx).pop(res);
-                return;
-              }
-              setModal(
-                () => localError =
-                    res['message']?.toString() ?? 'Operazione non riuscita.',
-              );
-            }
-
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 16,
-                right: 16,
-                top: 10,
-                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 18,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  bookingBox(),
-                  const SizedBox(height: 10),
-                  bannerEarly(),
-                  if (!checkinAllowed) const SizedBox(height: 10),
-                  photoPickerBox(),
-                  if (isCheckIn) const SizedBox(height: 10),
-                  checkoutPhotoBox(),
-                  if (isCheckOut) const SizedBox(height: 10),
-
-                  if (localError != null) ...[
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: cs.errorContainer.withOpacity(0.65),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: cs.outlineVariant.withOpacity(0.35),
-                        ),
-                      ),
-                      child: Text(
-                        localError!,
-                        style: TextStyle(
-                          color: cs.onErrorContainer,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                  ],
-
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: loading
-                              ? null
-                              : () => Navigator.of(ctx).pop(),
-                          child: const Text('Annulla'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed:
-                              (isCheckIn && !canConfirmCheckIn) ||
-                                  (isCheckOut && !canConfirmCheckOut)
-                              ? null
-                              : onPrimary,
-                          child: loading
-                              ? const SizedBox(
-                                  height: 18,
-                                  width: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : Text(
-                                  isCheckIn
-                                      ? 'Conferma check-in'
-                                      : 'Conferma check-out',
-                                ),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  if (isCheckOut && needsPayStep) ...[
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: loading ? null : onPayNow,
-                        icon: const Icon(Icons.payments_outlined),
-                        label: const Text('Paga ora'),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            );
-          },
+        final res = await _doCheckInInline(
+          code: code,
+          booking: booking,
+          photoFile: _pendingPhotoFile!,
         );
-      },
-    );
+
+        final ok = (res['ok'] == true);
+        final msg = (res['message'] as String?) ??
+            (ok ? 'Check-in completato.' : 'Operazione non riuscita.');
+
+        if (!ok) {
+          setState(() {
+            _pendingLocalError = msg;
+          });
+          return;
+        }
+
+        final bid = res['booking_id']?.toString() ?? booking.id;
+        final updated = await _repo.getBookingById(bid);
+
+        setState(() {
+          _message = msg;
+          _isWarning = false;
+          _isError = false;
+          _lastAction = 'check_in';
+          _lastBooking = updated ?? booking;
+        });
+
+        _clearPending();
+        return;
+      }
+
+      if (isOut) {
+        final hasPath = (booking.checkinPhotoPath?.isNotEmpty ?? false);
+        if (hasPath && !_pendingAck) {
+          setState(() {
+            _pendingLocalError = 'Conferma che il bagaglio è ok per continuare.';
+          });
+          return;
+        }
+
+        final res = await _doCheckOutInline(code: code, force: false);
+        final ok = (res['ok'] == true);
+        final rawMsg = res['message']?.toString();
+        final requirePay = (res['require_payment'] == true) ||
+            _looksLikeSupplementBlock(rawMsg);
+
+        if (ok) {
+          final bid = res['booking_id']?.toString() ?? booking.id;
+          final updated = await _repo.getBookingById(bid);
+
+          setState(() {
+            _message = (res['message'] as String?) ?? 'Check-out completato.';
+            _isWarning = false;
+            _isError = false;
+            _lastAction = 'check_out';
+            _lastBooking = updated ?? booking;
+          });
+
+          _clearPending();
+          return;
+        }
+
+        if (requirePay) {
+          setState(() {
+            _pendingNeedsPayStep = true;
+            _pendingLocalError =
+                _supplementHelpText(bookingCode: booking.bookingCode);
+          });
+          return;
+        }
+
+        setState(() {
+          _pendingLocalError =
+              rawMsg?.toString().trim().isNotEmpty == true
+                  ? rawMsg
+                  : 'Operazione non riuscita.';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _pendingLocalError = 'Errore: $e';
+      });
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
-  // fine openConfirmSheet
 
-  // Costruisci la riga di esito
+  Future<void> _confirmPayAndCheckout() async {
+    if (_busy) return;
+    final booking = _pendingBooking;
+    final code = _pendingCode;
+    if (booking == null || code == null) return;
 
-  Widget _buildResultRow(ColorScheme cs) {
+    setState(() {
+      _busy = true;
+      _pendingLocalError = null;
+    });
+
+    try {
+      final res = await _doCheckOutInline(code: code, force: true);
+      final ok = (res['ok'] == true);
+      final rawMsg = res['message']?.toString();
+
+      if (!ok) {
+        final requirePay = (res['require_payment'] == true) ||
+            _looksLikeSupplementBlock(rawMsg);
+
+        setState(() {
+          _pendingNeedsPayStep = requirePay;
+          _pendingLocalError = requirePay
+              ? _supplementHelpText(bookingCode: booking.bookingCode)
+              : (rawMsg?.trim().isNotEmpty == true ? rawMsg : 'Operazione non riuscita.');
+        });
+        return;
+      }
+
+      final bid = res['booking_id']?.toString() ?? booking.id;
+      final updated = await _repo.getBookingById(bid);
+
+      setState(() {
+        _message = (res['message'] as String?) ?? 'Check-out completato.';
+        _isWarning = false;
+        _isError = false;
+        _lastAction = 'check_out';
+        _lastBooking = updated ?? booking;
+      });
+
+      _clearPending();
+    } catch (e) {
+      setState(() {
+        _pendingLocalError = 'Errore: $e';
+      });
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Widget _buildResultInline(ColorScheme cs) {
+    if (_busy) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 6),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     if (_message == null) {
       return Text(
-        'Nessuna operazione eseguita.',
+        'Scansiona un codice per iniziare.',
         style: TextStyle(color: cs.onSurface.withOpacity(0.7)),
       );
     }
@@ -784,395 +615,234 @@ class _ScannerPageState extends State<ScannerPage> {
 
     if (_isError) {
       icon = Icons.error_outline;
-      color = Colors.red;
+      color = cs.error;
     } else if (_isWarning) {
       icon = Icons.warning_amber_rounded;
-      color = Colors.orange;
+      color = cs.tertiary;
     } else {
       icon = Icons.check_circle_outline;
-      color = Colors.green;
+      color = cs.primary;
     }
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Icon(icon, color: color),
-        const SizedBox(width: 8),
+        const SizedBox(width: 10),
         Expanded(
           child: Text(
             _message!,
-            style: TextStyle(fontWeight: FontWeight.w700, color: color),
+            style: TextStyle(fontWeight: FontWeight.w800, color: color),
           ),
         ),
       ],
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _kvRow(BuildContext context, {required String k, required String v}) {
     final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
 
-    return Scaffold(
-      drawer: const PartnerDrawer(),
-      appBar: AppBar(
-        backgroundColor: cs.primary,
-        foregroundColor: cs.onPrimary,
-        elevation: 0,
-        centerTitle: true,
-        title: Text(
-          'Scanner / Codici',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: (Theme.of(context).textTheme.titleMedium ?? const TextStyle())
-              .copyWith(
-                fontWeight: FontWeight.w900,
-                letterSpacing: 0.2,
-                color: cs.onPrimary,
-              ),
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1),
-          child: Container(height: 1, color: cs.onPrimary.withOpacity(0.12)),
-        ),
-      ),
-
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: Row(
         children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Operazioni',
-                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: _busy ? null : _openScanner,
-                          icon: const Icon(Icons.qr_code_scanner),
-                          label: const Text('Scansiona QR'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _busy ? null : _openManualDialog,
-                          icon: const Icon(Icons.keyboard),
-                          label: const Text('Inserisci codice'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+          Expanded(
+            flex: 5,
+            child: Text(
+              k,
+              style: tt.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: cs.onSurface.withOpacity(0.75),
               ),
             ),
           ),
-
-          const SizedBox(height: 12),
-
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Esito',
-                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-                  ),
-                  const SizedBox(height: 10),
-
-                  if (_busy) ...[
-                    const Center(child: CircularProgressIndicator()),
-                  ] else ...[
-                    _buildResultRow(cs),
-                  ],
-
-                  if (_lastBooking != null) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: cs.surfaceContainerHighest.withOpacity(0.35),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Codice: ${_lastBooking!.bookingCode}',
-                            style: const TextStyle(fontWeight: FontWeight.w900),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Cliente: ${_lastBooking!.firstName} ${_lastBooking!.lastName}',
-                          ),
-                          Text(
-                            'Bagagli: ${_lastBooking!.bagsS}S  ${_lastBooking!.bagsM}M  ${_lastBooking!.bagsL}L',
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Dropoff previsto: ${_fmt(_lastBooking!.plannedDropoffAtLocal)}',
-                          ),
-                          Text(
-                            'Pickup previsto:  ${_fmt(_lastBooking!.plannedPickupAtLocal)}',
-                          ),
-
-                          if (_lastAction == 'check_in' &&
-                              !_isError &&
-                              _lastBooking!.checkinPhotoPath != null &&
-                              _lastBooking!.checkinPhotoPath!.isNotEmpty) ...[
-                            const SizedBox(height: 10),
-                            const Text(
-                              'Foto check-in',
-                              style: TextStyle(fontWeight: FontWeight.w900),
-                            ),
-                            const SizedBox(height: 8),
-                            FutureBuilder<String?>(
-                              future: _signedUrlForBooking(_lastBooking!),
-                              builder: (ctx, snap) {
-                                if (snap.connectionState ==
-                                    ConnectionState.waiting) {
-                                  return const SizedBox(
-                                    height: 160,
-                                    child: Center(
-                                      child: CircularProgressIndicator(),
-                                    ),
-                                  );
-                                }
-                                final url = snap.data;
-                                if (url == null) {
-                                  return Text(
-                                    'Foto non disponibile.',
-                                    style: TextStyle(
-                                      color: cs.onSurface.withOpacity(0.7),
-                                    ),
-                                  );
-                                }
-                                return ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: Image.network(
-                                    url,
-                                    height: 180,
-                                    width: double.infinity,
-                                    fit: BoxFit.cover,
-                                  ),
-                                );
-                              },
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+          Expanded(
+            flex: 7,
+            child: Text(
+              v,
+              textAlign: TextAlign.right,
+              style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
             ),
           ),
         ],
       ),
     );
   }
-}
 
-class _ScanConfirmSheet extends StatefulWidget {
-  final PartnerBookingRepo repo;
-  final ImagePicker picker;
-  final String code;
-  final PartnerBooking booking;
-  final Map<String, dynamic> preview;
-  final String Function(DateTime) fmt;
-
-  const _ScanConfirmSheet({
-    required this.repo,
-    required this.picker,
-    required this.code,
-    required this.booking,
-    required this.preview,
-    required this.fmt,
-  });
-
-  @override
-  State<_ScanConfirmSheet> createState() => _ScanConfirmSheetState();
-}
-
-class _ScanConfirmSheetState extends State<_ScanConfirmSheet> {
-  File? _photoFile;
-  bool _ack = false;
-  bool _loading = false;
-  bool _needsPayStep = false;
-  String? _localError;
-
-  final ScrollController _scroll = ScrollController();
-
-  static const String kSupportEmail = 'bagdrop.milano@gmail.com';
-  static const String kSupportSocial = '@bagdrop.ita';
-
-  @override
-  void dispose() {
-    _scroll.dispose();
-    super.dispose();
-  }
-
-  bool get _isCheckIn => (widget.preview['action'] as String?) == 'check_in';
-  bool get _isCheckOut => (widget.preview['action'] as String?) == 'check_out';
-
-  bool get _checkinAllowed =>
-      (widget.preview['checkin_allowed'] as bool?) ?? true;
-
-  DateTime? get _notBefore {
-    final v = widget.preview['not_before'];
-    if (v == null) return null;
-    return DateTime.parse(v.toString()).toLocal();
-  }
-
-  Future<void> _pickPhoto(ImageSource source) async {
-    final x = await widget.picker.pickImage(
-      source: source,
-      imageQuality: 82,
-      maxWidth: 1600,
-    );
-    if (x == null) return;
-    if (!mounted) return;
-
-    setState(() {
-      _photoFile = File(x.path);
-      _localError = null;
-    });
-
-    // ✅ evita “glitch” post-camera e riporta il focus nella sheet
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      if (!_scroll.hasClients) return;
-      _scroll.animateTo(
-        0, // puoi anche mettere maxScrollExtent se vuoi scrollare in basso
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
-      );
-    });
-  }
-
-  Future<String?> _signedUrlIfAny() async {
-    final path = widget.booking.checkinPhotoPath;
-    if (path == null || path.isEmpty) return null;
-
-    final bucket =
-        (widget.booking.checkinPhotoBucket == null ||
-            widget.booking.checkinPhotoBucket!.isEmpty)
-        ? PartnerBookingRepo.bookingCheckinBucket
-        : widget.booking.checkinPhotoBucket!;
-
-    return widget.repo.createSignedCheckinPhotoUrl(
-      path: path,
-      bucket: bucket,
-      expiresInSeconds: 300,
-    );
-  }
-
-  Future<Map<String, dynamic>> _doCheckIn() async {
-    setState(() {
-      _loading = true;
-      _localError = null;
-    });
-    try {
-      final photoPath = widget.repo.buildCheckinPhotoPath(
-        partnerId: widget.booking.partnerId,
-        bookingId: widget.booking.id,
-      );
-
-      await widget.repo.uploadCheckinPhoto(file: _photoFile!, path: photoPath);
-
-      final res = await widget.repo.processBookingCodeV2(
-        code: widget.code,
-        action: 'check_in',
-        force: false,
-        checkinPhotoPath: photoPath,
-        ackPhoto: false,
-      );
-      return res;
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<Map<String, dynamic>> _doCheckOut({required bool force}) async {
-    setState(() {
-      _loading = true;
-      _localError = null;
-    });
-    try {
-      final res = await widget.repo.processBookingCodeV2(
-        code: widget.code,
-        action: 'check_out',
-        force: force,
-        checkinPhotoPath: null,
-        ackPhoto: true,
-      );
-      return res;
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _iosToggleRow(
+    BuildContext context, {
+    required bool value,
+    required String title,
+    required VoidCallback onTap,
+  }) {
     final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
 
-    final title = _isCheckIn
-        ? 'Conferma check-in'
-        : _isCheckOut
-        ? 'Conferma check-out'
-        : 'Conferma';
+    final icon = value
+        ? Icons.check_box_rounded
+        : Icons.check_box_outline_blank_rounded;
 
-    final canConfirmCheckIn =
-        _isCheckIn && _checkinAllowed && _photoFile != null && !_loading;
-    final hasPath = (widget.booking.checkinPhotoPath?.isNotEmpty ?? false);
-    final canConfirmCheckOut = _isCheckOut && (!hasPath || _ack) && !_loading;
-
-    Widget bookingBox() {
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: cs.surfaceContainerHighest.withOpacity(0.35),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return InkWell(
+      onTap: _busy ? null : onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
           children: [
-            Text(
-              'Codice: ${widget.booking.bookingCode}',
-              style: const TextStyle(fontWeight: FontWeight.w900),
+            Icon(
+              icon,
+              size: 22,
+              color: value ? cs.primary : cs.onSurface.withOpacity(0.35),
             ),
-            const SizedBox(height: 6),
-            Text(
-              'Cliente: ${widget.booking.firstName} ${widget.booking.lastName}',
-            ),
-            Text(
-              'Bagagli: ${widget.booking.bagsS}S  ${widget.booking.bagsM}M  ${widget.booking.bagsL}L',
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Dropoff previsto: ${widget.fmt(widget.booking.plannedDropoffAtLocal)}',
-            ),
-            Text(
-              'Pickup previsto:  ${widget.fmt(widget.booking.plannedPickupAtLocal)}',
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                title,
+                style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
             ),
           ],
         ),
-      );
+      ),
+    );
+  }
+
+  Widget _pendingBookingBox(BuildContext context, PartnerBooking b) {
+    return _iosSection(
+      context,
+      children: [
+        _kvRow(context, k: 'Codice', v: b.bookingCode),
+        _thinDivider(context),
+        _kvRow(context, k: 'Cliente', v: '${b.firstName} ${b.lastName}'),
+        _thinDivider(context),
+        _kvRow(
+          context,
+          k: 'Bagagli',
+          v: '${b.bagsS}S  ${b.bagsM}M  ${b.bagsL}L',
+        ),
+        _thinDivider(context),
+        _kvRow(context, k: 'Dropoff', v: _fmt(b.plannedDropoffAtLocal)),
+        _thinDivider(context),
+        _kvRow(context, k: 'Pickup', v: _fmt(b.plannedPickupAtLocal)),
+      ],
+    );
+  }
+
+  Widget _inlineBanner(BuildContext context, String text, {required bool warning}) {
+    final cs = Theme.of(context).colorScheme;
+    final bg = warning
+        ? cs.tertiaryContainer.withOpacity(0.55)
+        : cs.errorContainer.withOpacity(0.65);
+    final fg = warning ? cs.onTertiaryContainer : cs.onErrorContainer;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(color: fg, fontWeight: FontWeight.w800),
+      ),
+    );
+  }
+
+  Widget _checkoutIssueHelp(BuildContext context, PartnerBooking booking) {
+    final cs = Theme.of(context).colorScheme;
+
+    Future<void> copyText(String text, String toast) async {
+      await Clipboard.setData(ClipboardData(text: text));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(toast)));
     }
 
+    return _iosSection(
+      context,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Se non è tutto ok', style: TextStyle(fontWeight: FontWeight.w900)),
+              const SizedBox(height: 6),
+              Text(
+                '• Fai uno screen di questa schermata\n'
+                '• Scatta una foto ai bagagli\n'
+                '• Contattaci prima di concludere il check-out',
+                style: TextStyle(color: cs.onSurface.withOpacity(0.78)),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Social: $kSupportSocial',
+                style: TextStyle(color: cs.onSurface.withOpacity(0.72)),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Email: $kSupportEmail',
+                style: TextStyle(color: cs.onSurface.withOpacity(0.72)),
+              ),
+            ],
+          ),
+        ),
+        _thinDivider(context),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _busy ? null : () => copyText(kSupportEmail, 'Email copiata'),
+                  icon: const Icon(Icons.email_outlined),
+                  label: const Text('Copia email'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _busy ? null : () => copyText(booking.bookingCode, 'Codice copiato'),
+                  icon: const Icon(Icons.copy),
+                  label: const Text('Copia codice'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPendingFlow(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final b = _pendingBooking;
+    final action = _pendingAction;
+    final preview = _pendingPreview;
+
+    if (b == null || action == null || preview == null) {
+      return const SizedBox.shrink();
+    }
+
+    final isIn = action == 'check_in';
+    final isOut = action == 'check_out';
+
+    final bool checkinAllowed = (preview['checkin_allowed'] as bool?) ?? true;
+    final DateTime? notBefore = preview['not_before'] != null
+        ? DateTime.parse(preview['not_before'].toString()).toLocal()
+        : null;
+
+    final title = isIn ? 'Conferma check-in' : (isOut ? 'Conferma check-out' : 'Conferma');
+    final hasPath = (b.checkinPhotoPath?.isNotEmpty ?? false);
+
     Widget bannerEarly() {
-      if (!_isCheckIn || _checkinAllowed) return const SizedBox.shrink();
-      final when = _notBefore != null ? widget.fmt(_notBefore!) : 'più tardi';
+      if (!isIn || checkinAllowed) return const SizedBox.shrink();
+      final when = notBefore != null ? _fmt(notBefore) : 'più tardi';
       return Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(top: 10),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: cs.tertiaryContainer.withOpacity(0.55),
@@ -1194,126 +864,178 @@ class _ScanConfirmSheetState extends State<_ScanConfirmSheet> {
       );
     }
 
-    Widget photoPickerBox() {
-      if (!_isCheckIn) return const SizedBox.shrink();
+    Widget checkinPhotoBox() {
+      if (!isIn) return const SizedBox.shrink();
 
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Foto bagaglio',
-              style: TextStyle(fontWeight: FontWeight.w900),
+      return _iosSection(
+        context,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(14, 12, 14, 10),
+            child: Text('Foto bagaglio', style: TextStyle(fontWeight: FontWeight.w900)),
+          ),
+          _thinDivider(context),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_lostDataError != null) ...[
+                  Text(
+                    'Nota: recupero foto non riuscito ($_lostDataError).',
+                    style: TextStyle(color: cs.onSurface.withOpacity(0.7)),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+
+                if (_pendingPhotoFile == null && _recoveredPhotoFile != null) ...[
+                  Text(
+                    'Foto recuperata (da camera/galeria). Puoi usarla per completare il check-in.',
+                    style: TextStyle(color: cs.onSurface.withOpacity(0.75)),
+                  ),
+                  const SizedBox(height: 10),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: Image.file(
+                      _recoveredPhotoFile!,
+                      height: 190,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _busy
+                              ? null
+                              : () => setState(() {
+                                    _pendingPhotoFile = _recoveredPhotoFile;
+                                    _recoveredPhotoFile = null;
+                                    _pendingLocalError = null;
+                                  }),
+                          icon: const Icon(Icons.check_circle_outline),
+                          label: const Text('Usa questa foto'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _busy
+                              ? null
+                              : () => setState(() {
+                                    _recoveredPhotoFile = null;
+                                  }),
+                          icon: const Icon(Icons.delete_outline),
+                          label: const Text('Scarta'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _thinDivider(context),
+                  const SizedBox(height: 12),
+                ],
+
+                if (_pendingPhotoFile == null) ...[
+                  Text(
+                    'Scatta o carica una foto del bagaglio prima di confermare.',
+                    style: TextStyle(color: cs.onSurface.withOpacity(0.75)),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _busy ? null : () => _pickPendingPhoto(ImageSource.camera),
+                          icon: const Icon(Icons.photo_camera),
+                          label: const Text('Scatta'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _busy ? null : () => _pickPendingPhoto(ImageSource.gallery),
+                          icon: const Icon(Icons.photo_library_outlined),
+                          label: const Text('Carica'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: Image.file(
+                      _pendingPhotoFile!,
+                      height: 190,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _busy ? null : () => _pickPendingPhoto(ImageSource.camera),
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Riscatta'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _busy ? null : () => _pickPendingPhoto(ImageSource.gallery),
+                          icon: const Icon(Icons.photo_library_outlined),
+                          label: const Text('Sostituisci'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
             ),
-            const SizedBox(height: 10),
-
-            if (_photoFile == null) ...[
-              Text(
-                'Scatta o carica una foto del bagaglio prima di confermare.',
-                style: TextStyle(color: cs.onSurface.withOpacity(0.75)),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _loading
-                          ? null
-                          : () => _pickPhoto(ImageSource.camera),
-                      icon: const Icon(Icons.photo_camera),
-                      label: const Text('Scatta'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _loading
-                          ? null
-                          : () => _pickPhoto(ImageSource.gallery),
-                      icon: const Icon(Icons.photo_library_outlined),
-                      label: const Text('Carica'),
-                    ),
-                  ),
-                ],
-              ),
-            ] else ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.file(
-                  _photoFile!,
-                  height: 190,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _loading
-                          ? null
-                          : () => _pickPhoto(ImageSource.camera),
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Riscatta'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _loading
-                          ? null
-                          : () => _pickPhoto(ImageSource.gallery),
-                      icon: const Icon(Icons.photo_library_outlined),
-                      label: const Text('Sostituisci'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ),
+          ),
+        ],
       );
     }
 
     Widget checkoutPhotoBox() {
-      if (!_isCheckOut) return const SizedBox.shrink();
+      if (!isOut) return const SizedBox.shrink();
 
       if (!hasPath) {
-        return Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
-          ),
-          child: Text(
-            'Nessuna foto check-in associata.',
-            style: TextStyle(color: cs.onSurface.withOpacity(0.75)),
-          ),
+        return _iosSection(
+          context,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(14, 12, 14, 12),
+              child: Text('Foto al check-in', style: TextStyle(fontWeight: FontWeight.w900)),
+            ),
+            _thinDivider(context),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              child: Text(
+                'Nessuna foto check-in associata.',
+                style: TextStyle(color: cs.onSurface.withOpacity(0.75)),
+              ),
+            ),
+          ],
         );
       }
 
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Foto al check-in',
-              style: TextStyle(fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 10),
-            FutureBuilder<String?>(
-              future: _signedUrlIfAny(),
+      return _iosSection(
+        context,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(14, 12, 14, 10),
+            child: Text('Foto al check-in', style: TextStyle(fontWeight: FontWeight.w900)),
+          ),
+          _thinDivider(context),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            child: FutureBuilder<String?>(
+              future: _signedUrlForBooking(b),
               builder: (ctx, snap) {
                 if (snap.connectionState == ConnectionState.waiting) {
                   return const SizedBox(
@@ -1329,7 +1051,7 @@ class _ScanConfirmSheetState extends State<_ScanConfirmSheet> {
                   );
                 }
                 return ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(14),
                   child: Image.network(
                     url,
                     height: 190,
@@ -1339,298 +1061,259 @@ class _ScanConfirmSheetState extends State<_ScanConfirmSheet> {
                 );
               },
             ),
-            const SizedBox(height: 10),
-            CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              value: _ack,
-              onChanged: _loading
-                  ? null
-                  : (v) => setState(() => _ack = v == true),
-              title: const Text(
-                'Confermo che il bagaglio è ok e procedo col check-out',
-                style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+          _thinDivider(context),
+          _iosToggleRow(
+            context,
+            value: _pendingAck,
+            title: 'Confermo che il bagaglio è ok e procedo col check-out',
+            onTap: () => setState(() => _pendingAck = !_pendingAck),
+          ),
+        ],
+      );
+    }
+
+    final bool canConfirm = isIn
+        ? (checkinAllowed && (_pendingPhotoFile != null || _recoveredPhotoFile != null) && !_busy)
+        : (isOut ? ((!hasPath || _pendingAck) && !_busy) : false);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+        const SizedBox(height: 10),
+        _pendingBookingBox(context, b),
+        bannerEarly(),
+        const SizedBox(height: 12),
+
+        if (isIn) ...[
+          checkinPhotoBox(),
+          const SizedBox(height: 12),
+        ],
+
+        if (isOut) ...[
+          checkoutPhotoBox(),
+          const SizedBox(height: 12),
+          _checkoutIssueHelp(context, b),
+          const SizedBox(height: 12),
+        ],
+
+        if (_pendingLocalError != null) _inlineBanner(
+          context,
+          _pendingLocalError!,
+          warning: _pendingNeedsPayStep,
+        ),
+
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _busy ? null : _clearPending,
+                child: const Text('Annulla'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: canConfirm ? _confirmPending : null,
+                child: _busy
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(isIn ? 'Conferma check-in' : 'Conferma check-out'),
               ),
             ),
           ],
         ),
-      );
-    }
 
-    Widget issueHelpBox() {
-      if (!_isCheckOut) return const SizedBox.shrink();
+/*
+        if (isOut && _pendingNeedsPayStep) ...[
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _busy ? null : _confirmPayAndCheckout,
+              icon: const Icon(Icons.payments_outlined),
+              label: const Text('Conferma pagamento'),
+            ),
+          ),
+        ],  */
+      ],
+    );
+  }
 
-      Future<void> copy(String text, String toast) async {
-        await Clipboard.setData(ClipboardData(text: text));
-        if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(toast)));
-      }
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
 
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: cs.surfaceContainerHighest.withOpacity(0.35),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
+    return Scaffold(
+      drawer: const PartnerDrawer(),
+      appBar: AppBar(
+        title: const Text("Scanner / Codici"),
+        backgroundColor: cs.primary,
+        foregroundColor: cs.onPrimary,
+        centerTitle: true,
+        elevation: 0,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(height: 1, color: cs.onPrimary.withOpacity(0.12)),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Se non è tutto ok',
-              style: TextStyle(fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '• Fai uno screen di questa schermata\n'
-              '• Scatta una foto ai bagagli\n'
-              '• Contattaci via email o social prima di concludere il check-out',
-              style: TextStyle(color: cs.onSurface.withOpacity(0.8)),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _loading
-                        ? null
-                        : () => copy(
-                            kSupportEmail,
-                            'Email copiata: $kSupportEmail',
-                          ),
-                    icon: const Icon(Icons.email_outlined),
-                    label: const Text('Copia email'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _loading
-                        ? null
-                        : () => copy(
-                            widget.booking.bookingCode,
-                            'Codice copiato',
-                          ),
-                    icon: const Icon(Icons.copy),
-                    label: const Text('Copia codice'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Social: $kSupportSocial',
-              style: TextStyle(color: cs.onSurface.withOpacity(0.75)),
-            ),
-          ],
-        ),
-      );
-    }
-
-    Future<void> onPrimary() async {
-      if (_loading) return;
-
-      if (_isCheckIn) {
-        if (!_checkinAllowed) return;
-        if (_photoFile == null) {
-          setState(
-            () => _localError = 'Scatta o carica una foto per continuare.',
-          );
-          return;
-        }
-
-        final res = await _doCheckIn();
-        if (res['ok'] == true) {
-          if (mounted) Navigator.of(context).pop(res);
-          return;
-        }
-        setState(
-          () => _localError =
-              res['message']?.toString() ?? 'Operazione non riuscita.',
-        );
-        return;
-      }
-
-      if (_isCheckOut) {
-        if (hasPath && !_ack) {
-          setState(() => _localError = 'Seleziona la conferma per continuare.');
-          return;
-        }
-
-        final res = await _doCheckOut(force: false);
-        if (res['ok'] == true) {
-          if (mounted) Navigator.of(context).pop(res);
-          return;
-        }
-
-        if (res['require_payment'] == true) {
-          setState(() {
-            _needsPayStep = true;
-            _localError = res['message']?.toString();
-          });
-          return;
-        }
-
-        setState(
-          () => _localError =
-              res['message']?.toString() ?? 'Operazione non riuscita.',
-        );
-      }
-    }
-
-    Future<void> onPayNow() async {
-      final res = await _doCheckOut(force: true);
-      if (res['ok'] == true) {
-        if (mounted) Navigator.of(context).pop(res);
-        return;
-      }
-      setState(
-        () => _localError =
-            res['message']?.toString() ?? 'Operazione non riuscita.',
-      );
-    }
-
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 10,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
         children: [
           Text(
-            title,
-            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
-          ),
-          const SizedBox(height: 10),
-          bookingBox(),
-          const SizedBox(height: 10),
-          bannerEarly(),
-          if (!_checkinAllowed) const SizedBox(height: 10),
-          photoPickerBox(),
-          if (_isCheckIn) const SizedBox(height: 10),
-          checkoutPhotoBox(),
-          const SizedBox(height: 10),
-          issueHelpBox(),
-          if (_isCheckOut) const SizedBox(height: 10),
-
-          if (_localError != null) ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: cs.errorContainer.withOpacity(0.65),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: cs.outlineVariant.withOpacity(0.35)),
-              ),
-              child: Text(
-                _localError!,
-                style: TextStyle(
-                  color: cs.onErrorContainer,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
+            'Scanner',
+            style: (tt.titleLarge ?? const TextStyle()).copyWith(
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.2,
             ),
-            const SizedBox(height: 10),
-          ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Scansiona un QR o inserisci un codice. Conferma check-in/check-out direttamente qui.',
+            style: TextStyle(color: cs.onSurface.withOpacity(0.7)),
+          ),
+          const SizedBox(height: 14),
 
-          Row(
+          _iosSection(
+            context,
             children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _loading
-                      ? null
-                      : () => Navigator.of(context).pop(),
-                  child: const Text('Annulla'),
-                ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(14, 12, 14, 10),
+                child: Text('Operazioni', style: TextStyle(fontWeight: FontWeight.w900)),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed:
-                      (_isCheckIn && !canConfirmCheckIn) ||
-                          (_isCheckOut && !canConfirmCheckOut)
-                      ? null
-                      : onPrimary,
-                  child: _loading
-                      ? const SizedBox(
-                          height: 18,
-                          width: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Text(
-                          _isCheckIn
-                              ? 'Conferma check-in'
-                              : 'Conferma check-out',
-                        ),
+              _thinDivider(context),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                child: Column(
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _busy ? null : _openScanner,
+                        icon: const Icon(Icons.qr_code_scanner),
+                        label: const Text('Scansiona QR'),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _busy ? null : _openManualDialog,
+                        icon: const Icon(Icons.keyboard),
+                        label: const Text('Inserisci codice'),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
 
-          /*
-          if (_isCheckOut && _needsPayStep) ...[
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _loading ? null : onPayNow,
-                icon: const Icon(Icons.payments_outlined),
-                label: const Text('Paga ora'),
+          const SizedBox(height: 14),
+
+          _iosSection(
+            context,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(14, 12, 14, 10),
+                child: Text('Operazione corrente', style: TextStyle(fontWeight: FontWeight.w900)),
               ),
-            ),
-          ],  */
+              _thinDivider(context),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_pendingBooking != null && _pendingAction != null) ...[
+                      _buildPendingFlow(context),
+                      const SizedBox(height: 12),
+                      _thinDivider(context),
+                      const SizedBox(height: 12),
+                    ],
+                    Text(
+                      'Esito',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: cs.onSurface.withOpacity(0.9),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    _buildResultInline(cs),
+
+                    if (_lastBooking != null) ...[
+                      const SizedBox(height: 12),
+                      _thinDivider(context),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Dettagli prenotazione',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          color: cs.onSurface.withOpacity(0.9),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      _pendingBookingBox(context, _lastBooking!),
+
+                      if (_lastAction == 'check_in' &&
+                          !_isError &&
+                          _lastBooking!.checkinPhotoPath != null &&
+                          _lastBooking!.checkinPhotoPath!.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          'Foto check-in',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: cs.onSurface.withOpacity(0.9),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        FutureBuilder<String?>(
+                          future: _signedUrlForBooking(_lastBooking!),
+                          builder: (ctx, snap) {
+                            if (snap.connectionState == ConnectionState.waiting) {
+                              return const SizedBox(
+                                height: 160,
+                                child: Center(child: CircularProgressIndicator()),
+                              );
+                            }
+                            final url = snap.data;
+                            if (url == null) {
+                              return Text(
+                                'Foto non disponibile.',
+                                style: TextStyle(color: cs.onSurface.withOpacity(0.7)),
+                              );
+                            }
+                            return ClipRRect(
+                              borderRadius: BorderRadius.circular(14),
+                              child: Image.network(
+                                url,
+                                height: 180,
+                                width: double.infinity,
+                                fit: BoxFit.cover,
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
   }
 }
 
-
-
-/* Come viene salvata la foto e come la ritrovi
-Dove finisce fisicamente
-
-Supabase Storage
-
-bucket: booking-checkin-photos
-
-path deterministico:
-{partner_id}/{booking_id}/checkin.jpg
-(quindi non hai duplicati, e puoi sovrascrivere se rifai la foto)
-
-Cosa viene scritto nel DB
-
-Nella riga public.partner_bookings (ID = booking_id) vengono salvati:
-
-checkin_photo_bucket = 'booking-checkin-photos'
-
-checkin_photo_path = 'partnerId/bookingId/checkin.jpg'
-
-checkin_photo_uploaded_at = timestamp upload (server-side)
-
-checkin_photo_expires_at = timestamp TTL (server-side, es. now()+7 giorni)
-
-Quindi se “succede qualcosa” e vuoi recuperare la foto:
-
-prendi la booking (es. select * from partner_bookings where id = ...)
-
-leggi checkin_photo_bucket + checkin_photo_path
-
-da Flutter fai createSignedUrl(path, 300) e la mostri / scarichi
-
-Finché non parte il cleanup TTL, la foto rimane recuperabile con quel path (e policy corrette).
-
-*/
-
-
 //BD29DE336FF3  check out da fare
 //BD765D15E529 check in tra tanto
 //BD567AA0088E check in ora
-//BDE69D7B1815 supplemento da pagare
-
+//BDCAA24D8B66 supplemento da pagare

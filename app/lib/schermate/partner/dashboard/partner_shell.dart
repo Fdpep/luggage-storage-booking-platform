@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../models/partner.dart';
@@ -9,7 +12,6 @@ import 'pages/dashboard_page.dart';
 import 'pages/prenotazioni_page.dart';
 import 'pages/scanner_page.dart';
 import 'pages/spazi_page.dart';
-import 'pages/profilo_page.dart';
 
 // Schermate esterne
 
@@ -19,6 +21,8 @@ import '../auth_partner/partner_application_screen.dart';
 
 import '../user_view/partner_drawer.dart';
 
+import "pages/profilo_page.dart";
+
 class PartnerShell extends StatefulWidget {
   const PartnerShell({super.key});
 
@@ -26,15 +30,30 @@ class PartnerShell extends StatefulWidget {
   State<PartnerShell> createState() => _PartnerShellState();
 }
 
-class _PartnerShellState extends State<PartnerShell> {
+class _PartnerShellState extends State<PartnerShell> with RestorationMixin {
+
   Partner? _partner;
   bool _loading = true;
-  int _index = 0;
+  final RestorableInt _index = RestorableInt(0);
 
   @override
   void initState() {
     super.initState();
     _loadPartner();
+  }
+
+  @override
+  String? get restorationId => 'partner_shell';
+
+  @override
+  void restoreState(RestorationBucket? oldBucket, bool initialRestore) {
+    registerForRestoration(_index, 'tab_index');
+  }
+
+  @override
+  void dispose() {
+    _index.dispose();
+    super.dispose();
   }
 
   Future<void> _loadPartner() async {
@@ -72,7 +91,6 @@ class _PartnerShellState extends State<PartnerShell> {
       return const PartnerApplicationScreen();
     }
 
-
     // Pending / Rejected
     if (p.isPending || p.isRejected) {
       return PartnerWaitingScreen(partner: p, onReapplyCompleted: _reload);
@@ -102,10 +120,11 @@ class _PartnerShellState extends State<PartnerShell> {
     return PartnerShellScope(
       partner: partner,
       user: user,
-      index: _index,
+      index: _index.value,
       reloadPartner: _reload,
-      setIndex: (i) => setState(() => _index = i),
-      child: pages[_index],
+      setIndex: (i) =>
+          setState(() => _index.value = i.clamp(0, pages.length - 1)),
+      child: pages[_index.value.clamp(0, pages.length - 1)],
     );
   }
 }
