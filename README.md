@@ -415,7 +415,10 @@ In caso di anomalie:
 Le foto del check-in sono salvate su Supabase Storage:
 
 * bucket dedicato: `booking-checkin-photos`
-* path:  booking-checkin-photos/{partner_id}/{booking_id}.jpg
+* path (object key): `{partner_id}/{booking_id}/checkin.jpg`
+
+> Nota: il bucket è separato dal path. Nel DB salviamo solo `checkin_photo_bucket` + `checkin_photo_path`.
+
 
 
 * upload consentito **solo al partner owner o admin**
@@ -435,12 +438,19 @@ Questo permette:
 ### Cleanup automatico (TTL)
 Le foto **non sono permanenti**.
 
-Un’**Edge Function schedulata (cron)**:
-* scansiona le prenotazioni concluse
-* elimina le foto dopo un TTL configurato (es. 30 giorni)
-* pulisce:
-* file su Storage
-* riferimento DB (`checkin_photo_path = NULL`)
+La prenotazione salva un TTL direttamente in DB:
+* `checkin_photo_uploaded_at`
+* `checkin_photo_expires_at`
+
+Un job schedulato (cron) può:
+* eliminare i file scaduti dallo Storage
+* pulire i riferimenti su DB (`checkin_photo_path = NULL`, ecc.)
+
+Obiettivo:
+* evitare accumulo su Storage
+* rispettare minimizzazione dati
+* mantenere tracciabilità temporanea.
+
 
 Obiettivo:
 * evitare accumulo Storage
@@ -461,27 +471,55 @@ Mostra invece una pagina “hub” con:
 
 > Nota emulatore: se scansionando ti appare una “stanza 3D con gatto” e ti chiede **ALT** per muoverti, è la **Virtual Scene** della camera dell’Android Emulator. Su telefono reale vedrai la fotocamera vera.
 
-
-### RPC server-side: `process_booking_code(p_code, p_force)`
+### RPC server-side: `process_booking_code(...)`
 
 Per registrare check-in / check-out in modo robusto (e bypassare limitazioni RLS lato client) usiamo una RPC:
 
-`public.process_booking_code(p_code text, p_force boolean default false)`
+`public.process_booking_code(
+  p_code text,
+  p_force boolean default false,
+  p_action text default null,                 -- 'preview' | 'check_in' | 'check_out'
+  p_checkin_photo_path text default null,     -- path atteso: {partner_id}/{booking_id}/checkin.jpg
+  p_ack_photo boolean default false           -- conferma esplicita foto al check-out
+) returns jsonb`
+
 
 Comportamento (alto livello):
 
 * verifica che l’utente sia **owner del partner** (o admin)
 * trova la prenotazione tramite `booking_code`
+* calcola l’intervallo pianificato da `dropoff_planned_at` / `pickup_planned_at`
+  (fallback legacy: `booking_date/start_time/end_date/end_time`)
+
+#### Modalità PREVIEW (nessun side-effect)
+Chiamando con `p_action = 'preview'`:
+* se deve fare check-in → ritorna `checkin_allowed` e (se troppo presto) `not_before`
+* se deve fare check-out → ritorna `require_payment` e info foto (`checkin_photo_*`)
+
+#### Check-in (esecuzione)
 * **blocco check-in anticipato (server-side)**:
-  * se `now() < dropoff_planned_at`
-  * la funzione **fallisce** con errore leggibile:
-    * “Check-in disponibile dalle HH:MM”
-* se `dropoff_effective_at` è `NULL` → **check-in**
-* altrimenti → **check-out**
-* se il check-out supera `pickup_planned_at + 15 minuti`:
+  * se `now() < dropoff_planned_at` → errore leggibile “Check-in disponibile dalle HH:MM”
+* **blocco check-in tardivo**:
+  * se `now() >= pickup_planned_at` → check-in non consentito
+* **foto obbligatoria**:
+  * se `p_checkin_photo_path` è nullo → errore `BD_PHOTO_REQUIRED`
+  * valida anche il path atteso: `{partner_id}/{booking_id}/checkin.jpg`
+* se ok:
+  * set `dropoff_effective_at = now()`
+  * status → `in_store`
+  * salva `checkin_photo_bucket/path/uploaded_at/expires_at`
+
+#### Check-out (esecuzione)
+* se esiste `checkin_photo_path` → richiede conferma esplicita:
+  * se `p_ack_photo != true` → errore `BD_PHOTO_CONFIRM_REQUIRED`
+* se `pickup_effective_at > pickup_planned_at + 15 min`:
   * risponde `require_payment = true`
   * la UI mostra “**Paga ora**”
   * premendo “Paga ora (mock)” richiama la stessa RPC con `p_force = true`
+* se ok:
+  * set `pickup_effective_at = now()`
+  * status → `completed`
+
 
 La validazione dell’orario è **enforced esclusivamente lato DB**, così:
 * non è bypassabile dal client
@@ -512,6 +550,23 @@ Il server risponde con errore leggibile e la UI:
 * mostra il messaggio
 * non apre la conferma check-in / check-out
 * non consente forzature.
+
+## 🙅‍♂️ No-show (cliente non si è presentato)
+
+Se una prenotazione arriva oltre la fine fascia (`pickup_planned_at`) **senza check-in** (`dropoff_effective_at IS NULL`),
+viene marcata automaticamente come chiusa per **no-show**.
+
+### Database
+* `status` → `completed`
+* `completion_reason` → `no_show`
+* (facoltativo/derivato) `covered_until` → usato nei riepiloghi per indicare la “chiusura fascia”
+
+### Job schedulato (cron)
+Un job periodico esegue una funzione tipo `public.mark_no_show_bookings(...)` per chiudere le prenotazioni no-show.
+
+### UX
+Nei riepiloghi (utente e partner) viene mostrata una card dedicata:
+**“Il cliente non si è presentato”**, con dettagli data/ora e stato.
 
 
 
@@ -718,49 +773,73 @@ Responsabilità:
 * `partner_photos` → foto locali partner
   * `partner_bookings` → prenotazioni bagagli:
 
-  ```sql
-  create table if not exists public.partner_bookings (
-    id uuid primary key default gen_random_uuid(),
-    partner_id uuid not null references public.partners(id) on delete cascade,
-    user_id uuid not null references auth.users(id) on delete cascade,
 
-    -- codice per QR / inserimento manuale (formato BD + 10 HEX)
-    booking_code text unique,
+### ✅ PEZZO AGGIORNATO (sostituisci tutto il blocco SQL)
+```md
+```sql
+create table if not exists public.partner_bookings (
+  id uuid primary key default gen_random_uuid(),
+  partner_id uuid not null references public.partners(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
 
-    status text not null default 'confirmed' check (
-      status in ('pending', 'confirmed', 'cancelled', 'completed', 'rejected')
-    ),
+  -- codice per QR / inserimento manuale (formato BD + 10 HEX)
+  booking_code text unique,
 
-    -- rifiuto partner (definitivo)
-    reject_reason text,
-    rejected_at timestamptz,
+  -- stato (operativo + varianti annullamento)
+  status text not null default 'confirmed',
 
-    contact_first_name text not null,
-    contact_last_name  text not null,
-    contact_phone      text not null,
-    contact_email      text not null,
+  -- motivo chiusura (es. no_show)
+  completion_reason text,
 
-    bags_s integer not null default 0,
-    bags_m integer not null default 0,
-    bags_l integer not null default 0,
+  -- rifiuto partner (definitivo)
+  reject_reason text,
+  rejected_at timestamptz,
 
-    notes text,
+  contact_first_name text not null,
+  contact_last_name  text not null,
+  contact_phone      text not null,
+  contact_email      text not null,
 
-    -- gestione fasce orarie / giorni (input user)
-    booking_date date,   -- giorno di consegna
-    start_time   time,   -- orario di consegna
-    end_date     date,   -- giorno di ritiro
-    end_time     time,   -- orario di ritiro
+  bags_s integer not null default 0,
+  bags_m integer not null default 0,
+  bags_l integer not null default 0,
 
-    -- timestamp completi (calcolati via trigger)
-    dropoff_planned_at   timestamptz,
-    pickup_planned_at    timestamptz,
-    dropoff_effective_at timestamptz, -- check-in effettivo
-    pickup_effective_at  timestamptz, -- check-out effettivo
+  notes text,
 
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now()
-  );
+  -- gestione fasce orarie / giorni (input user)
+  booking_date date,   -- giorno di consegna
+  start_time   time,   -- orario di consegna
+  end_date     date,   -- giorno di ritiro (scadenza fascia)
+  end_time     time,   -- orario di ritiro (scadenza fascia)
+
+  -- ritiro scelto dall’utente (solo UX/trasparenza)
+  end_date_requested date,
+  end_time_requested time,
+
+  -- timestamp completi (calcolati via trigger)
+  dropoff_planned_at   timestamptz,
+  pickup_planned_at    timestamptz,
+  dropoff_effective_at timestamptz, -- check-in effettivo
+  pickup_effective_at  timestamptz, -- check-out effettivo
+
+  -- pagamenti / copertura (usati nei riepiloghi)
+  covered_until timestamptz,
+  total_paid_cents integer not null default 0,
+
+  -- foto check-in (tracciabilità + TTL)
+  checkin_photo_bucket text,
+  checkin_photo_path text,
+  checkin_photo_uploaded_at timestamptz,
+  checkin_photo_expires_at timestamptz,
+
+  -- late fee legacy (se usati)
+  late_fee_required boolean not null default false,
+  late_fee_amount_cents integer,
+  late_fee_paid_at timestamptz,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
 
 
 ```md
@@ -1465,9 +1544,12 @@ Il flusso prenotazione deve essere **riprendibile in qualsiasi stato**:
 * ✔ Mappa utente con partner reali
 
 * ✔ AdminShell base
-
 * ✔ Scanner partner con HUB + camera + inserimento manuale codice
 * ✔ Check-in / check-out via RPC `process_booking_code` con tolleranza 15 minuti e “Paga ora” (mock payment / force)
+* ✔ Foto bagaglio obbligatoria al check-in + conferma esplicita foto al check-out (server-side)
+* ✔ Modalità “preview” nello scanner: valida stato/orari prima di chiedere conferma/foto
+* ✔ Chiusura automatica prenotazioni “no-show” (cliente non si è presentato) con `completion_reason = no_show`
+
 
 
 * ✔ **Flusso prenotazione con slot base + disponibilità per intervallo**:

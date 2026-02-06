@@ -27,11 +27,20 @@ class _UserBookingsPageState extends State<UserBookingsPage> {
     _futureBookings = _bookingRepo.getMyBookings();
   }
 
+  bool _reloading = false;
+
   Future<void> _reload() async {
-    setState(() {
-      _futureBookings = _bookingRepo.getMyBookings();
-    });
-    await _futureBookings;
+    if (_reloading) return;
+    _reloading = true;
+
+    try {
+      setState(() {
+        _futureBookings = _bookingRepo.getMyBookings();
+      });
+      await _futureBookings;
+    } finally {
+      _reloading = false;
+    }
   }
 
   _StatusFilter _statusFilter = _StatusFilter.all;
@@ -400,7 +409,11 @@ class _UserBookingsPageState extends State<UserBookingsPage> {
               itemCount: filtered.length,
               itemBuilder: (context, index) {
                 final booking = filtered[index];
-                return _BookingListItem(booking: booking, onChanged: _reload);
+                return _BookingListItem(
+                  key: ValueKey(booking.id),
+                  booking: booking,
+                  onChanged: _reload,
+                );
               },
             ),
           );
@@ -417,7 +430,11 @@ class _BookingListItem extends StatefulWidget {
   final PartnerBooking booking;
   final VoidCallback onChanged;
 
-  const _BookingListItem({required this.booking, required this.onChanged});
+  const _BookingListItem({
+    super.key,
+    required this.booking,
+    required this.onChanged,
+  });
 
   @override
   State<_BookingListItem> createState() => _BookingListItemState();
@@ -429,8 +446,6 @@ class _BookingListItemState extends State<_BookingListItem> {
 
   late Future<Partner?> _futurePartner;
   bool _cancelling = false;
-
-  bool _refreshRequested = false;
 
   DateTime? _cutoffLocalForNoShow(PartnerBooking b) {
     // stesso ordine del DB: covered_until -> pickup_planned_at -> legacy pickup
@@ -475,12 +490,38 @@ class _BookingListItemState extends State<_BookingListItem> {
     );
   }
 
+  Timer? _cutoffRefreshTimer;
+
+  void _scheduleCutoffRefresh(PartnerBooking b) {
+    _cutoffRefreshTimer?.cancel();
+
+    final cutoff = _cutoffLocalForNoShow(b);
+    if (cutoff == null) return;
+
+    final now = DateTime.now();
+
+    // ✅ Se è già scaduta NON forziamo refresh (evita loop infinito)
+    if (!now.isBefore(cutoff)) return;
+
+    // Refresh una sola volta poco dopo il cutoff (così la card si aggiorna)
+    final wait = cutoff.difference(now) + const Duration(seconds: 2);
+
+    // Safety
+    if (wait <= Duration.zero) return;
+
+    _cutoffRefreshTimer = Timer(wait, () {
+      if (mounted) widget.onChanged();
+    });
+  }
+
   Timer? _ticker;
 
   @override
   void initState() {
     super.initState();
     _futurePartner = _partnerRepo.getPartnerById(widget.booking.partnerId);
+
+    _scheduleCutoffRefresh(widget.booking);
 
     // Tick leggero per aggiornare countdown/progress (evita secondi: basta ogni 30s)
     _ticker = Timer.periodic(const Duration(seconds: 30), (_) {
@@ -489,8 +530,20 @@ class _BookingListItemState extends State<_BookingListItem> {
   }
 
   @override
+  void didUpdateWidget(covariant _BookingListItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.booking.id != widget.booking.id ||
+        oldWidget.booking.status != widget.booking.status ||
+        oldWidget.booking.coveredUntil != widget.booking.coveredUntil ||
+        oldWidget.booking.pickupPlannedAt != widget.booking.pickupPlannedAt) {
+      _scheduleCutoffRefresh(widget.booking);
+    }
+  }
+
+  @override
   void dispose() {
     _ticker?.cancel();
+    _cutoffRefreshTimer?.cancel();
     super.dispose();
   }
 
@@ -1447,14 +1500,6 @@ class _BookingListItemState extends State<_BookingListItem> {
           final cutoffLocal = _cutoffLocalForNoShow(booking);
           final noShowExpired = _isNoShowExpired(booking, now);
           final bool qrEnabled = checkinOpen && !noShowExpired && qrAvailable;
-
-          // opzionale ma consigliato: appena scade, chiedi refresh 1 volta
-          if (noShowExpired && !_refreshRequested) {
-            _refreshRequested = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) widget.onChanged();
-            });
-          }
 
           return Card(
             margin: const EdgeInsets.only(bottom: 12),
