@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import 'dart:async';
 import 'package:BagDrop/schermate/user/bookings/booking_recap_screen.dart';
 import 'package:BagDrop/models/partner_booking.dart';
 import 'package:BagDrop/models/partner.dart';
@@ -261,7 +261,7 @@ class _UserBookingsPageState extends State<UserBookingsPage> {
         backgroundColor: AppTheme.brandPurple,
         foregroundColor: Colors.white,
         elevation: 0,
-        centerTitle: false,
+        centerTitle: true,
         title: const Text(
           'Prenotazioni',
           style: TextStyle(fontWeight: FontWeight.w900),
@@ -430,10 +430,68 @@ class _BookingListItemState extends State<_BookingListItem> {
   late Future<Partner?> _futurePartner;
   bool _cancelling = false;
 
+  bool _refreshRequested = false;
+
+  DateTime? _cutoffLocalForNoShow(PartnerBooking b) {
+    // stesso ordine del DB: covered_until -> pickup_planned_at -> legacy pickup
+    return b.coveredUntilLocal ?? b.plannedPickupAtLocal;
+  }
+
+  bool _isNoShowExpired(PartnerBooking b, DateTime now) {
+    final cutoff = _cutoffLocalForNoShow(b);
+    if (cutoff == null) return false;
+    return !now.isBefore(cutoff); // now >= cutoff
+  }
+
+  Widget _buildNoShowBanner(BuildContext context, {DateTime? cutoff}) {
+    final cs = Theme.of(context).colorScheme;
+    final accent = Colors.grey.shade700;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: accent.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accent.withOpacity(0.20)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.block, size: 18, color: accent),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              cutoff == null
+                  ? 'Prenotazione scaduta: QR non utilizzabile.'
+                  : 'Prenotazione scaduta (no-show) alle ${_formatDate(cutoff)}. QR non utilizzabile.',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: cs.onSurface.withOpacity(0.80),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Timer? _ticker;
+
   @override
   void initState() {
     super.initState();
     _futurePartner = _partnerRepo.getPartnerById(widget.booking.partnerId);
+
+    // Tick leggero per aggiornare countdown/progress (evita secondi: basta ogni 30s)
+    _ticker = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
   }
 
   String _formatDate(DateTime dt) {
@@ -591,6 +649,119 @@ class _BookingListItemState extends State<_BookingListItem> {
               ),
             ),
           ],
+          const SizedBox(height: 6),
+          Text(
+            note,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: cs.onSurface.withOpacity(0.65),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCheckinCountdown(
+    BuildContext context, {
+    required DateTime createdAt,
+    required DateTime dropoff,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    final now = DateTime.now();
+    final accent = Colors.green.shade700;
+
+    final diff = dropoff.difference(now);
+    final bool checkinAvailable = diff <= Duration.zero;
+
+    // Niente stati di ritardo: se è passato, resta "disponibile"
+    final String title = checkinAvailable
+        ? 'Check-in disponibile'
+        : 'Check-in non ancora disponibile';
+
+    final String pillText = checkinAvailable
+        ? 'Disponibile'
+        : _formatCountdown(diff, prefix: 'Tra');
+
+    final String note = checkinAvailable
+        ? 'La prenotazione non è più annullabile. Mostra il QR code al partner per consegnare i bagagli.'
+        : 'Puoi annullare la prenotazione fino all’apertura del check-in. Quando il countdown finisce, il QR code sarà disponibile.';
+
+    // progress: createdAt -> dropoff (barra piena quando disponibile)
+    final totalSec = dropoff.difference(createdAt).inSeconds;
+    double progress = 1.0;
+    if (totalSec > 0) {
+      final elapsedSec = now.difference(createdAt).inSeconds;
+      progress = (elapsedSec / totalSec).clamp(0.0, 1.0);
+    } else {
+      progress = 1.0;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: accent.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accent.withOpacity(0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.timer_outlined, size: 18, color: accent),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    color: cs.onSurface.withOpacity(0.85),
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: accent.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  pillText,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: accent,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            checkinAvailable
+                ? 'Disponibile dalle ${_formatDate(dropoff)}'
+                : 'Apre: ${_formatDate(dropoff)}',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+              color: cs.onSurface.withOpacity(0.9),
+            ),
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              minHeight: 7,
+              value: progress, // resta 1.0 quando disponibile
+              backgroundColor: cs.onSurface.withOpacity(0.08),
+              valueColor: AlwaysStoppedAnimation<Color>(accent),
+            ),
+          ),
           const SizedBox(height: 6),
           Text(
             note,
@@ -1272,6 +1443,18 @@ class _BookingListItemState extends State<_BookingListItem> {
 
         if (isConfirmed) {
           final statusColor = _statusColor(context, statusRaw);
+          final bool checkinOpen = !now.isBefore(dropoff); // ora >= dropoff
+          final cutoffLocal = _cutoffLocalForNoShow(booking);
+          final noShowExpired = _isNoShowExpired(booking, now);
+          final bool qrEnabled = checkinOpen && !noShowExpired && qrAvailable;
+
+          // opzionale ma consigliato: appena scade, chiedi refresh 1 volta
+          if (noShowExpired && !_refreshRequested) {
+            _refreshRequested = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) widget.onChanged();
+            });
+          }
 
           return Card(
             margin: const EdgeInsets.only(bottom: 12),
@@ -1372,77 +1555,163 @@ class _BookingListItemState extends State<_BookingListItem> {
                   // Riga "bagagli" (sx) + "annulla" (dx) con vincolo orario:
                   // - annullabile SOLO prima dell'orario di dropoff (check-in pianificato)
                   // - dopo quell'orario: bottone disabled + microhint
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Expanded(
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.luggage_outlined,
-                              size: 16,
-                              color: cs.onSurface.withOpacity(0.70),
-                            ),
-                            const SizedBox(width: 6),
-                            Flexible(
-                              child: Text(
-                                'Bagagli: ${booking.bagsS + booking.bagsM + booking.bagsL}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  color: cs.onSurface.withOpacity(0.75),
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
 
-                      // Annulla: disabilitato se oltre orario o se sta annullando
-                      OutlinedButton.icon(
-                        onPressed: (_cancelling || !canCancelByTime)
-                            ? null
-                            : _cancelBooking,
-                        icon: Icon(
-                          Icons.close_rounded,
-                          size: 16,
-                          color: (_cancelling || !canCancelByTime)
-                              ? cs.onSurface.withOpacity(0.35)
-                              : Colors.red.shade700,
-                        ),
-                        label: Text(
-                          _cancelling
-                              ? '...'
-                              : (canCancelByTime
-                                    ? 'Annulla prenotazione'
-                                    : 'Non annullabile'),
+                  // Riga bagagli semplice
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.luggage_outlined,
+                        size: 16,
+                        color: cs.onSurface.withOpacity(0.70),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Bagagli: ${booking.bagsS + booking.bagsM + booking.bagsL}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontWeight: FontWeight.w900,
-                            color: (_cancelling || !canCancelByTime)
-                                ? cs.onSurface.withOpacity(0.45)
-                                : Colors.red.shade700,
+                            fontSize: 12.5,
+                            color: cs.onSurface.withOpacity(0.75),
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(
-                            color: (_cancelling || !canCancelByTime)
-                                ? cs.onSurface.withOpacity(0.12)
-                                : Colors.red.shade200,
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          visualDensity: VisualDensity.compact,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      Text(
+                        'S:${booking.bagsS}  M:${booking.bagsM}  L:${booking.bagsL}',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: cs.onSurface.withOpacity(0.60),
+                          fontWeight: FontWeight.w700,
                         ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // ✅ Countdown verde check-in (annullabile finché non apre)
+                  if (noShowExpired)
+                    _buildNoShowBanner(context, cutoff: cutoffLocal)
+                  else
+                    _buildCheckinCountdown(
+                      context,
+                      createdAt: booking.createdAt,
+                      dropoff: dropoff,
+                    ),
+
+                  const SizedBox(height: 12),
+                  Divider(height: 1, color: cs.onSurface.withOpacity(0.08)),
+                  const SizedBox(height: 12),
+
+                  // ✅ AZIONI: prima solo Annulla; dopo solo QR (swap nello stesso posto)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: partner == null
+                              ? null
+                              : () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => BookingRecapScreen(
+                                        partner: partner,
+                                        booking: booking,
+                                      ),
+                                    ),
+                                  );
+                                },
+                          icon: const Icon(
+                            Icons.receipt_long_outlined,
+                            size: 18,
+                          ),
+                          label: const Text(
+                            'Riepilogo',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+
+                      Expanded(
+                        child: checkinOpen
+                            // DOPO: QR prende il posto dell’annullamento
+                            ? ElevatedButton.icon(
+                                onPressed: (partner == null || !qrEnabled)
+                                    ? null
+                                    : () {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => BookingQrScreen(
+                                              bookingId: booking.id,
+                                              bookingCode: booking.bookingCode,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                icon: Icon(
+                                  noShowExpired ? Icons.block : Icons.qr_code_2,
+                                  size: 18,
+                                ),
+                                label: Text(
+                                  noShowExpired ? 'Scaduta' : 'QR code',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  elevation: 0,
+                                ),
+                              )
+                            // PRIMA: solo annullamento
+                            : OutlinedButton.icon(
+                                onPressed: (_cancelling || !canCancelByTime)
+                                    ? null
+                                    : _cancelBooking,
+                                icon: Icon(
+                                  Icons.close_rounded,
+                                  size: 18,
+                                  color: (_cancelling || !canCancelByTime)
+                                      ? cs.onSurface.withOpacity(0.35)
+                                      : Colors.red.shade700,
+                                ),
+                                label: Text(
+                                  _cancelling ? '...' : 'Annulla',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    color: (_cancelling || !canCancelByTime)
+                                        ? cs.onSurface.withOpacity(0.45)
+                                        : Colors.red.shade700,
+                                  ),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  side: BorderSide(
+                                    color: (_cancelling || !canCancelByTime)
+                                        ? cs.onSurface.withOpacity(0.12)
+                                        : Colors.red.shade200,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                              ),
                       ),
                     ],
                   ),
@@ -1478,6 +1747,7 @@ class _BookingListItemState extends State<_BookingListItem> {
                   Divider(height: 1, color: cs.onSurface.withOpacity(0.08)),
                   const SizedBox(height: 12),
 
+                  /*
                   // AZIONI SOTTO: Riepilogo + QR (logica invariata)
                   Row(
                     children: [
@@ -1543,7 +1813,7 @@ class _BookingListItemState extends State<_BookingListItem> {
                         ),
                       ),
                     ],
-                  ),
+                  ),    */
                 ],
               ),
             ),

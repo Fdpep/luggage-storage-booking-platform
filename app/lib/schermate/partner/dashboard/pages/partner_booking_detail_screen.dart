@@ -339,6 +339,10 @@ class _PartnerBookingDetailScreenState
     final effectiveDropoff = booking.effectiveDropoffAtLocal;
     final effectivePickup = booking.effectivePickupAtLocal;
 
+    final isNoShow = booking.isNoShowCompleted;
+    final noShowClosedAt =
+        booking.coveredUntil ?? _coveredUntil ?? plannedPickup;
+
     final dropoffStr = _formatDateTime(plannedDropoff);
     final pickupStr = _formatDateTime(plannedPickup);
 
@@ -662,6 +666,19 @@ class _PartnerBookingDetailScreenState
               ],
             ),
           ),
+
+          if (isNoShow) ...[
+            const SizedBox(height: 12),
+            _Callout(
+              icon: Icons.person_off_outlined,
+              title: 'Cliente non si è presentato',
+              text:
+                  'Prenotazione chiusa automaticamente (no-show).\n'
+                  'Chiusura: ${_formatDateTimeFull(noShowClosedAt)}',
+              tone: _CalloutTone
+                  .neutral, // NON usare warning (non esiste nel tuo enum)
+            ),
+          ],
 
           const SizedBox(height: 12),
 

@@ -63,6 +63,8 @@ class PartnerBooking {
   final DateTime? coveredUntil;
   final int totalPaidCents;
 
+  final String? completionReason;
+
   // Foto check-in
   final String? checkinPhotoBucket;
   final String? checkinPhotoPath;
@@ -104,6 +106,8 @@ class PartnerBooking {
 
     this.coveredUntil,
     this.totalPaidCents = 0,
+
+    this.completionReason,
 
     this.checkinPhotoBucket,
     this.checkinPhotoPath,
@@ -149,6 +153,20 @@ class PartnerBooking {
   /// Effective (se presenti)
   DateTime? get effectiveDropoffAtLocal => dropoffEffectiveAt?.toLocal();
   DateTime? get effectivePickupAtLocal => pickupEffectiveAt?.toLocal();
+
+  bool get isNoShowCompleted {
+    final s = uiStatus.toLowerCase();
+    final reason = (completionReason ?? '').toLowerCase();
+
+    // metodo principale (Variante B)
+    if (s == 'completed' && reason == 'no_show') return true;
+
+    // fallback robusto (se record vecchi o reason mancante)
+    return s == 'completed' && dropoffEffectiveAt == null;
+  }
+
+  DateTime? get noShowClosedAtLocal =>
+      coveredUntilLocal ?? plannedPickupAtLocal;
 
   /// Status “logico” usato per UI (uguale lato utente e lato partner)
   String get uiStatus {
@@ -267,6 +285,7 @@ class PartnerBooking {
       lateFeePaidAt: parseDateTime(map['late_fee_paid_at']),
       coveredUntil: parseDateTime(map['covered_until']),
       totalPaidCents: (map['total_paid_cents'] as int?) ?? 0,
+      completionReason: map['completion_reason'] as String?,
       checkinPhotoBucket: map['checkin_photo_bucket'] as String?,
       checkinPhotoPath: map['checkin_photo_path'] as String?,
       checkinPhotoUploadedAt: parseDateTime(map['checkin_photo_uploaded_at']),
@@ -324,6 +343,7 @@ class PartnerBooking {
       'late_fee_paid_at': lateFeePaidAt?.toUtc().toIso8601String(),
       'covered_until': coveredUntil?.toUtc().toIso8601String(),
       'total_paid_cents': totalPaidCents,
+      'completion_reason': completionReason,
       'checkin_photo_bucket': checkinPhotoBucket,
       'checkin_photo_path': checkinPhotoPath,
       'checkin_photo_uploaded_at': checkinPhotoUploadedAt
