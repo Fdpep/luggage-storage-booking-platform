@@ -77,7 +77,8 @@ total occupied capacity during the requested interval.
 
 This allows the system to estimate whether a partner can accept a new booking based on both luggage size and available space.
 
-Tech Stack
+### Tech Stack
+
 Mobile: Flutter, Dart
 Backend as a Service: Supabase
 Database: PostgreSQL
@@ -86,7 +87,9 @@ Storage: Supabase Storage
 APIs / Backend Logic: Supabase RPC functions and database policies
 Maps: Interactive map integration
 Development Tools: Git, VS Code
-Project Structure
+
+### Project Structure
+
 luggage-storage-booking-platform/
 ├── app/
 │   └── Flutter mobile application
@@ -96,7 +99,8 @@ luggage-storage-booking-platform/
 │   └── Web-based partner onboarding flow
 ├── .vscode/
 └── README.md
-Academic / Project Context
+
+### Academic / Project Context
 
 This project was developed as part of an early-stage startup idea involving a luggage storage booking service.
 
@@ -104,7 +108,7 @@ My contribution focused on the software prototype, application flows, database-b
 
 The repository represents an early prototype and does not represent the current version of any active commercial application.
 
-What I Learned
+### What I Learned
 
 Through this project, I practiced:
 
@@ -118,7 +122,8 @@ handling role-based access and user states;
 implementing partner onboarding workflows;
 managing dynamic capacity and availability logic;
 structuring a real-world product prototype.
-Limitations
+
+### Limitations
 
 This repository is an early-stage prototype and may not include all production-level features.
 
@@ -130,7 +135,7 @@ prototype-level UI and UX in some areas;
 incomplete commercial deployment setup;
 no guarantee that all flows match a currently active product.
 
-###Disclaimer
+### Disclaimer
 
 This project is a portfolio prototype inspired by luggage storage booking services.
 It is not affiliated with or representative of any currently active commercial product, company, or brand.
