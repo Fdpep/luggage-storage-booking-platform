@@ -62,7 +62,7 @@ The application includes a dynamic luggage capacity system.
 
 Luggage sizes are modeled using equivalent capacity units:
 
-```text
+
 1 Small luggage  = 1 unit
 1 Medium luggage = 2 units
 1 Large luggage  = 4 units
@@ -129,8 +129,8 @@ limited production hardening;
 prototype-level UI and UX in some areas;
 incomplete commercial deployment setup;
 no guarantee that all flows match a currently active product.
-Disclaimer
+
+###Disclaimer
 
 This project is a portfolio prototype inspired by luggage storage booking services.
-
 It is not affiliated with or representative of any currently active commercial product, company, or brand.
